@@ -378,6 +378,23 @@ wire reset_or = RESET | buttons[1] | status[0] | bios_download | exe_download | 
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
 //  XXXX XXXXXX XXXXXX XXXXX  XX XX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
+// ───────────────────────── 573: SAVESTATE MASTER ENABLE ─────────────────────────
+// OFF. This core cannot save or restore state:
+//   * no 573 module (system573_top and everything under it) has SS_wren/SS_rden
+//     savestate hooks -- the 573 half of the machine is simply not captured;
+//   * the MP3 config epoch, descrambler stream position and PCM ring pointers
+//     live in the HPS-side s573mp3 service, not in fabric, so they are outside
+//     any FPGA-side state capture by construction.
+// A restore therefore resumes a half-reconstructed machine and hangs. Gating it
+// here (rather than deleting the upstream savestate_ui/psx savestate logic) keeps
+// the vendored psx/ path pristine and makes re-enabling a one-line change.
+// Re-enabling also requires un-commenting the five OSD entries in CONF_STR.
+// NOTE (deliberate, not an oversight): the CONF_STR core line still declares the
+// savestate DDR region ("PSX;SS3E000000:400000;"). It is left alone because it is
+// Main's allocation hint, and every core-side consumer of it is now gated by
+// SS_ENABLE. Changing it is a Main-facing change that wants a hardware A/B.
+localparam SS_ENABLE = 1'b0;
+
 `include "build_id.v"
 parameter CONF_STR = {
 	"PSX;SS3E000000:400000;",
@@ -449,12 +466,19 @@ parameter CONF_STR = {
 	// auto-start player 2 in every 2P game. Per-core OSD option -> flip per game session.
 	"O[100],573 Cabinet,Standard,DDR Solo;",
 	"-;",
-	"O[36],Savestates to SDCard,On,Off;",
-	"O[68],Autoincrement Slot,Off,On;",
-	"O[38:37],Savestate Slot,1,2,3,4;",
-	"RH,Save state (Alt-F1);",
-	"RI,Restore state (F1);",
-	"-;",
+	// 573 SAVESTATES: REMOVED FROM THE OSD (see SS_ENABLE below). No 573 module has
+	// savestate hooks, and part of the machine state (MP3 cfg epoch, descrambler
+	// position, PCM ring pointers) lives in the HPS-side s573mp3 service, outside
+	// the FPGA entirely -- a restore cannot reconstruct the machine. These five
+	// entries advertised a feature that freezes on load. All are ABSOLUTE status
+	// bits ("O[n]"/"R<h>"), not positional, so removing them shifts nothing else.
+	// To restore: set SS_ENABLE = 1'b1 and un-comment these lines verbatim.
+	//	"O[36],Savestates to SDCard,On,Off;",
+	//	"O[68],Autoincrement Slot,Off,On;",
+	//	"O[38:37],Savestate Slot,1,2,3,4;",
+	//	"RH,Save state (Alt-F1);",
+	//	"RI,Restore state (F1);",
+	//	"-;",
 	"O[40:39],System Type,Auto,NTSC-U,NTSC-J,PAL;",
 	"-;",
 	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port1,Analog Joystick,Pop'n;",
@@ -730,7 +754,11 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5), .BLKSZ(3)) hps_io
    .direct_video(DIRECT_VIDEO)
 );
 
-assign joy = joy_unmod[16] ? 20'b0 : joy_unmod;
+// joy_unmod[16] is the "Savestates" modifier button (J1 position 13). Upstream
+// blanks ALL game inputs while it is held, so the d-pad can pick a slot. With
+// savestates disabled that is a pure footgun -- holding a mapped button would
+// silently drop every JAMMA input mid-song -- so the blanking follows SS_ENABLE.
+assign joy = (SS_ENABLE & joy_unmod[16]) ? 20'b0 : joy_unmod;
 
 assign sd_rd[0] = 0;
 assign sd_wr[0] = 0;
@@ -804,12 +832,14 @@ end
 
 reg cart_loaded = 0;
 always @(posedge clk_1x) begin
-	// allow_ss (savestate enable) is gated on this. The upstream PSX cases are an
-	// .EXE upload (exe_download) or a mounted CD image (img_mounted[1]). A 573
-	// FLASH-only game (e.g. hyperbbc) loads via neither -> cart_loaded stayed 0 ->
-	// savestates were silently disabled (Alt-F1 / OSD "Save state" did nothing).
-	// flash_download (ioctl_index==2) is the onboard-flash game-load signal; latch
-	// on it too so savestates work for flash games (needed for the garble capture).
+	// allow_ss (savestate enable) is gated on this AND on SS_ENABLE, which is now
+	// OFF -- so this latch is currently inert. Kept intact (not deleted) because it
+	// is the correct condition if savestates are ever finished. The upstream PSX
+	// cases are an .EXE upload (exe_download) or a mounted CD image (img_mounted[1]).
+	// A 573 FLASH-only game (e.g. hyperbbc) loads via neither -> cart_loaded stayed
+	// 0. flash_download (ioctl_index==2) is the onboard-flash game-load signal; it
+	// was latched on too, which is what made the OSD offer savestates for flash
+	// games (originally to serve the CLUT garble capture, since resolved).
 	if (exe_download || img_mounted[1] || flash_download) begin
 		cart_loaded <= 1;
 	end
@@ -1028,7 +1058,7 @@ savestate_ui savestate_ui
 (
 	.clk            (clk_1x        ),
 	.ps2_key        (ps2_key[10:0] ),
-	.allow_ss       (cart_loaded   ),
+	.allow_ss       (cart_loaded & SS_ENABLE), // 573: forced off -- see SS_ENABLE
 	.joySS          (joy_unmod[16] ),
 	.joyRight       (joy_unmod[0]  ),
 	.joyLeft        (joy_unmod[1]  ),
