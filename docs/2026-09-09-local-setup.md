@@ -14,17 +14,29 @@ touched by anything here.
   2026-04-12). Cloned **offline** from the existing `~/Documents/PSX_MiSTer`
   clone, which already contained that commit — the sandbox that did this setup
   has no network, so it could not clone from GitHub.
-* `psx/sys/` = the framework at the version that pin's submodule records
-  (`audio_out.v` md5 `6273db37ff2abc3d18920ca30736e23f`). This is **not** what
-  `~/Documents/PSX_MiSTer` carries at the same commit, so it was replaced
-  deliberately. Consequence: `git -C psx status` reports ` M sys/audio_out.v`
-  permanently. That is expected, not drift.
+* `psx/sys/` = the framework at the version that pin records. An earlier note
+  here claimed this differed from what `~/Documents/PSX_MiSTer` carries; that was
+  wrong, and the round-trip below is what disproved it. The two are the same
+  file; the apparent mismatch was a patched copy being compared against a
+  pristine one.
 
 ## Verified
 
-`tools/apply_psx_patches.sh --check` — the repo's own coherence tool —
-reports **26 / 26 patches apply cleanly** against `psx/` (0009 is disabled in
-the script). That is the acceptance test for the vendored tree being correct.
+`tools/apply_psx_patches.sh` — the repo's own tool — was run for real, not just
+`--check`:
+
+* **26 / 26 apply cleanly** (0009 is disabled in the script);
+* `--revert` returns `psx/` to **byte-identical to the pin** (`git -C psx status`
+  clean), so the stack is genuinely reversible and the vendored-pristine rule
+  holds;
+* re-applying gets all 26 back.
+
+`psx/` is currently left **patched**, which is the state a build needs. The outer
+repo therefore shows ` m psx` in `git status`; that is expected.
+
+The 573 unit-test suite passes: **47 / 47 testbenches, `ALL TESTS PASSED`**, run
+on macOS with Homebrew `iverilog` (2026-09-09), with the savestate change in the
+tree.
 
 ## NOT verified
 
