@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit | 39,246/41,910 ALM (94%), LABs 4,188/4,191 (**100%**), DSP 112/112 |
 | Timing | met, TNS 0 — but worst setup **+0.006 ns** on the HDMI PLL |
-| Hardware runs | 2 — **GX700 self-test runs; BIOS executes, GPU renders** |
+| Hardware runs | 3 — **hyperbbc boots from flash and plays attract with sound** |
 
 ## Two trees, one board
 
@@ -56,7 +56,12 @@ currently believed about this core:
 
 ### Claimed upstream (the download's README)
 
-**One reproduced, 2026-09-10.** *"the BIOS boots past the color bars to the GX700
+**Two reproduced, 2026-09-10.** *"hyperbbc (flash-only) boots, runs, and has
+audio"* — confirmed: it boots from our own packed 16 MB flash image and plays
+attract with sound (`docs/2026-09-10-hyperbbc-boots.md`). The `.mgl` launcher did
+not work (it autoloaded a consumer Sony BIOS); the OSD load sequence did.
+
+**Also reproduced:** *"the BIOS boots past the color bars to the GX700
 power-on self-test, parked at the CDR check"* — confirmed on our own bitstream:
 `REG OK … 18E OK, CDR BAD`. `18E OK` is `rtl/s573_io.v` answering the H8 I/O-MCU
 self-test, so that emulation is confirmed too. See
