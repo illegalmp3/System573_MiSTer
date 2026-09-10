@@ -25,6 +25,41 @@ set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 
 # PSX_MiSTer needs the DDR3 framebuffer path (sys_top gates FB_* on this).
 set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
+
+# ─────────────────── NO HDMI: analog / CRT-only build (2026-09-10) ───────────────────
+# This project is used on a CRT over COMPOSITE, so the HDMI scaler is dead weight
+# on a die at 100% LABs. MISTER_DEBUG_NOHDMI removes it, and the framework has 17
+# guards plumbed for exactly this configuration (psx/sys/sys_top.v) -- it is a
+# supported build, not a hack:
+#     `ifdef MISTER_DEBUG_NOHDMI
+#        wire vga_fb       = 0;
+#        wire direct_video = 1;   -- native core timing straight to the analog out
+#        wire vga_scaler   = 0;   -- no scaler on the analog path
+# yc_out (the composite / S-video encoder) sits OUTSIDE the guard and is kept, as
+# does the unscaled `vga_out vga_out` instance. So the CRT path survives intact and
+# the scaled-VGA path -- which nothing here uses -- goes with the scaler.
+#
+# WHY IT MATTERS, and it is not mainly the area. The 2026-09-09 build closed timing
+# at +0.006 ns, and the binding path was pll_hdmi (ascal). The next-worst SETUP path
+# is emu|pll general[1] at +0.505 ns -- roughly 80x the margin. Removing the scaler
+# should therefore turn "any added logic breaks the fit" into real headroom for the
+# DDR Solo Select L/R inputs (already written, rtl/s573_io.v:143) and anything after
+# them. Expected recovery from the June audit's per-entity table: ~2,256 ALM and
+# ~25 DSP, which also lifts DSP off its 112/112 ceiling.
+#
+# WHAT IT COSTS: no HDMI output at all, and "Direct Video" is forced on rather than
+# being an OSD choice. Both are what a 15 kHz CRT wants; neither is recoverable
+# without a rebuild.
+#
+# TO REVERT: comment out the line below and rebuild. Note psx_patches/0028
+# (ascal bicubic off) becomes a no-op while this is enabled -- ascal is not
+# instantiated at all -- but it is harmless and should stay for HDMI builds.
+# Note also that SEED 3 was chosen upstream specifically to chase ascal's last
+# 0.322 ns; with ascal gone that choice is arbitrary and worth re-rolling.
+#
+# UNTESTED as of this commit: upstream never built this configuration. Keep the
+# known-good HDMI .rbf as a fallback before flashing a NOHDMI build.
+set_global_assignment -name VERILOG_MACRO "MISTER_DEBUG_NOHDMI=1"
 # 2: builds now run on the native dell box (i5-7500, 4 cores/4 threads, 14 GB RAM) --
 # the Mac/Colima 11 GB VM that forced serial synthesis (6 workers OOM'd quartus_map) is
 # gone. Under the hub's cap-2 build semaphore, 2 builds x 2 = 4 cores (full, no
