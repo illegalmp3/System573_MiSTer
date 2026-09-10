@@ -1,21 +1,24 @@
 <!--
-  PATHS ARE RELATIVE, DELIBERATELY (fixed 2026-09-10).
+  PATH FORM CORRECTED AGAIN (2026-09-10, second pass).
 
-  This file used to use absolute /media/fat/... paths, described as "belt-and-
-  braces -- honored verbatim on every Main version". That reasoning only holds if
-  the games live on the SD card. MEASURED: with games on a USB drive, /media/fat
-  paths do not exist, NONE of the file entries load, and the core falls back to
-  autoloading a boot.rom -- finding the CONSUMER SONY BIOS in games/PSX, because
-  the core reports its CONF_STR name to Main as "PSX". Symptom: the PlayStation
-  logo and startup sound instead of the Konami BIOS.
+  MGL path rules, from MiSTer's own docs (mister-devel.github.io/MkDocs_MiSTer/advanced/mgl):
+    <rbf>       "Relative path to the core's RBF file from the SD root, excluding
+                 its file extension" -- so it resolves under /media/fat ONLY. A core
+                 sitting on a USB drive CANNOT be referenced by an MGL.
+    <file path> "Path to game file relative to the core's games folder" -- documented
+                 examples are bare (dummy.chd, cds/dummy.iso). With <setname>System573
+                 the games folder is games/System573, searched ACROSS storages, so a
+                 bare filename works on SD and USB alike. That is why this form is
+                 preferable to the absolute /media/fat/... paths this file first used.
 
-  Relative paths resolve against whichever storage the launcher was started from,
-  so this works on SD and USB alike. For an SD-only setup the equivalent absolute
-  path is /media/fat/<path below>.
+  History, so nobody repeats it: the original absolute /media/fat paths silently loaded
+  NOTHING when the games live on USB (the core then autoloaded games/PSX/boot.rom -- the
+  consumer Sony BIOS -- and showed the PlayStation logo). The first correction made them
+  games/System573/<file>, which is wrong too: relative to the games folder that means
+  games/System573/games/System573/<file>. Bare filenames are the documented form.
 
-  Belt-and-braces that does work: put a copy of the standard BIOS at
-  games/System573/boot.rom. If Main resolves this core's HomeDir from <setname>,
-  that autoload finds the Konami BIOS rather than the Sony one.
+  Entries with paths OUTSIDE the games folder (the saves/ slot below, where present) are
+  left as-is and are NOT verified against the docs.
 -->
 <!--
   konam80s (Konami 80's AC Special) -- a CD-INSTALLER game, the 2nd CD-install
@@ -48,11 +51,11 @@
 <mistergamedescription>
   <rbf>_Console/Konami_System_573</rbf>
   <setname>System573</setname>
-  <file delay="1" type="f" index="0" path="games/System573/573bios.bin"/>
-  <file delay="1" type="f" index="2" path="games/System573/flash16m_blank.bin"/>
-  <file delay="1" type="f" index="3" path="games/System573/nvram8k_blank.bin"/>
-  <file delay="1" type="f" index="4" path="games/System573/konam80s.u1"/>
-  <file delay="2" type="s" index="1" path="games/System573/konam80s.chd"/>
+  <file delay="1" type="f" index="0" path="573bios.bin"/>
+  <file delay="1" type="f" index="2" path="flash16m_blank.bin"/>
+  <file delay="1" type="f" index="3" path="nvram8k_blank.bin"/>
+  <file delay="1" type="f" index="4" path="konam80s.u1"/>
+  <file delay="2" type="s" index="1" path="konam80s.chd"/>
   <!-- FLASH PERSISTENCE (slot 4): see hypbbc2p_console.mgl for the full rationale.
        Auto-created on first write-back; LOADed over the blank on later launches.
        *** PARENT VERIFY ON HW (gate-0 RISK R4): a .mgl type="s" at a not-yet-existent
