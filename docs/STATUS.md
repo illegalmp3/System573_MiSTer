@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit | 39,246/41,910 ALM (94%), LABs 4,188/4,191 (**100%**), DSP 112/112 |
 | Timing | met, TNS 0 — but worst setup **+0.006 ns** on the HDMI PLL |
-| Hardware runs | 1 — core loads, OSD verified on a DE10 |
+| Hardware runs | 2 — **GX700 self-test runs; BIOS executes, GPU renders** |
 
 ## Two trees, one board
 
@@ -54,7 +54,13 @@ currently believed about this core:
   than losing everything after it. Black screen beyond the OSD is expected with
   no BIOS staged.
 
-### Claimed upstream (the download's README — NOT reproduced here)
+### Claimed upstream (the download's README)
+
+**One reproduced, 2026-09-10.** *"the BIOS boots past the color bars to the GX700
+power-on self-test, parked at the CDR check"* — confirmed on our own bitstream:
+`REG OK … 18E OK, CDR BAD`. `18E OK` is `rtl/s573_io.v` answering the H8 I/O-MCU
+self-test, so that emulation is confirmed too. See
+`docs/2026-09-10-gx700-post-reproduced.md`. The rest below remain unreproduced.
 
 * *DDR Solo Bass Mix* boots from restored flash into attract, plays a credited
   stage and streams its encrypted MP3 soundtrack on hardware (2026-08-02).
