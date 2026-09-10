@@ -152,6 +152,13 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
 
 ## Open risks
 
+* **The HPS-side MP3 service is missing from this repo.** The status table claims
+  it "plays on real hardware", but the code lives in an unpublished `Main_MiSTer`
+  fork — there is no `support/` directory here. A DDR title on this tree would
+  boot and run **silent**. Reaching that result is a firmware project (fork Main,
+  vendor minimp3, build ARM), though the design and two hard-won bug fixes are
+  documented. See `docs/2026-09-10-ddr-gap-hps-service.md`.
+
 * **The DDR targets are further off than the status table suggests.** *DDR
   Extreme* (`ddrextrm`) and *4th Mix Plus* (`ddr4mp`) need a 32 MB PCMCIA card,
   a memory-card reader on the JVS host, and ZS01 cassettes with per-game keying
