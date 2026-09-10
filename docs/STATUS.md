@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit | 39,246/41,910 ALM (94%), LABs 4,188/4,191 (**100%**), DSP 112/112 |
 | Timing | met, TNS 0 — but worst setup **+0.006 ns** on the HDMI PLL |
-| Hardware runs | **0** |
+| Hardware runs | 1 — core loads, OSD verified on a DE10 |
 
 ## Two trees, one board
 
@@ -42,6 +42,12 @@ currently believed about this core:
   map; `system573_top` has no savestate port.
 * The savestate OSD entries are absolute status bits (`O[36]`, `O[68]`,
   `O[38:37]`, `RH`, `RI`), so removing them shifts nothing else in `CONF_STR`.
+* **Confirmed on hardware (2026-09-09, DE10).** The core loads from
+  `_Console/Konami_System_573.rbf` and the OSD shows **no savestate entries at
+  all**, while `Save Memory Cards` — a different feature on `RD`, two lines away
+  in the conf string — is still present. That pairing is the signature we wanted:
+  the five intended entries went and the string still parses. Black screen beyond
+  the OSD is expected with no BIOS staged.
 
 ### Claimed upstream (the download's README — NOT reproduced here)
 
@@ -56,8 +62,11 @@ currently believed about this core:
 ### Not verified
 
 * That this tree compiles at all. No Quartus on the Mac or in the sandbox.
-* That the savestate change synthesises, closes timing, or leaves the OSD
-  parsing correctly.
+* ~~That the savestate change synthesises, closes timing, or leaves the OSD
+  parsing correctly.~~ **All three now verified** — it fits, timing is met (by
+  6 ps), and the OSD parses with only the intended entries removed. What remains
+  unverified is the *input* half of the change: that the joy blanking no longer
+  fires. That needs a game running and a mapped button held.
 * ~~Whether `SS_ENABLE=0` lets Quartus prune the savestate logic.~~ **Measured
   2026-09-09: partial.** The request path is dead, but `savestates` still costs
   **603 placed ALMs** because the reset sequencer inside it survives —
