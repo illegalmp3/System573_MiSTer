@@ -32,7 +32,18 @@ set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 # speeds Analysis & Synthesis + multi-corner timing (~6 min of ~38); the Fitter place &
 # route -- the ~30 min / ~80% bottleneck -- is single-threaded regardless of this value.
 # See docs/PHASE4_HARDWARE.md and memory dell-build-box (build-time levers).
-set_global_assignment -name NUM_PARALLEL_PROCESSORS 2
+# CHANGED 2 -> 1 (2026-09-09). On this build machine the Fitter died with an
+# access violation inside the PARALLEL ROUTER:
+#   l_run_heap_expansion_algorithm <- l_route_to_target <- l_route_net
+#   <- aa_route_alg_route_all_nets <- l_rt_prl_worker      (quartus_fit.exe)
+# Peak virtual memory 4609 MB -- i.e. exactly the ~4.6 GB Fitter peak the comment
+# above records as safe on a 14 GB host. Reaching that number and then crashing in
+# a heap-EXPANSION routine is an allocation failure, not a routing verdict.
+# Two threads roughly double the router's working set, so serial routing both
+# halves the peak and avoids the parallel-router path that faulted. Note the
+# comment above is wrong that the Fitter is single-threaded regardless: the fault
+# is in l_rt_prl_worker, a parallel ROUTING worker.
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 1
 
 # Core RTL (573 fabric + emu.sv + the nested psx/rtl PSX core qips).
 set_global_assignment -name QIP_FILE files.qip
