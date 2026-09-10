@@ -1,4 +1,23 @@
 <!--
+  PATHS ARE RELATIVE, DELIBERATELY (fixed 2026-09-10).
+
+  This file used to use absolute /media/fat/... paths, described as "belt-and-
+  braces -- honored verbatim on every Main version". That reasoning only holds if
+  the games live on the SD card. MEASURED: with games on a USB drive, /media/fat
+  paths do not exist, NONE of the file entries load, and the core falls back to
+  autoloading a boot.rom -- finding the CONSUMER SONY BIOS in games/PSX, because
+  the core reports its CONF_STR name to Main as "PSX". Symptom: the PlayStation
+  logo and startup sound instead of the Konami BIOS.
+
+  Relative paths resolve against whichever storage the launcher was started from,
+  so this works on SD and USB alike. For an SD-only setup the equivalent absolute
+  path is /media/fat/<path below>.
+
+  Belt-and-braces that does work: put a copy of the standard BIOS at
+  games/System573/boot.rom. If Main resolves this core's HomeDir from <setname>,
+  that autoload finds the Konami BIOS rather than the Sony one.
+-->
+<!--
   BIOS POST SMOKE TEST (one file, no game data).
 
   Loads a 573 BIOS and nothing else. The board reaches the GX700 power-on
@@ -22,6 +41,6 @@
 <mistergamedescription>
   <rbf>_Console/Konami_System_573</rbf>
   <setname>System573</setname>
-  <file delay="1" type="f" index="0" path="/media/fat/games/System573/573bios_gchgchmp.bin"/>
+  <file delay="1" type="f" index="0" path="games/System573/573bios_gchgchmp.bin"/>
   <reset delay="1"/>
 </mistergamedescription>

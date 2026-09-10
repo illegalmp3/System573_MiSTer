@@ -1,4 +1,23 @@
 <!--
+  PATHS ARE RELATIVE, DELIBERATELY (fixed 2026-09-10).
+
+  This file used to use absolute /media/fat/... paths, described as "belt-and-
+  braces -- honored verbatim on every Main version". That reasoning only holds if
+  the games live on the SD card. MEASURED: with games on a USB drive, /media/fat
+  paths do not exist, NONE of the file entries load, and the core falls back to
+  autoloading a boot.rom -- finding the CONSUMER SONY BIOS in games/PSX, because
+  the core reports its CONF_STR name to Main as "PSX". Symptom: the PlayStation
+  logo and startup sound instead of the Konami BIOS.
+
+  Relative paths resolve against whichever storage the launcher was started from,
+  so this works on SD and USB alike. For an SD-only setup the equivalent absolute
+  path is /media/fat/<path below>.
+
+  Belt-and-braces that does work: put a copy of the standard BIOS at
+  games/System573/boot.rom. If Main resolves this core's HomeDir from <setname>,
+  that autoload finds the Konami BIOS rather than the Sony one.
+-->
+<!--
   TEST C: hypbbc2p (Hyper Bishi Bashi Champ 2P) -- a CD-INSTALLER game. Launches the
   573 as a standalone console core (is_arcade_type=0) with a BLANK 16MB flash + BLANK
   8KB NVRAM and the CD mounted into the S1 (CUECHD) slot. On first boot, with the boot
@@ -46,11 +65,11 @@
   <!-- setname + absolute paths: see hyperbbc_console.mgl for the full rationale
        (PSX-name HomeDir misresolution + config/PSX.CFG status pollution). -->
   <setname>System573</setname>
-  <file delay="1" type="f" index="0" path="/media/fat/games/System573/573bios.bin"/>
-  <file delay="1" type="f" index="2" path="/media/fat/games/System573/flash16m_blank.bin"/>
-  <file delay="1" type="f" index="3" path="/media/fat/games/System573/nvram8k_blank.bin"/>
-  <file delay="1" type="f" index="4" path="/media/fat/games/System573/hypbbc2p.u1"/>
-  <file delay="2" type="s" index="1" path="/media/fat/games/System573/hypbbc2p.chd"/>
+  <file delay="1" type="f" index="0" path="games/System573/573bios.bin"/>
+  <file delay="1" type="f" index="2" path="games/System573/flash16m_blank.bin"/>
+  <file delay="1" type="f" index="3" path="games/System573/nvram8k_blank.bin"/>
+  <file delay="1" type="f" index="4" path="games/System573/hypbbc2p.u1"/>
+  <file delay="2" type="s" index="1" path="games/System573/hypbbc2p.chd"/>
   <!-- FLASH PERSISTENCE (slot 4): mount the 16 MB save so a CD install survives a
        reboot. On first launch the file does not exist; the core/Main auto-creates
        it (pre=1/type=2) on the first write-back, so the blank flash stands until
@@ -61,6 +80,6 @@
        auto-create. If the .mgl schema rejects it, the fallback is one
        user_io_file_mount(savepath, 4, 1, 16*1024*1024) in the PSX support file's
        load callback. Path = saves/System573/<basename>.sav per FileGenerateSavePath. -->
-  <file delay="3" type="s" index="4" path="/media/fat/saves/System573/hypbbc2p.sav"/>
+  <file delay="3" type="s" index="4" path="saves/System573/hypbbc2p.sav"/>
   <reset delay="1"/>
 </mistergamedescription>
