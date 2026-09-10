@@ -1,0 +1,32 @@
+diff --git a/sys/sys_top.v b/sys/sys_top.v
+--- a/sys/sys_top.v
++++ b/sys/sys_top.v
+@@ -720,6 +720,28 @@
+ 	`ifdef MISTER_DOWNSCALE_NN
+ 		.DOWNSCALE_NN("true"),
+ 	`endif
++		// System 573: disable ONLY the BICUBIC interpoler (MASK bit 3).
++		// ascal.vhd declares MASK as a GENERIC (default x"FF"), so every
++		// `IF MASK(MASK_BICUBIC)='1'` is statically evaluable -- Quartus folds it
++		// like conditional compilation even though it sits inside a process. The
++		// bicubic pipeline (o_h/v_bic_abcd1 -> tt1 -> abcd2 -> tt2 -> pix, the
++		// X.D+C MAC stages) is driven unconditionally but read ONLY inside that
++		// guard, so with the bit clear its final register loses all fanout and the
++		// whole chain prunes backwards, horizontal and vertical.
++		//
++		// Why 0xF7 and not the 0x03 the resource audit suggested: MASK_NEAREST(0)
++		// and MASK_POLY(4) SHARE the polyphase datapath (both CASE arms assign
++		// o_h_poly_pix), so 0x03 would also drop MiSTer's polyphase filters. Worse,
++		// a mode whose branch is compiled out leaves o_ldw UNASSIGNED in that CASE
++		// arm -- it holds the previous pixel, so selecting it gives visibly wrong
++		// output rather than a clean fallback. 0xF7 keeps nearest, bilinear,
++		// sharp-bilinear and polyphase and drops only bicubic.
++		//
++		// The point is the TIMING path, not the area: pll_hdmi owns this build's
++		// binding path at +0.006 ns setup, and ascal is the only block on it.
++		// CONSEQUENCE: do not select bicubic scaling in MiSTer.ini / the video
++		// OSD on a build with this patch applied.
++		.MASK(8'hF7),
+ 		.FRAC(8),
+ 		.N_DW(128),
+ 		.N_AW(28)

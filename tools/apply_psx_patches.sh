@@ -151,7 +151,22 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           # (selectedPortXSnac=0 -> actionNextCombine=actionNext + stock port select).
           # Stacks on 0026 (same file, joypad.vhd). NVC-elaborate clean.
           # docs/audits/2026-06-12-resource-recovery-scope.md (cand #4).
-          "$ROOT/psx_patches/0027-s573-strip-memcard2-snac.patch" )
+          "$ROOT/psx_patches/0027-s573-strip-memcard2-snac.patch" \
+          # 0028 = resource-recovery lever #2, re-scoped. Clears ONLY MASK bit 3
+          # (bicubic) on the ascal instance in sys/sys_top.v, which passed no MASK at
+          # all and so defaulted to x"FF" (every interpoler enabled). MASK is a
+          # GENERIC, so `IF MASK(MASK_BICUBIC)='1'` folds statically even inside a
+          # process; the bicubic pipeline is driven unconditionally but read only in
+          # that guard, so its final register loses fanout and the X.D+C MAC chain
+          # prunes backwards (h and v). The audit's speculative "verify bic_* prunes"
+          # caveat is therefore settled by construction.
+          # NOT the audit's 0x03: MASK_NEAREST(0) and MASK_POLY(4) share the polyphase
+          # datapath, and a compiled-out CASE arm leaves o_ldw UNASSIGNED (holds the
+          # previous pixel) rather than falling back cleanly. 0xF7 drops bicubic only.
+          # Motive is the TIMING path, not area -- pll_hdmi owns this build's binding
+          # path at +0.006 ns and ascal is the only block on it.
+          # CONSEQUENCE: do not select bicubic scaling in MiSTer.ini / the video OSD.
+          "$ROOT/psx_patches/0028-s573-ascal-no-bicubic.patch" )
 
 if [ ! -e "$PSX/.git" ]; then
   echo "error: psx submodule not initialised. Run: git submodule update --init psx" >&2
