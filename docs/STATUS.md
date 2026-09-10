@@ -78,11 +78,11 @@ self-test, so that emulation is confirmed too. See
 ### Not verified
 
 * That this tree compiles at all. No Quartus on the Mac or in the sandbox.
-* ~~That the savestate change synthesises, closes timing, or leaves the OSD
-  parsing correctly.~~ **All three now verified** — it fits, timing is met (by
-  6 ps), and the OSD parses with only the intended entries removed. What remains
-  unverified is the *input* half of the change: that the joy blanking no longer
-  fires. That needs a game running and a mapped button held.
+* ~~The savestate change.~~ **Complete.** It fits, timing is met (by 6 ps), the
+  OSD parses with only the intended entries removed, the bitstream boots and runs
+  a game, and the joy blanking no longer fires. Caveat on the last one: it is a
+  negative observation, not a red/green A/B — the bug was found by reading RTL and
+  never demonstrated on silicon.
 * ~~Whether `SS_ENABLE=0` lets Quartus prune the savestate logic.~~ **Measured
   2026-09-09: partial.** The request path is dead, but `savestates` still costs
   **603 placed ALMs** because the reset sequencer inside it survives —

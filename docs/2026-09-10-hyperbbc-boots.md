@@ -53,3 +53,45 @@ wants to happen with the flash image already in place.
   blanks all twenty joy bits. Testable now that a game runs: map a pad button to
   *Savestates* (J1 position 13, unmapped by default) and hold it while pressing
   Coin/Start.
+
+---
+
+## Input half of the savestate change: verified (2026-09-10)
+
+With hyperbbc running, a pad button was mapped to *Savestates* (J1 position 13)
+via Define Buttons, then **held down while tapping Coin and Start**. Both
+continued to register.
+
+That is the behaviour the fix intends. Before it, `emu.sv` read:
+
+```verilog
+assign joy = joy_unmod[16] ? 20'b0 : joy_unmod;
+```
+
+— all twenty joy bits zeroed while that button is held, unconditionally, so the
+d-pad could select a savestate slot. With savestates gated off that was a pure
+trap: hold a mapped button mid-song and every JAMMA input dies, silently, with
+nothing in any log to explain it. It now reads:
+
+```verilog
+assign joy = (SS_ENABLE & joy_unmod[16]) ? 20'b0 : joy_unmod;
+```
+
+**Honest standard of evidence.** This is a *negative* observation — the
+pathological behaviour is absent — not a red/green A/B. The bug was never
+observed on this hardware; it was found by reading the RTL and fixed before any
+bitstream shipped with savestates disabled. The pre-fix behaviour is not in doubt
+(the expression above is unconditional and has no other gate), but no build in
+this project ever demonstrated it on silicon, and this test could not have.
+
+## The savestate change is now complete
+
+All four things that were unverified when the patch was written are closed:
+
+| | |
+|---|---|
+| Synthesises | yes — 26/26 patches, A&S clean |
+| Closes timing | yes — met on all corners, +0.006 ns worst |
+| OSD parses correctly | yes — five entries gone, neighbours before and after intact |
+| Boots and runs a game | yes — hyperbbc attract with sound |
+| Input blanking no longer fires | yes — Coin and Start survive the held modifier |
