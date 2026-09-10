@@ -9,7 +9,9 @@ code and should be updated with it.
 | Unit tests | **47 / 47 PASS** (macOS, Homebrew iverilog) |
 | psx patch stack | **26 / 26** apply · revert · re-apply |
 | Commits | 4 |
-| Quartus runs | 2 — **bitstream produced, timing met on all corners** |
+| Quartus runs | 2 — **bitstream produced** |
+| Fit | 39,246/41,910 ALM (94%), LABs 4,188/4,191 (**100%**), DSP 112/112 |
+| Timing | met, TNS 0 — but worst setup **+0.006 ns** on the HDMI PLL |
 | Hardware runs | **0** |
 
 ## Two trees, one board
@@ -48,7 +50,8 @@ currently believed about this core:
 * *hyperbbc* and *hypbbc2p* boot and run on a DE10 (2026-06-12).
 * 97% ALM / 100% DSP / +0.069 ns.
 * DDR Solo song-wheel inputs written and simulated, held out of a bitstream for
-  lack of headroom (`rtl/s573_io.v:143`).
+  lack of headroom (`rtl/s573_io.v:143`) — upstream cited +0.069 ns. **Our own fit
+  is tighter still at +0.006 ns**, so this constraint is confirmed, not lifted.
 
 ### Not verified
 
@@ -103,7 +106,7 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
 | #5 savestate stub as written | 300–647 ALM | **rejected** — breaks reset |
 | #5 savestate via constant folding | up to 647 ALM | **measured: ~40 ALM.** Request path dead; 603 ALM of reset machinery remains. Closed. |
 | #5b force `SS_DataRead` to zero | ~670 LEs of muxing | new, narrow, safe — after a fit completes |
-| #2 ascal bicubic off | ~300 ALM | open; pruning speculative |
+| #2 ascal bicubic off | ~300 ALM | **now the top lever** — the only one on the binding clock (HDMI). Pruning still speculative |
 | #6 remove MDEC | 714 ALM · 9 DSP | gated on per-game disasm |
 | #7 remove GTE | 4,663 ALM · 15 DSP | gated on no-COP2 proof |
 
