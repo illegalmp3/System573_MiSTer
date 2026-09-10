@@ -46,8 +46,13 @@ currently believed about this core:
   `_Console/Konami_System_573.rbf` and the OSD shows **no savestate entries at
   all**, while `Save Memory Cards` — a different feature on `RD`, two lines away
   in the conf string — is still present. That pairing is the signature we wanted:
-  the five intended entries went and the string still parses. Black screen beyond
-  the OSD is expected with no BIOS staged.
+  the five intended entries went and the string still parses. `Memcard Status:
+  saved` is a *conditionally shown* (`HB-`) line, so the menumask-gated entries
+  around the edit survived too. And **`System Type` — the entry immediately after
+  the commented-out block — is present with all four options**, which is the
+  tightest available check that the parser stepped over the edit cleanly rather
+  than losing everything after it. Black screen beyond the OSD is expected with
+  no BIOS staged.
 
 ### Claimed upstream (the download's README — NOT reproduced here)
 
