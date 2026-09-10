@@ -69,9 +69,14 @@ The recovery work still stands on its own terms — DSP is off a ceiling it has 
 in every recorded build, and there is now room to add RTL without a fight — but
 the goal it was argued from had already been met, and the argument was wrong.
 
-## Not verified
+## Verified on hardware (2026-09-10)
 
-This bitstream has not been on hardware. It is a new video configuration (no HDMI
-path at all, `direct_video` forced on), so the plausible failures are the CRT not
-locking, or the OSD compositing differently. `Konami_System_573_known_good.rbf`
-is the fallback.
+**hyperbbc boots to attract with sound on the no-HDMI bitstream.** The CRT locks,
+the OSD composites, the game runs — so the configuration is sound, not merely
+synthesisable. `direct_video` forced on is correct for a 15 kHz CRT, and dropping
+the whole HDMI path costs nothing on this bench.
+
+That makes the CRT variant the sensible development default: same observed
+behaviour as the HDMI build, 17% ALM spare instead of 6%, DSP at 79% instead of
+100%, and 1.196 ns of setup margin instead of 6 ps. `tools/build-573.ps1` without
+`-Crt` still produces an HDMI-capable bitstream whenever one is wanted.

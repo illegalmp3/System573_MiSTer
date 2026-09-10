@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit (CRT build) | 34,695/41,910 ALM (83%), LABs 4,041/4,191 (96.4%), DSP **89/112** |
 | Timing | met, TNS 0, worst setup **+1.196 ns** (was +0.006 with HDMI) |
-| Hardware runs | 3 — **hyperbbc boots from flash and plays attract with sound** |
+| Hardware runs | 4 — hyperbbc boots on **both** the HDMI and the CRT-only bitstream |
 
 ## Two trees, one board
 
