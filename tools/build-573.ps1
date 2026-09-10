@@ -80,22 +80,38 @@ if (Test-Path $fit) {
 
   # LAB occupancy is what actually breaks this design: routing congestion at
   # ~99% LABs, not a global resource shortage. Worth seeing every build.
+  # Allow thousands separators in BOTH captures. An earlier version used (\d+)
+  # for the first, which stops at the comma in "4,188 / 4,191": the engine then
+  # matched "188 / 4,191" and printed 4.5% for a design at 100%. Wrong in the
+  # reassuring direction, on the one number that explains this design's fits.
   $labs = Select-String -Path $fit -Pattern "Total LABs" | Select-Object -First 1
-  if ($labs -and $labs.Line -match "(\d+)\s*/\s*([\d,]+)") {
-    $used = [int]$matches[1]; $tot = [int]($matches[2] -replace ',','')
+  if ($labs -and $labs.Line -match "([\d,]+)\s*/\s*([\d,]+)") {
+    $used = [int]($matches[1] -replace ',','')
+    $tot  = [int]($matches[2] -replace ',','')
     $pct  = [math]::Round(100.0 * $used / $tot, 1)
     if ($pct -ge 98) {
-      Write-Host "  LABs $pct% -- at the congestion wall; expect fit instability" -ForegroundColor Yellow
+      Write-Host "  LABs $used/$tot = $pct% -- AT THE CONGESTION WALL; added logic risks the fit" -ForegroundColor Yellow
     } else {
-      Write-Host "  LABs $pct%" -ForegroundColor Green
+      Write-Host "  LABs $used/$tot = $pct%" -ForegroundColor Green
     }
   }
 
   # Savestate entities: present means Quartus did NOT prune them.
   Write-Host ""
-  Write-Host "  savestate entities (absent/near-zero = SS_ENABLE pruning worked):"
-  $ss = Select-String -Path $fit -Pattern "savestates|statemanager" | Select-Object -First 6
-  if ($ss) { $ss | ForEach-Object { "    " + $_.Line.Trim() } } else { "    (none found)" }
+  Write-Host "  savestate entities (Resource Utilization by Entity):"
+  # Anchor on the entity table's hierarchy cell. A bare "savestates|statemanager"
+  # grep returns pages of Physical Synthesis "Modified" and router-duplication
+  # chatter and never shows an area figure.
+  $ss = Select-String -Path $fit -Pattern "^\s*;\s+\|(savestates|statemanager):" | Select-Object -First 4
+  if ($ss) {
+    $ss | ForEach-Object {
+      $f = $_.Line.Split(';') | ForEach-Object { $_.Trim() }
+      "    {0,-26} ALMs {1,-16} comb {2,-14} reg {3}" -f $f[1], $f[2], $f[7], $f[8]
+    }
+  } else {
+    Write-Host '    (no entity row matched; pull by hand with:)'
+    Write-Host '    findstr /C:"|savestates:isavestates|" output_files\Konami_System_573.fit.rpt'
+  }
 }
 
 if (Test-Path $sta) {

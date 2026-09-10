@@ -72,3 +72,52 @@ and the rest of the menu intact and well-formed — so the `CONF_STR` edit parse
 Synthesis totals for the record: **38,855 ALM needed (est.)**, 44,511 registers,
 114 DSP (device has 112; the fitter packs multipliers down, as it did 124 → 112
 on the upstream build).
+
+---
+
+## Post-fit numbers (first successful build, 2026-09-09)
+
+The fit completed with serial routing. Placed figures for the module, from the
+Fitter's Resource Utilization by Entity table:
+
+```
+|savestates:isavestates|   ALMs needed 603.1   comb ALUTs 844   registers 730
+```
+
+**Correction to the section above:** the `843` read off the synthesis report was
+the *combinational ALUT* count, not ALMs — the post-fit comb figure is 844, which
+is the same number. Placed ALMs are **603**. Against the ~647 ALM the June audit
+recorded for this entity, the `SS_ENABLE` gate bought roughly **40 ALMs**. Not
+nothing, and not a lever.
+
+## The fan-out numbers settle the teardown empirically
+
+The Fitter's highest-fan-out list contains, from inside this module:
+
+| Signal | Fan-out |
+|---|---:|
+| `savestates\|reset_out` | **3,480** |
+| `savestates\|ss_reset` | **1,727** |
+| `savestates\|SS_Adr[0]` | 908 |
+| `savestates\|SS_Adr[1]` | 762 |
+| `savestates\|SS_Adr[2]` | 693 |
+| `savestates\|SS_Adr[3]` | 646 |
+| `savestates\|SS_wren[3]` | 616 |
+
+The teardown argued from source that `savestates.vhd` *is* the reset distribution
+network rather than a savestate feature with a reset side-effect. These numbers
+are that argument measured: `reset_out` drives 3,480 loads and `ss_reset` 1,727.
+Stubbing this module means cutting those two nets. **Lever #5 is closed as a
+concept, not merely deferred.**
+
+The `SS_Adr` / `SS_wren` fan-outs in the 600–900 range are the `resetMode`
+memory-zeroing walk, which is also load-bearing.
+
+## What remains open
+
+`SS_DataRead` is still the narrow candidate. The fit report shows the whole
+`SS_DataRead[n] -> SS_DataRead_2x[n]` register file present and placed, and that
+path exists only to carry module state back **during a save**. Forcing it to zero
+touches none of `reset_out`, `ss_reset`, or the zeroing walk. Worth a numbered
+`psx_patches/0028-*` — but the design now fits with timing met, so there is no
+resource emergency justifying a change to vendored code. Park it.
