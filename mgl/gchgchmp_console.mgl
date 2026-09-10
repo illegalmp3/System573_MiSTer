@@ -1,22 +1,23 @@
 <!--
-  gchgchmp (Gachaga Champ) as a STANDALONE CONSOLE core via .mgl.
+  BIOS POST SMOKE TEST (one file, no game data).
 
-  The CHEAPEST possible boot target on this board: the game is built INTO a BIOS
-  variant, so it needs NO CD, NO onboard flash and NO security cassette -- one
-  512 KB file at index 0 and nothing else. Use it to exercise CPU + GPU + video
-  end to end before spending effort on a game that needs the flash interleave or
-  a cassette dump.
+  Loads a 573 BIOS and nothing else. The board reaches the GX700 power-on
+  self-test and stops at `CDR BAD` -- expected, since the self-test is sequential
+  and there is no CD attached and no flash image staged. That is still a useful
+  test: reaching it proves the R3000 executes the BIOS from SDRAM, every probed
+  RAM/ROM position reads back, rtl/s573_io.v answers the 18E I/O-MCU check, the
+  GPU renders text and video scans out. Verified 2026-09-10 on a DE10.
 
-  BIOS: 700a01(gchgchmp).22g from sys573.zip, crc 39ebb0ca, 524,288 B.
-  Staged as 573bios_gchgchmp.bin so it does NOT collide with 573bios.bin, which
-  the other .mgl files expect to be the STANDARD BIOS (700a01.22g, crc 11812ef8).
+  NOTE: this file used to be described as launching Gacha Gachamp. It does not.
+  `700a01(gchgchmp).22g` is a BIOS *revision* found on that hardware, not a
+  game-in-BIOS -- MAME's gchgchmp needs eight flash ROMs, eight PCMCIA card ROMs
+  and a security cassette. Measured: this BIOS and the standard BIOS give a
+  byte-identical self-test screen. See dumps/README.md.
+
+  To actually boot a game, use hyperbbc_console.mgl.
 
   Requires: _Console/Konami_System_573.rbf +
             games/System573/573bios_gchgchmp.bin
-
-  setname is deliberate -- see hyperbbc_console.mgl for why the core's "PSX"
-  CONF_STR name otherwise sends Main looking in games/PSX and blind-loads the
-  consumer PSX core's saved status bits.
 -->
 <mistergamedescription>
   <rbf>_Console/Konami_System_573</rbf>

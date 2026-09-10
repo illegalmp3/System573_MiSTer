@@ -60,3 +60,56 @@ An earlier attempt with the `gchgchmp` game-in-BIOS variant gave a black screen,
 but two things differed (a core reset, and the BIOS file) and the file turned out
 to be staged in the wrong folder — so nothing is concluded about that BIOS
 variant. Retest pending.
+
+---
+
+## Resolved: the gchgchmp variant is not a game-in-BIOS (2026-09-10)
+
+The retest was run properly — same procedure as the successful standard-BIOS run,
+only the BIOS file different, with the file staged in the right folder this time.
+Result: **a byte-identical self-test screen, ending in `CDR BAD`.**
+
+The MAME driver explains why, and `dumps/README.md` was wrong:
+
+```
+ROM_SYSTEM_BIOS( 1, "gchgchmp", "Found on Gacha Gachamp" )
+```
+
+`700a01(gchgchmp).22g` is a BIOS **revision**, not a BIOS containing a game.
+MAME's `gchgchmp` (Gacha Gachamp, GE877) requires eight onboard flash ROMs
+(`710ja.*`), **eight PCMCIA card ROMs** — a 16 MB PC card — and a
+security-cassette EEPROM (`ge877jaa.u1`). It is among the *harder* targets on this
+board. There was never a built-in game to reach, so the identical `CDR BAD` was
+the only possible outcome.
+
+`dumps/README.md` is corrected and `mgl/gchgchmp_console.mgl` is retitled as what
+it actually is: a one-file BIOS POST smoke test.
+
+## hyperbbc flash image built and pre-flight checked
+
+`tools/pack_hyperbbc.py` ran against a fully non-merged `hyperbbc.zip`. All nine
+inputs CRC-match MAME:
+
+```
+876ea.31m a76043cb   876ea.27m 689ddd94   876ea.31l d011c7a5   876ea.27l 950a5267
+876ea.31j ae497ebc   876ea.27j 9c156b1b   876ea.31h 368372fb   876ea.27h 49175f99
+876ea.22h 8e11d196  (M48T58 NVRAM)
+```
+
+Output: `dumps/hyperbbc/flash16m.bin` (16 MB, 0.1% blank) and `nvram8k.bin`.
+
+**The check that predicts whether it boots.** `emu.sv`'s `FLASH_START` comment
+records that the BIOS reads a flash-boot signature at `0x1f000024` and that a past
+bug made it miss `PS-X EXE` there, falling through to the CD path and giving
+`CDR BAD`. In the packed image:
+
+```
+0x00 : "GQ876\0\0\0" 0x19 0x98 "JAA\0\0\0"
+0x24 : "PS-X EXE"
+```
+
+The signature is at exactly `0x24`, and the image opens with the game's own code
+(`GQ876`, 1998, JAA). Both confirm the byte-lane interleave and the m/l/j/h bank
+order are right — the two things the packer could plausibly have got wrong.
+
+Staged as `local/sd-stage/games/System573/hbbflash.bin` and `hbbnvram.bin`.
