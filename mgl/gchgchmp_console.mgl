@@ -1,0 +1,26 @@
+<!--
+  gchgchmp (Gachaga Champ) as a STANDALONE CONSOLE core via .mgl.
+
+  The CHEAPEST possible boot target on this board: the game is built INTO a BIOS
+  variant, so it needs NO CD, NO onboard flash and NO security cassette -- one
+  512 KB file at index 0 and nothing else. Use it to exercise CPU + GPU + video
+  end to end before spending effort on a game that needs the flash interleave or
+  a cassette dump.
+
+  BIOS: 700a01(gchgchmp).22g from sys573.zip, crc 39ebb0ca, 524,288 B.
+  Staged as 573bios_gchgchmp.bin so it does NOT collide with 573bios.bin, which
+  the other .mgl files expect to be the STANDARD BIOS (700a01.22g, crc 11812ef8).
+
+  Requires: _Console/Konami_System_573.rbf +
+            games/System573/573bios_gchgchmp.bin
+
+  setname is deliberate -- see hyperbbc_console.mgl for why the core's "PSX"
+  CONF_STR name otherwise sends Main looking in games/PSX and blind-loads the
+  consumer PSX core's saved status bits.
+-->
+<mistergamedescription>
+  <rbf>_Console/Konami_System_573</rbf>
+  <setname>System573</setname>
+  <file delay="1" type="f" index="0" path="/media/fat/games/System573/573bios_gchgchmp.bin"/>
+  <reset delay="1"/>
+</mistergamedescription>
