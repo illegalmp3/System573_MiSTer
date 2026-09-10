@@ -51,7 +51,10 @@ set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 # being an OSD choice. Both are what a 15 kHz CRT wants; neither is recoverable
 # without a rebuild.
 #
-# TO REVERT: comment out the line below and rebuild. Note psx_patches/0028
+# HOW TO USE IT: this line is COMMENTED OUT, so the default build keeps HDMI.
+# Do not edit it by hand -- `tools/build-573.ps1 -Crt` uncomments it for the
+# duration of one compile and restores the file afterwards, so both variants are
+# one flag apart from a single revision. Note psx_patches/0028
 # (ascal bicubic off) becomes a no-op while this is enabled -- ascal is not
 # instantiated at all -- but it is harmless and should stay for HDMI builds.
 # Note also that SEED 3 was chosen upstream specifically to chase ascal's last
@@ -59,7 +62,8 @@ set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 #
 # UNTESTED as of this commit: upstream never built this configuration. Keep the
 # known-good HDMI .rbf as a fallback before flashing a NOHDMI build.
-set_global_assignment -name VERILOG_MACRO "MISTER_DEBUG_NOHDMI=1"
+# S573_CRT_MACRO (tools/build-573.ps1 -Crt toggles the next line; do not rename)
+#set_global_assignment -name VERILOG_MACRO "MISTER_DEBUG_NOHDMI=1"
 # 2: builds now run on the native dell box (i5-7500, 4 cores/4 threads, 14 GB RAM) --
 # the Mac/Colima 11 GB VM that forced serial synthesis (6 workers OOM'd quartus_map) is
 # gone. Under the hub's cap-2 build semaphore, 2 builds x 2 = 4 cores (full, no

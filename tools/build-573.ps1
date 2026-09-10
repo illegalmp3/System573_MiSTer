@@ -15,7 +15,13 @@
 # ---------------------------------------------------------------------------
 param(
   [string]$Root    = ".",
-  [string]$Quartus = "C:\intelFPGA_lite\17.0\quartus\bin64"
+  [string]$Quartus = "C:\intelFPGA_lite\17.0\quartus\bin64",
+  # -Crt builds the analog/CRT-only variant: uncomments the MISTER_DEBUG_NOHDMI
+  # macro in the qsf for THIS compile only, then restores the file. Removes the
+  # HDMI scaler (~2,256 ALM / ~25 DSP) and, more importantly, takes the binding
+  # timing path with it -- pll_hdmi owns the +0.006 ns path, and the next-worst
+  # setup is ~+0.505 ns. Omit the switch for a normal HDMI-capable build.
+  [switch]$Crt
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +53,26 @@ if (Select-String -Path "psx\sys\audio_out.v" -Pattern "IIR_filter" -Quiet) {
   Write-Host "    tools/apply_psx_patches.sh"
   exit 2
 }
+
+# --- optional CRT-only variant: toggle the qsf macro, always restore ----------
+$qsf       = "$REV.qsf"
+$qsfBackup = $null
+if ($Crt) {
+  $marker = 'set_global_assignment -name VERILOG_MACRO "MISTER_DEBUG_NOHDMI=1"'
+  $lines  = Get-Content $qsf
+  if (-not ($lines -match [regex]::Escape($marker))) {
+    Write-Host "Could not find the NOHDMI macro line in $qsf." -ForegroundColor Red
+    Write-Host "Look for the S573_CRT_MACRO marker comment; the line may have been renamed."
+    exit 2
+  }
+  $qsfBackup = "$qsf.prebuild"
+  Copy-Item $qsf $qsfBackup -Force
+  ($lines | ForEach-Object { if ($_ -eq "#$marker") { $marker } else { $_ } }) | Set-Content $qsf
+  Write-Host "== CRT-only build: HDMI scaler REMOVED (MISTER_DEBUG_NOHDMI) ==" -ForegroundColor Yellow
+  Write-Host "   no HDMI output; Direct Video forced on. Keep a known-good HDMI rbf." -ForegroundColor Yellow
+  Write-Host ""
+}
+try {
 
 Write-Host "== tree ==" -ForegroundColor Cyan
 try { git log --oneline -1 } catch { }
@@ -137,6 +163,17 @@ if ($rbf) {
 } else {
   Write-Host "  No .rbf produced -- check GENERATE_RBF_FILE in $REV.qsf" -ForegroundColor Red
   $failed = $true
+}
+
+}
+finally {
+  # restore the qsf whatever happened, so a failed or interrupted CRT build never
+  # leaves the project silently switched to a no-HDMI configuration.
+  if ($qsfBackup -and (Test-Path $qsfBackup)) {
+    Move-Item $qsfBackup $qsf -Force
+    Write-Host ""
+    Write-Host "   ($qsf restored to its committed state)" -ForegroundColor DarkGray
+  }
 }
 
 if ($failed) { exit 1 } else { exit 0 }
