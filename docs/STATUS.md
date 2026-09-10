@@ -9,7 +9,7 @@ code and should be updated with it.
 | Unit tests | **47 / 47 PASS** (macOS, Homebrew iverilog) |
 | psx patch stack | **26 / 26** apply · revert · re-apply |
 | Commits | 4 |
-| Quartus runs | **0** |
+| Quartus runs | 1 — A&S passed, Fitter crashed in the router |
 | Hardware runs | **0** |
 
 ## Two trees, one board
@@ -55,7 +55,10 @@ currently believed about this core:
 * That this tree compiles at all. No Quartus on the Mac or in the sandbox.
 * That the savestate change synthesises, closes timing, or leaves the OSD
   parsing correctly.
-* Whether `SS_ENABLE=0` lets Quartus prune the savestate logic.
+* ~~Whether `SS_ENABLE=0` lets Quartus prune the savestate logic.~~ **Measured
+  2026-09-09: partial.** The request path is dead, but `savestates` still costs
+  843 ALM / 712 registers because the reset sequencer inside it survives. See
+  `docs/2026-09-09-savestate-pruning-measured.md`.
 * That the new `.qpf` and `tools/build-573.ps1` work.
 
 ## Changed 2026-09-09
@@ -97,7 +100,8 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
 | #3 strip PSX pads + lightgun | 575 ALM | shipped (patch 0026) |
 | #4 strip memcard2 + SNAC | 80 ALM | shipped (patch 0027) |
 | #5 savestate stub as written | 300–647 ALM | **rejected** — breaks reset |
-| #5 savestate via constant folding | up to 647 ALM | **measure next fit** |
+| #5 savestate via constant folding | up to 647 ALM | **measured: partial** — request path dead, 843 ALM remains |
+| #5b force `SS_DataRead` to zero | ~670 LEs of muxing | new, narrow, safe — after a fit completes |
 | #2 ascal bicubic off | ~300 ALM | open; pruning speculative |
 | #6 remove MDEC | 714 ALM · 9 DSP | gated on per-game disasm |
 | #7 remove GTE | 4,663 ALM · 15 DSP | gated on no-COP2 proof |
