@@ -10,8 +10,8 @@ code and should be updated with it.
 | psx patch stack | **26 / 26** apply · revert · re-apply |
 | Commits | 4 |
 | Quartus runs | 2 — **bitstream produced** |
-| Fit | 39,246/41,910 ALM (94%), LABs 4,188/4,191 (**100%**), DSP 112/112 |
-| Timing | met, TNS 0 — but worst setup **+0.006 ns** on the HDMI PLL |
+| Fit (CRT build) | 34,695/41,910 ALM (83%), LABs 4,041/4,191 (96.4%), DSP **89/112** |
+| Timing | met, TNS 0, worst setup **+1.196 ns** (was +0.006 with HDMI) |
 | Hardware runs | 3 — **hyperbbc boots from flash and plays attract with sound** |
 
 ## Two trees, one board
@@ -131,7 +131,8 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
 | #5 savestate stub as written | 300–647 ALM | **rejected** — breaks reset |
 | #5 savestate via constant folding | up to 647 ALM | **measured: ~40 ALM.** Request path dead; 603 ALM of reset machinery remains. Closed. |
 | #5b force `SS_DataRead` to zero | ~670 LEs of muxing | new, narrow, safe — after a fit completes |
-| #2 ascal bicubic off | ~300 ALM | **now the top lever** — the only one on the binding clock (HDMI). Pruning still speculative |
+| #2 ascal bicubic off | ~300 ALM | written as patch 0028; **inert** while the CRT build removes ascal entirely |
+| **MISTER_DEBUG_NOHDMI** (CRT-only) | **measured −4,551 ALM, −23 DSP** | **done** — `build-573.ps1 -Crt`. Worst setup +0.006 → +1.196 ns |
 | #6 remove MDEC | 714 ALM · 9 DSP | gated on per-game disasm |
 | #7 remove GTE | 4,663 ALM · 15 DSP | gated on no-COP2 proof |
 
