@@ -83,71 +83,62 @@ stage_graft() {
   # The two touch points in Main. Both are discovered, never assumed: if the
   # upstream shape has moved, this fails loudly instead of building a binary
   # whose service is never called (which is exactly defect 1's failure mode).
-  python3 - "$MAIN" <<'PY'
+  python3 - "$MAIN" <<'PYEOF'
 import re, sys, os
 main = sys.argv[1]
 
-# ---- 1. the poll hook -------------------------------------------------------
+# ---- 1. the Makefile -------------------------------------------------------
+# CPP_SRC already globs ./support/*/*.cpp, so s573mp3.cpp is picked up for free.
+# C_SRC does NOT glob support/, so the two C files would be silently left out of
+# the link -- which would present as undefined references, not as a quiet
+# failure, but the assertion below is what guarantees that stays true.
+p = os.path.join(main, 'Makefile')
+s = open(p, encoding='utf-8', errors='surrogateescape').read()
+if '$(wildcard ./support/*/*.cpp)' not in s:
+    sys.exit('Makefile: CPP_SRC no longer globs ./support/*/*.cpp -- s573mp3.cpp '
+             'would not be compiled. Refusing to guess.')
+if 'support/*/*.c)' in s.replace('support/*/*.cpp)', ''):
+    print('Makefile: already gathers support C sources')
+else:
+    m = re.search(r'^C_SRC\s*=.*?(?=\n\S|\n\n)', s, re.M | re.S)
+    if not m:
+        sys.exit('Makefile: could not find the C_SRC block')
+    add = ('\n\n# Konami System 573 HPS MP3 service: CPP_SRC already globs\n'
+           '# ./support/*/*.cpp, but C_SRC does not glob support/ -- s573mp3_core.c\n'
+           '# and s573_descramble.c would be left out of the link.\n'
+           'C_SRC += $(wildcard ./support/*/*.c)')
+    s = s[:m.end()] + add + s[m.end():]
+    open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
+    print('Makefile: C_SRC += support/*/*.c added')
+
+# ---- 2. the poll hook ------------------------------------------------------
+# Placed beside psx_poll(): this core reports itself as "PSX", so is_psx() is
+# true for it as well, and that call site is in the same poll section. The gate
+# lives inside the service, NOT in a patch to user_io.cpp -- upstream put it
+# here and the WORKING write-up names that as the untested boundary that kept a
+# perfect unit from ever being invoked.
 p = os.path.join(main, 'user_io.cpp')
 s = open(p, encoding='utf-8', errors='surrogateescape').read()
 if 's573mp3_poll' in s:
     print('user_io.cpp: hook already present')
 else:
-    m = re.search(r'^([ \t]*)mdplus_poll\s*\(\s*\)\s*;[ \t]*$', s, re.M)
+    m = re.search(r'^([ \t]*)if \(is_psx\(\)\) psx_poll\(\);[ \t]*$', s, re.M)
     if not m:
-        m = re.search(r'^([ \t]*)\w*psx_poll\s*\(\s*\)\s*;[ \t]*$', s, re.M)
-    if not m:
-        sys.exit('user_io.cpp: found neither mdplus_poll() nor psx_poll() in '
+        sys.exit('user_io.cpp: could not find "if (is_psx()) psx_poll();" in '
                  'user_io_poll() -- refusing to guess where the hook goes')
     ind = m.group(1)
     ins = (m.group(0) + '\n' + ind +
-           '/* Konami System 573: HPS-side MP3 decode service. Core-name gated '
-           'inside. */\n' + ind + 's573mp3_poll();')
+           '// Konami System 573: HPS-side MP3 decode service. Core-name gated\n' + ind +
+           '// inside -- this core reports itself as "PSX", so is_psx() is true too.\n' + ind +
+           's573mp3_poll();')
     s = s[:m.start()] + ins + s[m.end():]
-    decl = ('\n/* support/s573/s573mp3.cpp */\nextern void s573mp3_poll(void);\n')
-    # put the declaration after the last #include at the top of the file
     incs = list(re.finditer(r'^#include[^\n]*\n', s, re.M))
     at = incs[-1].end() if incs else 0
-    s = s[:at] + decl + s[at:]
+    s = s[:at] + '\n/* support/s573/s573mp3.cpp */\nextern void s573mp3_poll(void);\n' + s[at:]
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
-    print('user_io.cpp: hook inserted after %s' % m.group(0).strip())
-
-# ---- 2. the Makefile --------------------------------------------------------
-p = os.path.join(main, 'Makefile')
-s = open(p, encoding='utf-8', errors='surrogateescape').read()
-if 'support/s573' in s:
-    print('Makefile: already carries support/s573')
-else:
-    # Append to whichever variables already gather support/* sources, so we
-    # inherit the project's own flags and rules rather than inventing any.
-    csrc  = re.search(r'^(\s*(?:C_SRC|CSRC|SRC_C)\s*[:+]?=)', s, re.M)
-    ccsrc = re.search(r'^(\s*(?:CPP_SRC|CXXSRC|SRC_CPP|CC_SRC)\s*[:+]?=)', s, re.M)
-    names = sorted(set(re.findall(r'^\s*([A-Z_0-9]+)\s*[:+]?=', s, re.M)))
-    add = ('\n# Konami System 573 HPS MP3 service (support/s573)\n'
-           'S573_C   := support/s573/s573mp3_core.c support/s573/s573_descramble.c\n'
-           'S573_CPP := support/s573/s573mp3.cpp\n')
-    hooked = False
-    for var, val in (('C', 'S573_C'), ('CPP', 'S573_CPP')):
-        # find a variable whose value already mentions support/ with that suffix
-        suffix = r'\.c\b' if var == 'C' else r'\.cpp\b'
-        for m in re.finditer(r'^([A-Z_0-9]+)\s*([:+]?=)([^\n]*(?:\\\n[^\n]*)*)', s, re.M):
-            if 'support/' in m.group(3) and re.search(suffix, m.group(3)):
-                add += '%s += $(%s)\n' % (m.group(1), val)
-                hooked = True
-                break
-    if not hooked:
-        sys.exit('Makefile: could not find the variables that gather support/*.c '
-                 'and support/*.cpp. Variables present: %s' % ', '.join(names))
-    # insert after the last variable assignment block near the top
-    m = re.search(r'^\s*$', s[2000:], re.M)
-    at = s.find('\n', 0)
-    # safest: put it immediately before the first rule (a line with a ':' target)
-    r = re.search(r'^[A-Za-z0-9_./$()%-]+\s*:[^=]', s, re.M)
-    at = r.start() if r else len(s)
-    s = s[:at] + add + '\n' + s[at:]
-    open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
-    print('Makefile: support/s573 sources added')
+    print('user_io.cpp: hook inserted after psx_poll()')
 PY
+PYEOF
   say "graft OK"
 }
 
