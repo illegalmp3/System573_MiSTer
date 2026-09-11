@@ -50,9 +50,13 @@
   TEST PROCEDURE (de-confounded: warm-reboot the MiSTer, /proc/uptime < 60s, then ONE
   load via this .mgl):
     1. Launch this .mgl.  2. In the OSD set "573 Boot Device" -> CD-ROM (status O[93]).
-    3. Let the installer run (it can be lengthy -- the install copies CD -> flash).
-    4. After install completes, set "573 Boot Device" -> Flash ROM and reload to run the
-       installed game.  (This mirrors the real hardware DIP SW4 install workflow.)
+    3. Let the installer run (it can be lengthy -- the install copies CD -> flash). It
+       ENDS at an on-screen prompt: ROM flash complete, press TEST to continue.
+    4. AT THAT PROMPT: open the OSD, set "573 Boot Device" -> Flash ROM, exit the OSD,
+       then press TEST. The game verifies the flash and loads. No reload or reboot is
+       needed -- the DIP SW4 change is picked up live, mirroring the real cabinet.
+       (Corrected 2026-09-11 from "set Flash ROM and reload", which is not what the
+       game asks for; verified on hardware.)
   STATUS (2026-06-12): with the real gx908ja.u1 staged as hypbbc2p.u1 this path now WORKS
   on real hardware (de10) -- it clears the -11N security wall, the CD/ATAPI installer
   copies the disc to onboard flash (first HW run of the CD path; previously sim-only),

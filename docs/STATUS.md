@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit (CRT build) | 34,695/41,910 ALM (83%), LABs 4,041/4,191 (96.4%), DSP **89/112** |
 | Timing | met, TNS 0, worst setup **+1.196 ns** (was +0.006 with HDMI) |
-| Hardware runs | 4 — hyperbbc boots on **both** the HDMI and the CRT-only bitstream |
+| Hardware runs | 6 — **hypbbc2p installs from CD and runs**; hyperbbc boots on both bitstreams and via one-click `.mgl` |
 
 ## Two trees, one board
 
@@ -56,7 +56,13 @@ currently believed about this core:
 
 ### Claimed upstream (the download's README)
 
-**Two reproduced, 2026-09-10.** *"hyperbbc (flash-only) boots, runs, and has
+**Three of four reproduced.** *"hypbbc2p (first CD-install title) boots and runs"*
+— confirmed 2026-09-11: the CD installer programmed onboard flash, the real
+`gx908ja.u1` cassette cleared the `-11N` wall, and the installed game runs
+(`docs/2026-09-11-hypbbc2p-cd-install-works.md`). Only the ddrsbm/MP3 claim is
+left, and it needs firmware this repo does not contain.
+
+**Earlier, 2026-09-10.** *"hyperbbc (flash-only) boots, runs, and has
 audio"* — confirmed: it boots from our own packed 16 MB flash image and plays
 attract with sound (`docs/2026-09-10-hyperbbc-boots.md`). The `.mgl` launcher did
 not work (it autoloaded a consumer Sony BIOS); the OSD load sequence did.
