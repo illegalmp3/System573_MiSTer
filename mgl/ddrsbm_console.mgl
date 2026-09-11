@@ -68,9 +68,24 @@
   <rbf>_Console/Konami_System_573</rbf>
   <setname>System573</setname>
   <file delay="1" type="f" index="0" path="573bios.bin"/>
-  <file delay="1" type="f" index="3" path="ddrsbm_nvram_installed.bin"/>
+  <!-- index-3 NVRAM entry REMOVED (2026-09-11). It pointed at
+       ddrsbm_nvram_installed.bin, a MAME-golden POST-INSTALL m48t58 image that
+       ships in no romset and that we do not hold. Two reasons dropping it is the
+       right call rather than a compromise:
+         * a first-ever launch has to run the CD installer anyway, and the
+           installer writes the M48T58 itself -- a pre-installed image only SKIPS
+           that step;
+         * the same notes above record that loading a BLANK nvram every launch is
+           actively harmful (it discards the installed flag), so loading nothing
+           is strictly better than loading a blank.
+       If cold boots turn out to re-run the installer every time, THAT is the
+       symptom meaning the M48T58 flag is not persisting -- a console .mgl has no
+       NVRAM save path (the <nvram> tag is arcade-.mra only, see
+       docs/audits/2026-06-11-nvram-saveback-gate0.md). The fix would then be to
+       capture a post-install NVRAM via an .mra launch and stage it here. -->
   <file delay="1" type="f" index="4" path="ddrsbm.u1"/>
   <file delay="1" type="f" index="5" path="ddrsbm.u6"/>
   <file delay="2" type="s" index="1" path="ddrsbm.chd"/>
   <file delay="3" type="s" index="4" path="saves/System573/ddrsbm.sav"/>
+  <reset delay="1"/>
 </mistergamedescription>
