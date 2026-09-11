@@ -1,0 +1,31 @@
+# Drop this file at /media/fat/s573mp3.debug to turn on the 573 MP3 service's
+# diagnostics. Its presence is the switch -- delete it to turn them off.
+#
+# Output goes to /media/fat/s573mp3.log, unbuffered, on the SD card, so it can
+# be read by plugging the card into a computer. No SSH and no MiSTer.ini
+# `debug=` setting are needed: Main's own debug=2 writes /tmp/debug.txt, which
+# is tmpfs and unreachable without a shell.
+
+hb=1          # one state line per second: epochs, ring pointers, frame counts,
+              # underruns, flushes. Every field retires a specific doubt.
+
+dump=1        # On the first song, write the RAW still-scrambled MP3 window as
+              # the HPS sees it to /media/fat/s573mp3_dump.bin (+ a .txt with
+              # the window and keys). Byte-comparing that against the scrambled
+              # MP3 in the disc image proves the write path, the address map and
+              # word alignment in ONE shot, and needs no keys. Leave this on for
+              # the first run -- it is the check that distinguishes correct audio
+              # from plausible-but-wrong audio that reads GREEN on every counter.
+
+tone=0        # 1 = push a known tone through the SAME ring path instead of the
+              # decoded MP3. Bisects delivery from decode -- the first thing to
+              # reach for if the audio is silent.
+
+atten=100     # MP3 channel level, percent. Upstream measured peaks above
+              # 0 dBFS (+1.17, +1.64) on silicon; try 80 if it sounds crunchy.
+
+# ring_unsafe_ok=1
+              # Only if the log reports a RING COLLISION and you have decided to
+              # write PCM anyway. A collision means the PCM ring address
+              # (0x33F10000, still marked PROVISIONAL in the RTL) overlaps live
+              # game memory, so overriding it corrupts the running game.

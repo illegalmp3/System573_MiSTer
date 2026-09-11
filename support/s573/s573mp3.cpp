@@ -99,7 +99,11 @@ static uint64_t            next_due_us = 0;
 static int   opt_hb    = 0;      /* hb=1     state line per second            */
 static int   opt_tone  = 0;      /* tone=1   440 Hz instead of decode          */
 static int   opt_atten = 100;    /* atten=0..100  MP3 channel percent          */
+static int   opt_dump  = 0;      /* dump=1   write the raw window to the SD card */
+static int   opt_unsafe_ring = 0;/* ring_unsafe_ok=1  write PCM anyway           */
 static FILE *logf      = 0;
+static uint32_t probe_sum_init = 0, probe_nz_init = 0;
+static int      probe_done = 0, ring_collides = 0;
 static uint32_t tone_phase = 0;
 
 /* Writes to both sinks: our SD-card log (when enabled) and stdout (which Main
@@ -131,6 +135,8 @@ static int s573_read_debug_file(void)
         if      (sscanf(p, "hb=%d", &v)    == 1) opt_hb   = (v != 0);
         else if (sscanf(p, "tone=%d", &v)  == 1) opt_tone = (v != 0);
         else if (sscanf(p, "atten=%d", &v) == 1) { if (v >= 0 && v <= 100) opt_atten = v; }
+        else if (sscanf(p, "dump=%d", &v)  == 1) opt_dump = (v != 0);
+        else if (sscanf(p, "ring_unsafe_ok=%d", &v) == 1) opt_unsafe_ring = (v != 0);
     }
     fclose(f);
     return 1;
@@ -235,10 +241,112 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     DisableIO();
 }
 
+
+/* ---------------------------------------------------------- ring placement --
+ * transport-design must-fix #2 is STILL OPEN: rtl/s573_pcm_ring.v calls
+ * RING_OFF_BEAT "PROVISIONAL" and nobody has confirmed 0x33F10000 is clear of
+ * the game's actual top-of-window sample-RAM usage. Getting that wrong means
+ * writing 256 KiB of PCM over live game data -- silent corruption that would
+ * present as a crash or a failed POST, i.e. as anything but itself.
+ *
+ * The design said to zero the ring at init. That is the single most destructive
+ * thing this service can do while #2 is open, and it is NOT NEEDED: the fabric
+ * reads only beats we advertise through hps_wr_ptr, which starts equal to
+ * fab_rd_ptr, so nothing is read until we write. So instead of zeroing, PROBE:
+ * checksum the region at init and again on the first config adoption, before we
+ * have written a single byte. If it changed in between, the game owns that
+ * memory and we must not touch it.
+ *
+ * Encouraging but not proof, so worth measuring rather than assuming: the MP3
+ * windows observed on silicon top out at 0x00BE271A (11.9 MB) against a ring at
+ * 31.1 MB -- 19.2 MB of headroom. Those are the MP3 windows only, not the
+ * game's whole sample-RAM footprint. */
+static void ring_probe(const char *when, uint32_t *sum_out, uint32_t *nz_out)
+{
+    const volatile uint32_t *w = (const volatile uint32_t *)(dio_map + S573_PCM_RING_OFF);
+    uint32_t i, n = S573_PCM_BYTES / 4, sum = 2166136261u, nz = 0;
+    for (i = 0; i < n; i++) {
+        uint32_t v = w[i];
+        if (v) nz++;
+        sum = (sum ^ v) * 16777619u;
+    }
+    *sum_out = sum; *nz_out = nz;
+    s573_log("s573mp3: ring probe (%s) at 0x%08x: sum=%08x nonzero_words=%u/%u\n",
+             when, S573_PCM_PHYS, sum, nz, n);
+}
+
+static void ring_probe_verdict(void)
+{
+    uint32_t sum, nz;
+    if (probe_done) return;
+    probe_done = 1;
+    ring_probe("first song, before we write", &sum, &nz);
+    if (sum != probe_sum_init || nz != probe_nz_init) {
+        ring_collides = 1;
+        s573_log("s573mp3: *** RING COLLISION: 0x%08x changed while we wrote "
+                 "NOTHING (init sum=%08x nz=%u, now sum=%08x nz=%u). The game "
+                 "owns this memory -- transport-design must-fix #2 is VIOLATED. "
+                 "PCM writes are DISABLED so the game is not corrupted. Move "
+                 "RING_OFF_BEAT in rtl/s573_pcm_ring.v, or set "
+                 "ring_unsafe_ok=1 to override. ***\n",
+                 S573_PCM_PHYS, probe_sum_init, probe_nz_init, sum, nz);
+    } else {
+        s573_log("s573mp3: ring placement looks CLEAR (unchanged across boot and "
+                 "the first song) -- must-fix #2 has an answer for this title\n");
+    }
+}
+
+/* The decisive, build-free visibility check (transport-design plan step 7), run
+ * from inside the service because this console has no shell to run
+ * tools/mister_vram_dump.sh from. Dumps the RAW, still-scrambled window as the
+ * HPS sees it; comparing it byte-for-byte against the scrambled MP3 in the disc
+ * image proves the write path, the address contract AND word alignment in one
+ * shot, and needs no keys. Alignment matters most: the key schedule is per-word
+ * stateful with no resync point, so one skipped or duplicated word yields
+ * plausible-but-wrong audio while 0xa8/0xca/0xcc all read GREEN. */
+static void dump_window(const s573_cfg_t *f)
+{
+    static int dumped = 0;
+    uint32_t len;
+    FILE *g;
+    if (dumped || !opt_dump) return;
+    if (f->mp3_end <= f->mp3_start) return;
+    dumped = 1;
+
+    len = f->mp3_end - f->mp3_start;
+    if (len > 65536u) len = 65536u;
+    if ((uint64_t)f->mp3_start + len > S573_DIO_SIZE) {
+        s573_log("s573mp3: dump SKIPPED -- window 0x%08x+%u runs past the "
+                 "32 MiB window\n", f->mp3_start, len);
+        return;
+    }
+
+    g = fopen("/media/fat/s573mp3_dump.bin", "wb");
+    if (!g) { s573_log("s573mp3: dump FAILED to open the output file\n"); return; }
+    fwrite((const void *)(dio_map + f->mp3_start), 1, len, g);
+    fclose(g);
+
+    g = fopen("/media/fat/s573mp3_dump.txt", "w");
+    if (g) {
+        fprintf(g, "phys      0x%08x\n", S573_DIO_PHYS + f->mp3_start);
+        fprintf(g, "mp3_start 0x%08x\nmp3_end   0x%08x\nlength    %u of %u\n",
+                f->mp3_start, f->mp3_end, len, f->mp3_end - f->mp3_start);
+        fprintf(g, "key1      0x%04x\nkey2      0x%04x\nkey3      0x%04x\n",
+                f->key1, f->key2, f->key3);
+        fprintf(g, "ddrsbm    %u\nflags     0x%04x\n",
+                (f->flags & S573_CFG_DDRSBM) ? 1u : 0u, f->flags);
+        fclose(g);
+    }
+    s573_log("s573mp3: dumped %u raw scrambled bytes from 0x%08x to "
+             "/media/fat/s573mp3_dump.bin\n", len, S573_DIO_PHYS + f->mp3_start);
+}
+
 /* ----------------------------------------------------------------- the ring -- */
 static void pcm_write(const int16_t *src, uint32_t beats)
 {
-    uint32_t off   = s573_core_pcm_byte_off(core.pcm_wr);
+    uint32_t off;
+    if (ring_collides && !opt_unsafe_ring) return;   /* see ring_probe_verdict */
+    off = s573_core_pcm_byte_off(core.pcm_wr);
     uint32_t bytes = beats * S573_BEAT_BYTES;
     uint32_t first = S573_PCM_BYTES - off;   /* cannot underflow: byte_off masks */
 
@@ -386,7 +494,6 @@ static int s573_init(void)
 
     s573_core_init(&core);
     mp3dec_init(&mp3d);
-    memset((void *)(dio_map + S573_PCM_RING_OFF), 0, S573_PCM_BYTES);
 
     /* the SD-card switch first, then let the environment override it */
     int dbg = s573_read_debug_file();
@@ -402,6 +509,8 @@ static int s573_init(void)
          * silently swallowed an earlier capture attempt on this project. */
         if (logf) setvbuf(logf, NULL, _IONBF, 0);
     }
+
+    ring_probe("init", &probe_sum_init, &probe_nz_init);
 
     s573_log("s573mp3: init -- DIO window 0x%08x+%u mapped, PCM ring at 0x%08x "
            "(%u beats = %.3f s), hb=%d tone=%d atten=%d%%\n",
@@ -487,6 +596,8 @@ void s573mp3_poll(void)
                f.gain_ll, f.gain_rr, f.gain_seen,
                (act & S573_ACT_DRAIN_ON)  ? " DRAIN ON"  : "",
                (act & S573_ACT_DRAIN_OFF) ? " DRAIN OFF via ENABLES" : "");
+
+        if (f.mp3_end > f.mp3_start) { ring_probe_verdict(); dump_window(&f); }
 
         if (act & S573_ACT_FLUSH) { pcm_ring_collapse("re-arm"); mp3dec_init(&mp3d); }
         if (act & S573_ACT_FLUSH_DEFER) {
