@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit (CRT build) | 34,695/41,910 ALM (83%), LABs 4,041/4,191 (96.4%), DSP **89/112** |
 | Timing | met, TNS 0, worst setup **+1.196 ns** (was +0.006 with HDMI) |
-| Hardware runs | 6 — **hypbbc2p installs from CD and runs**; hyperbbc boots on both bitstreams and via one-click `.mgl` |
+| Hardware runs | 7 — **ddrsbm boots with Select L/R working**; hypbbc2p installs from CD; hyperbbc on both bitstreams |
 
 ## Two trees, one board
 
