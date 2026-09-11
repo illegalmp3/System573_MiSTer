@@ -101,6 +101,17 @@
        auto-create. If the .mgl schema rejects it, the fallback is one
        user_io_file_mount(savepath, 4, 1, 16*1024*1024) in the PSX support file's
        load callback. Path = saves/System573/<basename>.sav per FileGenerateSavePath. -->
-  <file delay="3" type="s" index="4" path="saves/System573/hypbbc2p.sav"/>
+  <!-- SAVE PATH, CORRECTED 2026-09-11 (measured, not inferred).
+       This entry used to read path="saves/System573/<name>.sav". A .mgl type="s"
+       path is resolved games-folder-relative and taken VERBATIM -- it is NOT run
+       through Main's FileGenerateSavePath. Proof: after a successful hypbbc2p CD
+       install, config/System573.s4 held
+         ../usb0/games/System573/saves/System573/hypbbc2p.sav
+       i.e. games/System573/ + the literal path above. That directory does not
+       exist, so Main's auto-create-on-first-LBA-0-write had nowhere to create the
+       file: the core programmed its 16 MB flash and the save went nowhere, and the
+       next launch offered to initialize the flash again.
+       A bare filename lands it in games/System573/, which exists. -->
+  <file delay="3" type="s" index="4" path="hypbbc2p.sav"/>
   <reset delay="1"/>
 </mistergamedescription>

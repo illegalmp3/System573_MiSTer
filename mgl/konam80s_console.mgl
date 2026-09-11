@@ -61,7 +61,18 @@
        *** PARENT VERIFY ON HW (gate-0 RISK R4): a .mgl type="s" at a not-yet-existent
        saves/ path must trigger Main pre-allocate auto-create; fallback = one
        user_io_file_mount(savepath, 4, 1, 16*1024*1024) in the PSX support file. -->
-  <file delay="3" type="s" index="4" path="saves/System573/konam80s.sav"/>
+  <!-- SAVE PATH, CORRECTED 2026-09-11 (measured, not inferred).
+       This entry used to read path="saves/System573/<name>.sav". A .mgl type="s"
+       path is resolved games-folder-relative and taken VERBATIM -- it is NOT run
+       through Main's FileGenerateSavePath. Proof: after a successful hypbbc2p CD
+       install, config/System573.s4 held
+         ../usb0/games/System573/saves/System573/hypbbc2p.sav
+       i.e. games/System573/ + the literal path above. That directory does not
+       exist, so Main's auto-create-on-first-LBA-0-write had nowhere to create the
+       file: the core programmed its 16 MB flash and the save went nowhere, and the
+       next launch offered to initialize the flash again.
+       A bare filename lands it in games/System573/, which exists. -->
+  <file delay="3" type="s" index="4" path="konam80s.sav"/>
   <!-- NO <reset>: this launcher has six file items, and Main parses at most SIX
        items per .mgl, silently discarding the rest (mgl_item_struct item[6] +
        mra_loader.cpp `mgl.count < 6`). The reset used to be item seven and was
