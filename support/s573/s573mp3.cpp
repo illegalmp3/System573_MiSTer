@@ -52,6 +52,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "../../spi.h"
 #include "../../user_io.h"
@@ -115,6 +116,14 @@ static void s573_log(const char *fmt, ...)
         va_start(ap, fmt);
         vfprintf(logf, fmt, ap);
         va_end(ap);
+        /* Unbuffered gets each line into the kernel, but on FAT32 the metadata
+         * can still be uncommitted when the board is switched off at the wall --
+         * and switching it off at the wall is how this board gets tested, since
+         * there is no shell to reboot from. fsync per line makes the log survive
+         * that. At ~1 line/s it costs nothing; a log that vanishes on power-off
+         * would cost a whole test session. */
+        fflush(logf);
+        fsync(fileno(logf));
     }
     va_start(ap, fmt);
     vprintf(fmt, ap);
