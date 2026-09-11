@@ -171,3 +171,29 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
 * **47/47 proves absence of collateral damage, not correctness.** No 573 module
   was touched, so the suite does not exercise the change. Only a fit and a board
   can.
+
+## Verified dump hashes (acceptance criteria)
+
+Staged in `local/sd-stage/games/System573/` (git-ignored) and copied to the
+MiSTer's games folder. Anything not matching these is the wrong file.
+
+| File | Source | Hash |
+|---|---|---|
+| `573bios.bin`, `boot.rom` | `sys573.zip` → `700a01.22g` | crc `11812ef8` |
+| `573bios_gchgchmp.bin` | `sys573.zip` → `700a01,gchgchmp.22g` | crc `39ebb0ca` |
+| `hbbflash.bin` | built by `tools/pack_hyperbbc.py` | crc `638e1e54` |
+| `hbbnvram.bin` | `hyperbbc.zip` → `876ea.22h` | crc `8e11d196` |
+| `hypbbc2p.u1` | `hypbbc2p` set → **`gx908ja.u1`** | crc `8900eaff`, sha1 `aea4449c…` |
+| `hypbbc2p.chd` | `hypbbc2p` set → `908a02.chd` | CHD v4, header sha1 `573194ca9938c30415fc88dcc0c0152dd3024d71` |
+| `flash16m_blank.bin` | generated, 0xFF | crc `86175ebf` |
+| `nvram8k_blank.bin` | generated, 0xFF | crc `b4293435` |
+
+**The cassette is the one that bites.** `games/System573/hypbbc2p.u1` in *git* is a
+SYNTHESIZED cassette (crc `846648a5`) and stalls the boot at the on-screen `-11N`
+wall — the BIOS boot check reads authentic-dump data from cassette block 1 that
+`tools/gen_seccart_u1.py` cannot produce. Only crc `8900eaff` boots. A `-11N`
+means the wrong file reached the drive, not a core bug.
+
+**CHD note:** MAME's `DISK_IMAGE_READONLY` hash is of the data *inside* the CHD,
+not the file, so `sha1sum` on the file will not match. Parse the CHD header's sha1
+field instead (v4 header: sha1 at offset 0x20, v5 at 0x54).
