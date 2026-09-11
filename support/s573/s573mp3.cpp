@@ -44,6 +44,7 @@
  * Released under the GNU GPL v2.
  * ---------------------------------------------------------------------------- */
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -78,11 +79,62 @@ static s573_core_t         core;
 static mp3dec_t            mp3d;
 static uint64_t            next_due_us = 0;
 
-/* opt-in diagnostics, off unless the env var is set */
-static int   opt_hb    = 0;      /* S573MP3_HB=1    state line per second     */
-static int   opt_tone  = 0;      /* S573MP3_TONE=1  440 Hz instead of decode  */
-static int   opt_atten = 100;    /* S573MP3_ATTEN=0..100  MP3 channel percent */
+/* Opt-in diagnostics. Two switches, because on a console with no SSH the
+ * environment is not reachable: Main is started from /etc/inittab, so nobody
+ * can export a variable for it. The switch that actually works on such a board
+ * is a FILE on the SD card, which is writable by plugging the card into a
+ * computer -- so S573_DEBUG_FILE below is the primary control and the env vars
+ * are kept for a board you can get a shell on.
+ *
+ * And the output has to land somewhere retrievable for the same reason:
+ * `debug=1` in MiSTer.ini only stops Main from sending stdout to /dev/null, and
+ * `debug=2` writes /tmp/debug.txt, which is tmpfs -- gone on reboot and
+ * unreadable without a shell. So the service keeps its OWN log on the SD card,
+ * unbuffered, independent of Main's debug setting. "An empty log is not
+ * evidence" has burned this project three times; this is what makes the log
+ * exist at all. */
+#define S573_DEBUG_FILE  "/media/fat/s573mp3.debug"
+#define S573_LOG_FILE    "/media/fat/s573mp3.log"
+
+static int   opt_hb    = 0;      /* hb=1     state line per second            */
+static int   opt_tone  = 0;      /* tone=1   440 Hz instead of decode          */
+static int   opt_atten = 100;    /* atten=0..100  MP3 channel percent          */
+static FILE *logf      = 0;
 static uint32_t tone_phase = 0;
+
+/* Writes to both sinks: our SD-card log (when enabled) and stdout (which Main
+ * usually has pointed at /dev/null -- harmless either way). */
+static void s573_log(const char *fmt, ...)
+{
+    va_list ap;
+    if (logf) {
+        va_start(ap, fmt);
+        vfprintf(logf, fmt, ap);
+        va_end(ap);
+    }
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+}
+
+/* key=value lines, '#' comments. Absent file = diagnostics off. */
+static int s573_read_debug_file(void)
+{
+    char line[128];
+    FILE *f = fopen(S573_DEBUG_FILE, "r");
+    if (!f) return 0;
+    while (fgets(line, sizeof(line), f)) {
+        char *p = line;
+        int v;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || *p == '\r' || !*p) continue;
+        if      (sscanf(p, "hb=%d", &v)    == 1) opt_hb   = (v != 0);
+        else if (sscanf(p, "tone=%d", &v)  == 1) opt_tone = (v != 0);
+        else if (sscanf(p, "atten=%d", &v) == 1) { if (v >= 0 && v <= 100) opt_atten = v; }
+    }
+    fclose(f);
+    return 1;
+}
 
 /* one-shot warnings */
 static int warned_hz = 0, warned_mono = 0, warned_odd = 0, warned_defer = 0;
@@ -116,7 +168,7 @@ static int is_573(void)
     static int logged = -1;
     if (logged != hit) {
         logged = hit;
-        printf("s573mp3: gate %s -- core_name='%s' orig_name='%s'\n",
+        s573_log("s573mp3: gate %s -- core_name='%s' orig_name='%s'\n",
                hit ? "HIT" : "miss", n ? n : "(null)", on ? on : "(null)");
     }
     return hit;
@@ -208,7 +260,7 @@ static void pcm_write(const int16_t *src, uint32_t beats)
 static void pcm_ring_collapse(const char *why)
 {
     uint32_t dropped = s573_core_ring_collapse(&core);
-    printf("s573mp3: PCM FLUSH (%s) -- dropped %u beats (%.3f s), wr=%u rd=%u\n",
+    s573_log("s573mp3: PCM FLUSH (%s) -- dropped %u beats (%.3f s), wr=%u rd=%u\n",
            why, dropped, (double)dropped * S573_BEAT_SAMPLES / 44100.0,
            core.pcm_wr, core.pcm_rd);
 }
@@ -222,14 +274,14 @@ static void push_frame(const int16_t *pcm, int samples, int channels)
     if (channels == 1) {
         int i;
         if (!warned_mono) { warned_mono = 1;
-            printf("s573mp3: WARNING mono frame -- duplicating to stereo\n"); }
+            s573_log("s573mp3: WARNING mono frame -- duplicating to stereo\n"); }
         if (samples > (int)S573_FRAME_SAMPLES) samples = (int)S573_FRAME_SAMPLES;
         for (i = 0; i < samples; i++) { stereo[2*i] = pcm[i]; stereo[2*i+1] = pcm[i]; }
         pcm = stereo;
     }
 
     if ((samples & 1) && !warned_odd) { warned_odd = 1;
-        printf("s573mp3: WARNING odd sample count %d -- dropping the spare\n", samples); }
+        s573_log("s573mp3: WARNING odd sample count %d -- dropping the spare\n", samples); }
 
     beats = (uint32_t)samples / S573_BEAT_SAMPLES;
     if (!beats) return;
@@ -305,7 +357,7 @@ static void decode_some(void)
 
         if (info.hz != 44100 && !warned_hz) {
             warned_hz = 1;
-            printf("s573mp3: WARNING %d Hz stream -- the fabric drain is fixed at "
+            s573_log("s573mp3: WARNING %d Hz stream -- the fabric drain is fixed at "
                    "44100, so pitch will be wrong (no resampler)\n", info.hz);
         }
         push_frame(pcm, samples, info.channels);
@@ -320,14 +372,14 @@ static int s573_init(void)
     const char *e;
 
     fd = open("/dev/mem", O_RDWR | O_SYNC | O_CLOEXEC);
-    if (fd < 0) { printf("s573mp3: FATAL open /dev/mem failed\n"); return 0; }
+    if (fd < 0) { s573_log("s573mp3: FATAL open /dev/mem failed\n"); return 0; }
 
     /* mmap ONLY -- STRICT_DEVMEM zeroes read()/dd here but allows mmap. phys is
      * 1:1 and the pointer must stay volatile: the fabric mutates underneath. */
     m = mmap(0, S573_DIO_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, S573_DIO_PHYS);
     close(fd);
     if (m == MAP_FAILED) {
-        printf("s573mp3: FATAL mmap 0x%08x+%u failed\n", S573_DIO_PHYS, S573_DIO_SIZE);
+        s573_log("s573mp3: FATAL mmap 0x%08x+%u failed\n", S573_DIO_PHYS, S573_DIO_SIZE);
         return 0;
     }
     dio_map = (volatile uint8_t *)m;
@@ -336,14 +388,22 @@ static int s573_init(void)
     mp3dec_init(&mp3d);
     memset((void *)(dio_map + S573_PCM_RING_OFF), 0, S573_PCM_BYTES);
 
-    opt_hb   = ((e = getenv("S573MP3_HB"))   && *e == '1');
-    opt_tone = ((e = getenv("S573MP3_TONE")) && *e == '1');
+    /* the SD-card switch first, then let the environment override it */
+    int dbg = s573_read_debug_file();
+    if ((e = getenv("S573MP3_HB"))   && *e == '1') { opt_hb = 1; dbg = 1; }
+    if ((e = getenv("S573MP3_TONE")) && *e == '1') { opt_tone = 1; dbg = 1; }
     if ((e = getenv("S573MP3_ATTEN"))) {
         int v = atoi(e);
         if (v >= 0 && v <= 100) opt_atten = v;
     }
+    if (dbg) {
+        logf = fopen(S573_LOG_FILE, "w");
+        /* UNBUFFERED: with stdout on a plain file glibc block-buffers it, which
+         * silently swallowed an earlier capture attempt on this project. */
+        if (logf) setvbuf(logf, NULL, _IONBF, 0);
+    }
 
-    printf("s573mp3: init -- DIO window 0x%08x+%u mapped, PCM ring at 0x%08x "
+    s573_log("s573mp3: init -- DIO window 0x%08x+%u mapped, PCM ring at 0x%08x "
            "(%u beats = %.3f s), hb=%d tone=%d atten=%d%%\n",
            S573_DIO_PHYS, S573_DIO_SIZE, S573_PCM_PHYS, S573_PCM_BEATS,
            (double)S573_PCM_BEATS * S573_BEAT_SAMPLES / 44100.0,
@@ -363,7 +423,7 @@ static void heartbeat(void)
     next = t + 1000000ull;
 
     status_exchange(&sf, &ur, &bl);
-    printf("s573mp3: rst=%u ack=%u cfg=%u have=%u | in=%u/%u cons=%u "
+    s573_log("s573mp3: rst=%u ack=%u cfg=%u have=%u | in=%u/%u cons=%u "
            "| frames=%u sync=%u idle=%u | wr=%u rd=%u free=%u "
            "| ctrl=%04x flags=%04x underrun=%u buf=%u | flush=%u drop=%u torn=%u\n",
            last_rst_seen, core.rst_ack, core.cfg_epoch, core.have_cfg,
@@ -373,8 +433,8 @@ static void heartbeat(void)
            core.ctrl_flags, sf, ur, bl,
            core.flushes, core.beats_dropped, core.torn_cfg);
 
-    if (sf & 0x0008) printf("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");
-    if (ur)          printf("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
+    if (sf & 0x0008) s573_log("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");
+    if (ur)          s573_log("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
 }
 
 /* ---------------------------------------------------------------- the hook --
@@ -403,7 +463,7 @@ void s573mp3_poll(void)
     if (p.rst_epoch != core.rst_ack || !core.ptrs_thawed) {
         if (s573_core_on_core_reset(&core, p.rst_epoch)) {
             mp3dec_init(&mp3d);
-            printf("s573mp3: core reset -- rst_epoch=%u acked, writer rebaselined\n",
+            s573_log("s573mp3: core reset -- rst_epoch=%u acked, writer rebaselined\n",
                    p.rst_epoch);
             ctrl_exchange();          /* re-prime baselines, push cleared flags */
             ptrs_exchange(&p);        /* deliver the ack now */
@@ -420,7 +480,7 @@ void s573mp3_poll(void)
         mp3cfg_exchange(&f);
         act = s573_core_apply_cfg(&core, &f, p.cfg_epoch, drain_before);
 
-        printf("s573mp3: CFG epoch=%u flags=%04x start=%08x end=%08x "
+        s573_log("s573mp3: CFG epoch=%u flags=%04x start=%08x end=%08x "
                "keys=%04x/%04x/%04x ddrsbm=%u gain=%05x/%05x seen=%u%s%s\n",
                p.cfg_epoch, f.flags, f.mp3_start, f.mp3_end,
                f.key1, f.key2, f.key3, core.ddrsbm,
@@ -434,10 +494,10 @@ void s573mp3_poll(void)
              * this deferred unconditionally and measured INERT, because ddrsbm
              * delivers the new window and stream_en=1 in ONE adoption. */
             if (!warned_defer) { warned_defer = 1;
-                printf("s573mp3: flush DEFERRED (drain was on at the re-arm)\n"); }
+                s573_log("s573mp3: flush DEFERRED (drain was on at the re-arm)\n"); }
         }
         if (act & S573_ACT_SCHEME_BAD)
-            printf("s573mp3: *** descramble scheme disagrees with the fabric ***\n");
+            s573_log("s573mp3: *** descramble scheme disagrees with the fabric ***\n");
     }
 
     if (core.have_cfg && (core.ctrl_flags & S573_CTRL_DRAIN_EN)) decode_some();
@@ -447,7 +507,7 @@ void s573mp3_poll(void)
      * on an enable edge here would mean the music never stops. */
     if (s573_core_should_stop(&core)) {
         core.ctrl_flags &= (uint16_t)~S573_CTRL_DRAIN_EN;
-        printf("s573mp3: song end -- window exhausted (cur=%08x end=%08x) and "
+        s573_log("s573mp3: song end -- window exhausted (cur=%08x end=%08x) and "
                "ring drained, DRAIN OFF via EXHAUSTION\n",
                core.desc.cur, core.desc.mp3_end);
     }
