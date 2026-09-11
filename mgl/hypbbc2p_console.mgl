@@ -21,6 +21,22 @@
   left as-is and are NOT verified against the docs.
 -->
 <!--
+  *** RUN LAUNCHER (installed game) *** To install from CD the FIRST time, use
+  hypbbc2p_install.mgl instead.
+
+  WHY THE TWO BLANK IMAGES ARE GONE (2026-09-11, the restore fix):
+  Main mounts every SC<n> CONF_STR slot inside parse_config() at CORE INIT --
+  user_io_init() calls it BEFORE mgl_parse(). So slot 4 (the 16 MB flash save) is
+  mounted at t~0 and the restore starts immediately. An index-2 blank flash from the
+  .mgl then lands ON TOP of the restored image (ch3_dl outranks the saver's ch3
+  drain) and flash_load_taken is already latched, so the load never re-arms ->
+  blank flash -> "DO YOU WANT TO INITIALIZE FLASH-ROM?". Upstream A/B'd this on
+  de10 2026-07-31 for ddrsbm and fixed ddrsbm_console.mgl, but never carried the fix
+  to this file. Measured here 2026-09-11: a reinstall prompt on the second launch.
+  The index-3 blank NVRAM is dropped for the same class of reason -- a CD-install
+  game keeps its installed flag in the M48T58, so reloading a blank one every launch
+  discards it.
+
   TEST C: hypbbc2p (Hyper Bishi Bashi Champ 2P) -- a CD-INSTALLER game. Launches the
   573 as a standalone console core (is_arcade_type=0) with a BLANK 16MB flash + BLANK
   8KB NVRAM and the CD mounted into the S1 (CUECHD) slot. On first boot, with the boot
@@ -73,8 +89,6 @@
        (PSX-name HomeDir misresolution + config/PSX.CFG status pollution). -->
   <setname>System573</setname>
   <file delay="1" type="f" index="0" path="573bios.bin"/>
-  <file delay="1" type="f" index="2" path="flash16m_blank.bin"/>
-  <file delay="1" type="f" index="3" path="nvram8k_blank.bin"/>
   <file delay="1" type="f" index="4" path="hypbbc2p.u1"/>
   <file delay="2" type="s" index="1" path="hypbbc2p.chd"/>
   <!-- FLASH PERSISTENCE (slot 4): mount the 16 MB save so a CD install survives a
