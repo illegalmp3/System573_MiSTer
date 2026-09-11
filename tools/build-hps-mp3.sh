@@ -11,8 +11,19 @@
 # Three inputs must be fetched on macOS into ~/Documents first (the VM has no
 # network):
 #   Main_MiSTer.tar.gz
-#   arm-gnu-toolchain-13.3.rel1-aarch64-arm-none-linux-gnueabihf.tar.xz
+#   gcc-arm-10.2-2020.11-aarch64-arm-none-linux-gnueabihf.tar.xz
 #   minimp3.h
+#
+# THE TOOLCHAIN VERSION IS NOT A FREE CHOICE. Main's Makefile comment says
+# "using gcc version 10.2.1" and its devcontainer pins gcc-arm-10.2-2020.11, and
+# that pin is a RUNTIME ABI pin, not a warnings preference. Building with ARM's
+# 13.3 produced a perfectly valid binary that required GLIBC_2.38
+# (__isoc23_sscanf/strtol), GLIBC_2.34 (pthread_create, shm_open,
+# __libc_start_main -- glibc folded pthreads into libc) and GLIBC_2.35 (hypotf).
+# MiSTer's rootfs has none of those, so the loader refuses the binary before
+# main() and the console simply never comes up. Measured on hardware 2026-09-11.
+# 10.2's sysroot is glibc 2.31 and the resulting binary tops out at GLIBC_2.28
+# with old-style librt/libpthread linkage, which is what upstream ships.
 #
 # Stages:  setup | graft | build | deploy | all
 # -----------------------------------------------------------------------------
@@ -40,7 +51,7 @@ stage_setup() {
   mkdir -p "$WORK"
 
   local tctar srctar mp3h
-  tctar="$(need_input 'arm-gnu-toolchain-*-aarch64-arm-none-linux-gnueabihf.tar.xz' 'ARM toolchain')"
+  tctar="$(need_input 'gcc-arm-10.2-*-aarch64-arm-none-linux-gnueabihf.tar.xz' 'ARM toolchain')"
   srctar="$(need_input 'Main_MiSTer*.tar.gz' 'Main_MiSTer source')"
   mp3h="$(need_input 'minimp3.h' 'minimp3 single header')"
 
@@ -154,6 +165,30 @@ stage_build() {
   arm-none-linux-gnueabihf-strip -s "$out" || true
   ls -la "$out"
   strings -a "$out" | grep -c s573mp3 | sed 's/^/s573mp3 strings in the binary: /'
+  # ABI GATE. A binary that demands a newer glibc than the board has does not
+  # fail visibly -- the console just never boots, which reads as "the core is
+  # broken". Compare against the binary the board ALREADY RUNS, and refuse to
+  # stage anything that asks for more.
+  local ref="$SD/MiSTer.orig"
+  if [ -f "$ref" ]; then
+    local hi_ours hi_ref
+    hi_ours=$(arm-none-linux-gnueabihf-readelf -V "$out" | grep -oE 'GLIBC_[0-9.]+' \
+              | sed 's/GLIBC_//' | sort -uV | tail -1)
+    hi_ref=$(arm-none-linux-gnueabihf-readelf -V "$ref" | grep -oE 'GLIBC_[0-9.]+' \
+              | sed 's/GLIBC_//' | sort -uV | tail -1)
+    if [ -z "$hi_ref" ]; then
+      die "could not read the reference binary's GLIBC requirements ($ref). An
+empty reading is NOT a pass -- verify the instrument before believing a null."
+    fi
+    say "glibc floor: ours GLIBC_$hi_ours vs the board's own binary GLIBC_$hi_ref"
+    if [ "$(printf '%s\n%s\n' "$hi_ours" "$hi_ref" | sort -V | tail -1)" != "$hi_ref" ]; then
+      die "ABI GATE: this build needs GLIBC_$hi_ours but the board runs a binary
+needing only GLIBC_$hi_ref. It would not boot. Use the 10.2 toolchain."
+    fi
+  else
+    say "WARNING: no $ref to compare against -- ABI gate SKIPPED, not passed"
+  fi
+
   mkdir -p "$DOCS/System573_MiSTer/out"
   cp -f "$out" "$DOCS/System573_MiSTer/out/MiSTer"
   say "binary copied to System573_MiSTer/out/MiSTer"
