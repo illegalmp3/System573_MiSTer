@@ -1,0 +1,267 @@
+/* -----------------------------------------------------------------------------
+ * test_s573mp3_core.c - host tests for the 573 HPS MP3 service core.
+ *
+ * Runs on any host (no /dev/mem, no SPI, no minimp3). Every group that guards a
+ * known defect has a matching mutation define that restores the bug; the suite
+ * MUST go RED under each one, or it is not testing anything:
+ *
+ *   make mutate        # runs all three and reports PASS only if all go RED
+ *
+ * Released under the GNU GPL v2.
+ * ---------------------------------------------------------------------------- */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include "../s573mp3_core.h"
+
+static int fails = 0, groups = 0;
+#define GROUP(n) do { groups++; printf("-- T%-2d %s\n", groups, n); } while (0)
+#define CHECK(cond, msg) do { if (!(cond)) { \
+        printf("   FAIL: %s  (%s:%d)\n", msg, __FILE__, __LINE__); fails++; } } while (0)
+#define CHECKEQ(got, want, msg) do { unsigned long g=(unsigned long)(got), \
+        w=(unsigned long)(want); if (g != w) { \
+        printf("   FAIL: %s  got %lu (0x%lx) want %lu (0x%lx)  (%s:%d)\n", \
+        msg, g, g, w, w, __FILE__, __LINE__); fails++; } } while (0)
+
+static void mkcfg(s573_cfg_t *f, uint32_t start, uint32_t end,
+                  uint16_t k1, uint16_t k2, uint16_t k3, uint16_t flags,
+                  uint16_t epoch)
+{
+    memset(f, 0, sizeof(*f));
+    f->epoch8 = (uint16_t)(epoch & 0xFF);
+    f->mp3_start = start; f->mp3_end = end;
+    f->key1 = k1; f->key2 = k2; f->key3 = k3;
+    f->flags = flags;
+    f->gain_ll = 0x8000; f->gain_rr = 0x8000; f->gain_seen = 1;
+}
+
+#define FLAGS_PLAY  (S573_CFG_DDRSBM | S573_CFG_CTRL13 | S573_CFG_CTRL14 | S573_CFG_CTRL15)
+#define FLAGS_STOP  (S573_CFG_DDRSBM | S573_CFG_CTRL13 | S573_CFG_CTRL15)  /* 000b */
+#define FLAGS_IDLE  (S573_CFG_DDRSBM)                                       /* 0001 */
+
+int main(void)
+{
+    s573_core_t c;
+    s573_cfg_t  f;
+    int act;
+
+    /* ------------------------------------------------------------------ */
+    GROUP("init leaves the writer parked and no config adopted");
+    s573_core_init(&c);
+    CHECKEQ(c.pcm_wr, 0, "pcm_wr");
+    CHECKEQ(c.have_cfg, 0, "have_cfg");
+    CHECKEQ(c.ctrl_flags, 0, "ctrl_flags");
+    CHECK(!s573_core_may_decode(&c) == 0, "an empty ring may decode");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("core-reset epoch: first sighting acks and demands a flush");
+    s573_core_init(&c);
+    c.pcm_wr = 0x9ABC; c.have_cfg = 1; c.cons_bytes = 12345;
+    CHECKEQ(s573_core_on_core_reset(&c, 1), 1, "first reset returns flush");
+    CHECKEQ(c.rst_ack, 1, "rst_ack adopted");
+    CHECKEQ(c.pcm_wr, 0, "writer rebaselined to 0");
+    CHECKEQ(c.cons_bytes, 0, "credit rebaselined");
+    CHECKEQ(c.have_cfg, 0, "config forgotten");
+    CHECKEQ(s573_core_on_core_reset(&c, 1), 0, "same epoch is idempotent");
+    CHECKEQ(s573_core_on_core_reset(&c, 2), 1, "a new epoch re-fires");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("CTRL baselines are adopted so the first delta is zero");
+    s573_core_init(&c);
+    s573_core_adopt_ctrl_baseline(&c, 0x7A35);
+    CHECKEQ(c.frame_sync_cnt, 0x7A, "sync baseline");
+    CHECKEQ(c.frame_idle_cnt, 0x35, "idle baseline");
+    CHECKEQ(s573_core_ctrl_word1(&c), 0x7A35, "echo == baseline -> delta 0");
+    CHECKEQ(c.ctrl_primed, 1, "primed");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("cfg_epoch is adopted as 16 bits (bug 2 regression)");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 300);
+    (void)s573_core_apply_cfg(&c, &f, 300, 0);
+    CHECKEQ(c.cfg_epoch, 300, "16-bit epoch adopted, not the 8-bit echo");
+    CHECKEQ(c.torn_cfg, 0, "low byte agrees -> not torn");
+    /* the shape of the bug: had we adopted f.epoch8 (=44) the comparison
+     * r.cfg_epoch(300) != c->cfg_epoch(44) would re-fire on every poll forever */
+    CHECK(c.cfg_epoch != (uint16_t)f.epoch8, "adopted value must not be the echo");
+    /* re-reading the same epoch must be a no-op decision for the caller */
+    CHECKEQ(c.cfg_epoch == 300, 1, "stable across polls");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("a genuinely torn MP3CFG read is counted, not swallowed");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 300);
+    f.epoch8 = 0x2B;                     /* != 300 & 0xFF (0x2C) */
+    (void)s573_core_apply_cfg(&c, &f, 300, 0);
+    CHECKEQ(c.torn_cfg, 1, "torn read flagged");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("ring pointers compare FULL WIDTH: one lap ahead is FULL, not empty");
+    s573_core_init(&c);
+    c.pcm_rd = 0x0000; c.pcm_wr = (uint16_t)S573_PCM_BEATS;   /* exactly one lap */
+    CHECKEQ(s573_core_pcm_used(&c), S573_PCM_BEATS, "used == whole ring");
+    CHECKEQ(s573_core_pcm_free(&c), 0, "free == 0 (FULL)");
+    CHECK(!s573_core_pcm_empty(&c), "must NOT read empty");
+    CHECK(!s573_core_may_decode(&c), "must not decode into a full ring");
+    /* and the ordinary cases still work */
+    c.pcm_rd = 0x7FF0; c.pcm_wr = 0x8010;
+    CHECKEQ(s573_core_pcm_used(&c), 0x20, "used across the wrap boundary");
+    c.pcm_rd = 0xFFF0; c.pcm_wr = 0x0010;   /* pointer wrap at 2^16 */
+    CHECKEQ(s573_core_pcm_used(&c), 0x20, "used across the 16-bit wrap");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("wrote_pcm keeps the wrap MSB across a lap (bug 3 regression)");
+    s573_core_init(&c);
+    c.pcm_wr = (uint16_t)(S573_PCM_BEATS - 4);
+    s573_core_wrote_pcm(&c, 8);
+    CHECKEQ(c.pcm_wr, S573_PCM_BEATS + 4, "crossing the lap sets bit 15");
+    CHECK(c.pcm_wr > S573_PCM_IDX_MASK, "pointer must exceed 15 bits");
+    /* a full lap of writes returns to the same index with the MSB toggled */
+    s573_core_init(&c);
+    s573_core_wrote_pcm(&c, S573_PCM_BEATS);
+    CHECKEQ(c.pcm_wr, S573_PCM_BEATS, "one lap == 0x8000, not 0");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("byte_off is the only place the MSB is masked; no underflow");
+    {
+        uint32_t p, off, worst = 0;
+        for (p = 0; p <= S573_PCM_PTR_MASK; p += 997) {
+            off = s573_core_pcm_byte_off((uint16_t)p);
+            CHECK(off < S573_PCM_BYTES, "offset inside the mapping");
+            if (S573_PCM_BYTES - off > worst) worst = S573_PCM_BYTES - off;
+        }
+        CHECKEQ(s573_core_pcm_byte_off((uint16_t)(S573_PCM_BEATS + 3)), 24,
+                "lapped pointer maps to the same offset as its index");
+        CHECKEQ(worst, S573_PCM_BYTES, "BYTES - off never underflows");
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("ring collapse parks one beat ahead and survives a mid-read advance");
+    s573_core_init(&c);
+    c.pcm_rd = 0x1234; c.pcm_wr = (uint16_t)(0x1234 + 30000);
+    {
+        uint32_t dropped = s573_core_ring_collapse(&c);
+        CHECKEQ(dropped, 30000, "dropped == what was queued");
+        CHECKEQ(c.pcm_wr, 0x1235, "parked one beat ahead of the fabric");
+        CHECKEQ(c.flushes, 1, "flush counted");
+        /* the reason for +1: if the reader completes the beat it had already
+         * committed to, it advances once more -- and we must land on EMPTY, not
+         * on 0xFFFF beats of replay */
+        c.pcm_rd = 0x1235;
+        CHECKEQ(s573_core_pcm_used(&c), 0, "empty after the reader's last beat");
+        CHECK(s573_core_pcm_empty(&c), "reads empty");
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("flush fires on a re-arm, defers while draining, ignores enable-only");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 1);
+    act = s573_core_apply_cfg(&c, &f, 1, 0);
+    CHECK(act & S573_ACT_FLUSH, "first adoption flushes (drain was off)");
+    CHECK(act & S573_ACT_DRAIN_ON, "drain armed from the enables");
+    /* same window, same keys, only the enables move -> NOT a re-arm */
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_STOP, 2);
+    act = s573_core_apply_cfg(&c, &f, 2, 1);
+    CHECK(!(act & (S573_ACT_FLUSH | S573_ACT_FLUSH_DEFER)),
+          "a bare stop must NOT drop buffered PCM");
+    CHECK(act & S573_ACT_DRAIN_OFF, "drain disarmed by the enables");
+    /* new window while the drain was OFF -> flush now */
+    mkcfg(&f, 0x3000, 0x4000, 1, 2, 3, FLAGS_PLAY, 3);
+    act = s573_core_apply_cfg(&c, &f, 3, 0);
+    CHECK(act & S573_ACT_FLUSH, "new window with the drain off -> flush");
+    /* new window while the drain was ON -> defer, loudly */
+    mkcfg(&f, 0x5000, 0x6000, 9, 9, 9, FLAGS_PLAY, 4);
+    act = s573_core_apply_cfg(&c, &f, 4, 1);
+    CHECK(act & S573_ACT_FLUSH_DEFER, "new window mid-drain -> deferred");
+    CHECK(!(act & S573_ACT_FLUSH), "not both");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("a re-arm rebaselines the input window and the credit");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 1);
+    (void)s573_core_apply_cfg(&c, &f, 1, 0);
+    c.in_len = 900; c.in_pos = 400; c.cons_bytes = 77777;
+    mkcfg(&f, 0x9000, 0xA000, 4, 5, 6, FLAGS_PLAY, 2);
+    (void)s573_core_apply_cfg(&c, &f, 2, 0);
+    CHECKEQ(c.in_len, 0, "input window dropped");
+    CHECKEQ(c.in_pos, 0, "input cursor reset");
+    CHECKEQ(c.cons_bytes, 0, "credit restarted (fabric rebaselines in step)");
+    CHECKEQ(c.desc.cur, 0x9000, "descrambler re-armed to the new window");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("may_decode is a free-space test and nothing else");
+    s573_core_init(&c);
+    c.pcm_rd = 0; c.pcm_wr = (uint16_t)(S573_PCM_BEATS - S573_FRAME_BEATS);
+    CHECK(s573_core_may_decode(&c), "exactly one frame of room -> yes");
+    c.pcm_wr = (uint16_t)(S573_PCM_BEATS - S573_FRAME_BEATS + 1);
+    CHECK(!s573_core_may_decode(&c), "one beat short -> no");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("refill descrambles, compacts, and accumulates the credit");
+    {
+        uint8_t *dio = (uint8_t *)malloc(0x20000);
+        uint32_t got, i;
+        CHECK(dio != NULL, "alloc");
+        for (i = 0; i < 0x20000; i++) dio[i] = (uint8_t)(i * 7 + (i >> 8));
+        s573_core_init(&c);
+        mkcfg(&f, 0x1000, 0x4000, 0x1234, 0x5678, 0x9abc, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        got = s573_core_refill(&c, dio);
+        CHECKEQ(got, S573_IN_BUF, "filled the input buffer");
+        CHECKEQ(c.in_len, S573_IN_BUF, "in_len");
+        CHECKEQ(c.cons_bytes, S573_IN_BUF, "credit == bytes pulled");
+        /* consume some, refill, and confirm the unconsumed tail is preserved */
+        {
+            uint8_t tail[64];
+            c.in_pos = S573_IN_BUF - 64;
+            memcpy(tail, c.in_buf + c.in_pos, 64);
+            got = s573_core_refill(&c, dio);
+            CHECKEQ(memcmp(c.in_buf, tail, 64), 0, "unconsumed tail compacted forward");
+            CHECKEQ(c.in_pos, 0, "cursor rebased");
+            CHECKEQ(c.in_len, 64 + got, "length accounts for both halves");
+            CHECKEQ(c.cons_bytes, S573_IN_BUF + got, "credit is cumulative");
+        }
+        /* an out-of-range cursor must clamp, not wrap into a 4 GiB memmove */
+        c.in_pos = c.in_len + 1000;
+        (void)s573_core_refill(&c, dio);
+        CHECK(c.in_pos <= c.in_len, "cursor clamped");
+        /* the same window pulled in one shot must equal the chunked pull --
+         * the spike's resumability property, re-checked in place */
+        {
+            s573_desc_t a, b;
+            uint8_t *ba = (uint8_t *)malloc(4096), *bb = (uint8_t *)malloc(4096);
+            size_t na = 0, nb = 0, n;
+            s573_desc_init(&a, 0x1000, 0x1800, 0x1234, 0x5678, 0x9abc, 1);
+            s573_desc_init(&b, 0x1000, 0x1800, 0x1234, 0x5678, 0x9abc, 1);
+            na = s573_desc_pull(&a, dio, ba, 4096);
+            while (nb < na) { n = s573_desc_pull(&b, dio, bb + nb, 7); if (!n) break; nb += n; }
+            CHECKEQ(nb, na, "chunked pull yields the same length");
+            CHECKEQ(memcmp(ba, bb, na), 0, "chunked pull yields the same bytes");
+            CHECKEQ(na, s573_desc_stream_len(0x1000, 0x1800), "2N-1 stream length");
+            free(ba); free(bb);
+        }
+        free(dio);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("should_stop needs exhaustion AND a drained tail");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x1100, 1, 2, 3, FLAGS_PLAY, 1);
+    (void)s573_core_apply_cfg(&c, &f, 1, 0);
+    CHECK(!s573_core_should_stop(&c), "fresh window does not stop");
+    c.desc.cur = 0x1100;                       /* window spent */
+    c.in_len = 10; c.in_pos = 0;               /* undecoded residue */
+    CHECK(!s573_core_should_stop(&c), "residue in the input buffer holds the stop");
+    c.in_pos = 10;
+    c.pcm_wr = 5; c.pcm_rd = 0;                /* PCM still queued */
+    CHECK(!s573_core_should_stop(&c), "queued PCM holds the stop (tail plays out)");
+    c.pcm_rd = 5;
+    CHECK(s573_core_should_stop(&c), "exhausted + drained -> stop");
+    c.ctrl_flags = 0;
+    CHECK(!s573_core_should_stop(&c), "already stopped -> no repeat");
+
+    printf("\n%d groups, %d failures\n", groups, fails);
+    if (fails) { printf("RESULT: FAIL\n"); return 1; }
+    printf("RESULT: PASS\n");
+    return 0;
+}

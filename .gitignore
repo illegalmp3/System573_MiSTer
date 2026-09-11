@@ -111,3 +111,8 @@ snap/
 # sim/system573/build/ but not these sibling build dirs, so three run.log
 # artifacts ended up tracked. Ignore the logs wherever a sim build writes them.
 sim/**/build*/run*.log
+
+# build outputs
+/out/
+support/s573/tests/test
+support/s573/tests/test_S573_MUT_*
