@@ -260,6 +260,35 @@ int main(void)
     c.ctrl_flags = 0;
     CHECK(!s573_core_should_stop(&c), "already stopped -> no repeat");
 
+    /* ------------------------------------------------------------------ */
+    GROUP("pulling a whole window really does reach exhaustion");
+    {
+        /* The end-of-song signal depends entirely on this: if cur never lands on
+         * mp3_end, s573_core_should_stop() can never fire and the music never
+         * stops. Drive it for real rather than poking desc.cur by hand. */
+        uint8_t *dio = (uint8_t *)malloc(0x8000);
+        uint32_t total = 0, got, guard = 0;
+        uint32_t i;
+        for (i = 0; i < 0x8000; i++) dio[i] = (uint8_t)(i ^ (i >> 5));
+        s573_core_init(&c);
+        mkcfg(&f, 0x0800, 0x1000, 0xdead, 0xbeef, 0xcafe, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        CHECK(!s573_core_window_exhausted(&c), "not exhausted at the start");
+        while (guard++ < 1000) {
+            c.in_pos = c.in_len;                /* pretend the decoder ate it all */
+            got = s573_core_refill(&c, dio);
+            total += got;
+            if (!got) break;
+        }
+        CHECK(guard < 1000, "terminated");
+        CHECKEQ(total, s573_desc_stream_len(0x0800, 0x1000), "2N-1 bytes emitted");
+        CHECK(s573_core_window_exhausted(&c), "window reads exhausted");
+        CHECKEQ(c.desc.cur, 0x1000, "cur lands EXACTLY on mp3_end");
+        CHECKEQ(c.cons_bytes, total, "credit == every byte pulled");
+        CHECK(s573_core_should_stop(&c), "and the song can now end");
+        free(dio);
+    }
+
     printf("\n%d groups, %d failures\n", groups, fails);
     if (fails) { printf("RESULT: FAIL\n"); return 1; }
     printf("RESULT: PASS\n");
