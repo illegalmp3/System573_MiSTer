@@ -165,12 +165,20 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
   never advances and the step-chart sync never begins. So this is a hard
   prerequisite for a playable DDR, not a finishing touch.
 
-* **The HPS-side MP3 service is missing from this repo.** The status table claims
-  it "plays on real hardware", but the code lives in an unpublished `Main_MiSTer`
-  fork — there is no `support/` directory here. A DDR title on this tree would
-  boot and run **silent**. Reaching that result is a firmware project (fork Main,
-  vendor minimp3, build ARM), though the design and two hard-won bug fixes are
-  documented. See `docs/2026-09-10-ddr-gap-hps-service.md`.
+* **The HPS-side MP3 service has been WRITTEN but never compiled for ARM or run.**
+  It was missing from this repo entirely (the status table claimed it "plays on
+  real hardware" while the code lived in an unpublished `Main_MiSTer` fork, and
+  the SD card's `MiSTer` binary is stock). `support/s573/` now holds it: the
+  bit-exact descrambler copied from the decision-B spike, a portable core with
+  14 host-test groups and three mutation checks, and the Main-side glue. Four
+  defects that each cost upstream a hardware session are pre-cleared. Nothing is
+  verified on silicon — not even that it compiles against Main's headers. See
+  `docs/2026-09-11-hps-mp3-service.md`.
+
+* **A DDR title launched from the bare `.rbf` will be silent even with the
+  service deployed.** The gate is the core name, and this core's CONF_STR still
+  begins `"PSX;"` — only the `.mgl` `<setname>System573` makes it 573-specific.
+  Upstream lost a session to exactly this.
 
 * **The DDR targets are further off than the status table suggests.** *DDR
   Extreme* (`ddrextrm`) and *4th Mix Plus* (`ddr4mp`) need a 32 MB PCMCIA card,
