@@ -44,9 +44,11 @@ int s573_core_on_core_reset(s573_core_t *c, uint8_t rst_epoch)
     c->ctrl_primed = 0;
     c->in_len      = 0;
     c->in_pos      = 0;
-    c->cons_bytes  = 0;
-    c->rst_ack     = rst_epoch;
+    c->cons_bytes   = 0;
+    c->pulled_bytes = 0;
+    c->rst_ack      = rst_epoch;
     c->ptrs_thawed = 1;                /* our view; the fabric thaws next poll */
+    s573_core_pq_reset(c);
     return 1;                          /* caller: flush PCM + mp3dec_init */
 }
 
@@ -88,10 +90,14 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
         s573_desc_reload(&c->desc);
         c->in_len     = 0;
         c->in_pos     = 0;
+        /* decoded audio that never played is discarded with the ring, so its
+         * queue entries must go too or they would credit the NEW song */
+        s573_core_pq_reset(c);
         /* Resetting the credit is safe: s573_mp3_credit rebaselines on the same
          * epoch change (it watches k573dio directly, not our report), so our
          * first post-change report is adopted with ZERO credit released. */
-        c->cons_bytes = 0;
+        c->cons_bytes   = 0;
+        c->pulled_bytes = 0;
 #ifndef S573_MUT_APPLY_NOFLUSH
         /* Gated on the drain state BEFORE this adoption. When it was already
          * off, the fabric reader parked seconds ago and collapsing now is safe.
@@ -99,8 +105,11 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
          * The first implementation of this deferred unconditionally and measured
          * INERT: ddrsbm delivers the new window and stream_en=1 in ONE adoption,
          * so the deferral cancelled the intent every single time. */
-        if (!drain_before) act |= S573_ACT_FLUSH;
-        else               act |= S573_ACT_FLUSH_DEFER;
+        /* FLUSH_DEFER now means "flush with the live gap", not "wait": the
+         * deferral left the old preview's whole tail playing on the song-select
+         * screen. */
+        act |= S573_ACT_FLUSH;
+        if (drain_before) act |= S573_ACT_FLUSH_DEFER;
 #endif
     }
 
@@ -168,15 +177,16 @@ void s573_core_wrote_pcm(s573_core_t *c, uint32_t beats)
 #endif
 }
 
-uint32_t s573_core_ring_collapse(s573_core_t *c)
+uint32_t s573_core_ring_collapse(s573_core_t *c, uint32_t gap)
 {
     uint32_t dropped = s573_core_pcm_used(c);
+    s573_core_pq_reset(c);
     /* Park ONE BEAT AHEAD of the fabric's read pointer, not ON it. If the reader
      * is mid-4-phase on the beat at our snapshot it will complete and increment
      * once more; had we written wr == rd, that increment would make
      * (wr - rd) read 0xFFFF and the reader would replay the entire ring twice.
      * wr == rd+1 lands on empty in both cases. */
-    c->pcm_wr = (uint16_t)((c->pcm_rd + 1u) & S573_PCM_PTR_MASK);
+    c->pcm_wr = (uint16_t)((c->pcm_rd + gap) & S573_PCM_PTR_MASK);
     c->flushes++;
     c->beats_dropped += dropped;
     return dropped;
@@ -227,14 +237,133 @@ uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio)
     room = S573_IN_BUF - c->in_len;
     if (room == 0) return 0;
 
+    /* THE DEMAND MODEL. Never pull further ahead of the speakers than the ring
+     * can hold. Without this, a stretch the decoder cannot sync to costs the
+     * whole window: each failed decode pulled more, and the stream ran off the
+     * end while the game was still waiting to hear the first bar. */
+    if (c->pulled_bytes - c->cons_bytes >= S573_PULL_LEAD_MAX) {
+        c->pull_stalls++;
+        return 0;
+    }
+
+    if (room > S573_PULL_LEAD_MAX - (c->pulled_bytes - c->cons_bytes))
+        room = S573_PULL_LEAD_MAX - (c->pulled_bytes - c->cons_bytes);
+
+    /* snapshot BEFORE the pull, so it can be undone exactly */
+    c->snap_desc    = c->desc;
+    c->snap_in_len  = c->in_len;
+    c->snap_pulled  = c->pulled_bytes;
+    c->snap_pending = c->pq_pending_bytes;
+    c->snap_valid   = 1;
+
     got = (uint32_t)s573_desc_pull(&c->desc, dio, c->in_buf + c->in_len, room);
-    c->in_len    += got;
-    /* The credit is cumulative stream bytes PULLED. One credit is one byte, and
-     * the streamer emits the identical sequence (proven bit-exact over 45,377
-     * bytes), so `cur` -- and therefore the game's 0xae bit12 start/stop guard --
-     * tracks real consumption instead of free-running. */
-    c->cons_bytes += got;
+    c->in_len        += got;
+    c->pulled_bytes  += got;
+    if (!got) c->snap_valid = 0;
+    /* NOTE: pulling does NOT credit. The credit is paid out in
+     * s573_core_advance_played(), as the audio those bytes became is actually
+     * drained, so `cur` -- and therefore the game's 0xae bit12 guard and its
+     * sense of song position -- tracks the speakers rather than the decoder. */
     return got;
+}
+
+void s573_core_pq_reset(s573_core_t *c)
+{
+    c->snap_valid = 0;
+    c->pq_head = c->pq_tail = 0;
+    c->pq_part = 0;
+    c->pq_pending_bytes = 0;
+    c->rd_primed = 0;
+}
+
+void s573_core_carry_bytes(s573_core_t *c, uint32_t bytes)
+{
+    /* A frame minimp3 consumed but produced no audio from (an ID3 tag, a
+     * skipped frame) still advances the stream position -- its bytes ride along
+     * with the next frame that does produce audio, so the credit stays exact. */
+    uint32_t n = c->pq_pending_bytes + bytes;
+    c->pq_pending_bytes = (uint16_t)(n > 0xFFFFu ? 0xFFFFu : n);
+}
+
+void s573_core_queue_frame(s573_core_t *c, uint32_t beats, uint32_t bytes)
+{
+    uint8_t nxt = (uint8_t)((c->pq_tail + 1u) % S573_PQ_LEN);
+    uint32_t b  = bytes + c->pq_pending_bytes;
+
+    c->pq_pending_bytes = 0;
+    if (nxt == c->pq_head) {
+        /* Unreachable at the designed depth (the ring holds ~57 frames against
+         * a 128-entry queue), but drop the OLDEST rather than silently writing
+         * over a live entry, and let the byte credit ride forward so the
+         * position stays honest even in the impossible case. */
+        c->pq_pending_bytes = c->pq[c->pq_head].bytes;
+        c->pq_head = (uint8_t)((c->pq_head + 1u) % S573_PQ_LEN);
+    }
+    c->pq[c->pq_tail].beats = (uint16_t)beats;
+    c->pq[c->pq_tail].bytes = (uint16_t)(b > 0xFFFFu ? 0xFFFFu : b);
+    c->pq_tail = nxt;
+}
+
+uint32_t s573_core_advance_played(s573_core_t *c, uint16_t fab_rd)
+{
+    uint32_t drained, done = 0;
+
+    if (!c->rd_primed) { c->last_fab_rd = fab_rd; c->rd_primed = 1; return 0; }
+
+    /* lag by the elastic buffer: a beat the reader took is not at the speaker
+     * yet. Credit only what has had time to get there. */
+    fab_rd = (uint16_t)((fab_rd - S573_ELASTIC_BEATS) & S573_PCM_PTR_MASK);
+    drained = (uint32_t)((uint16_t)(fab_rd - c->last_fab_rd) & S573_PCM_PTR_MASK);
+    c->last_fab_rd = fab_rd;
+    if (!drained) return 0;
+    if (drained > S573_PCM_BEATS) return 0;    /* pointer went backwards (a reset) */
+
+    c->pq_part += drained;
+    while (c->pq_head != c->pq_tail && c->pq_part >= c->pq[c->pq_head].beats) {
+        c->pq_part -= c->pq[c->pq_head].beats;
+        c->cons_bytes    += c->pq[c->pq_head].bytes;
+        c->frame_sync_cnt = (uint8_t)(c->frame_sync_cnt + 1u);
+        c->pq_head = (uint8_t)((c->pq_head + 1u) % S573_PQ_LEN);
+        done++;
+    }
+    /* Beats drained with nothing queued are the collapse's parked beat, or
+     * stale reads after a flush -- they must not be carried into the next
+     * song's accounting. */
+    if (c->pq_head == c->pq_tail) c->pq_part = 0;
+    return done;
+}
+
+int s573_core_skip_hits_new_bytes(const s573_core_t *c, uint32_t skip)
+{
+    return c->snap_valid && (c->in_pos + skip > c->snap_in_len);
+}
+
+void s573_core_rewind_pull(s573_core_t *c, const uint8_t *dio)
+{
+    if (!c->snap_valid) return;
+
+    c->desc             = c->snap_desc;
+    c->pulled_bytes     = c->snap_pulled;
+    c->pq_pending_bytes = c->snap_pending;
+
+    if (c->in_pos > c->snap_in_len) {
+        /* Real frames were decoded out of the new bytes before the scan hit
+         * the unloaded region. They are queued and will play; they must NOT
+         * be pulled again. Advance the descrambler past exactly that many
+         * bytes into a scratch buffer, emitting nothing. */
+        uint8_t  scratch[S573_IN_BUF];
+        uint32_t consumed = c->in_pos - c->snap_in_len;
+        uint32_t n = (uint32_t)s573_desc_pull(&c->desc, dio, scratch, consumed);
+        c->pulled_bytes += n;
+        c->in_len = 0;
+        c->in_pos = 0;
+    } else {
+        /* nothing new was consumed: drop the new bytes, keep the old
+         * unconsumed tail (a partial frame whose rest is not loaded yet) */
+        c->in_len = c->snap_in_len;
+    }
+    c->snap_valid = 0;
+    c->rewinds++;
 }
 
 uint16_t s573_core_ctrl_word1(const s573_core_t *c)

@@ -74,6 +74,28 @@ extern "C" {
 #define S573_CFG_CTRL14      0x0004   /* a1 = STREAMING_ENABLE (the start gate) */
 #define S573_CFG_CTRL15      0x0008
 
+/* Playback queue depth: frames decoded-but-not-yet-played. The ring holds
+ * 32768 beats = 56.9 frames, so 128 is comfortably more than can ever be
+ * outstanding. */
+#define S573_PQ_LEN          128
+
+/* The fabric's elastic buffer (s573_mp3_pcm, 512 samples = 256 beats) sits
+ * between the ring reader -- where we see beats consumed -- and the DAC. It
+ * runs full during playback (buf=512 on every hardware heartbeat), so a beat
+ * the reader fetched reaches the speaker ~11.6 ms later. Credit is lagged by
+ * that much, otherwise the game's clock leads the audio and the arrows arrive
+ * early -- which is what a player reported on the first playable credit. */
+#define S573_ELASTIC_BEATS   256u
+
+/* When a re-arm arrives while the drain is LIVE (the song-select scroll does
+ * this: the next preview is armed before the previous one stops), the reader
+ * is advancing ~110 beats per 5 ms poll. Parking one beat past a snapshot of
+ * it is a race -- it may already be past us, and the difference then reads
+ * as a full ring of replay. Park THIS far ahead instead, zeroed: up to 46 ms
+ * of silence instead of the old preview's 1.5 s tail. Upstream deferred the
+ * flush in this case, having measured that the case never occurred; it does. */
+#define S573_LIVE_GAP_BEATS  1024u
+
 /* minimp3 emits 1152 samples per MPEG-1 Layer III frame. */
 #define S573_FRAME_SAMPLES   1152u
 #define S573_FRAME_BEATS     (S573_FRAME_SAMPLES / S573_BEAT_SAMPLES)   /* 576 */
@@ -84,6 +106,16 @@ extern "C" {
  * ~5 ms poll (decision-B spike, "CPU cost"). */
 #define S573_IN_BUF          4096u
 #define S573_IN_KEEP         1600u   /* >= 1441 B lookahead kept on a refill */
+
+/* How far the descrambler may run AHEAD of the audio that has actually played,
+ * in stream bytes. This is the demand model, and without it the service is not
+ * paced at all when the data does not decode: on hardware 2026-09-12 a
+ * 1,517,482-byte window was consumed in ~2 s while 16 KB of audio played,
+ * because every failed decode simply pulled more. Real DIO silicon cannot do
+ * that -- it is paced by the MAS3507D consuming bytes -- so neither may we.
+ * 48 KB is ~3 s at 128 kbps, comfortably more than the ring's 1.486 s, so it
+ * never throttles healthy playback; it only bounds a runaway. */
+#define S573_PULL_LEAD_MAX   49152u
 
 /* ---- one CMD_573_PTRS exchange, as read back ---- */
 typedef struct {
@@ -126,11 +158,46 @@ typedef struct {
     uint16_t ctrl_flags;      /* what we last sent as CMD_573_CTRL word2       */
 
     /* ---- cumulative event counters, 8 bit on the wire ---- */
-    uint8_t  frame_sync_cnt;  /* ++ per decoded MPEG frame                     */
+    /* BOTH are referenced to the DRAIN, not to the decoder. The decoder runs a
+     * full ring ahead of the speakers -- 32768 beats is 1.486 s -- so crediting
+     * either of these at decode time puts the game's clock 1.5 s ahead of the
+     * audio, which in a rhythm game is the whole ballgame. The transport design
+     * said so outright: "an HPS-credit-paced cur leads real audio by ~1.5 s and
+     * a PCM-drain-referenced one by ~5 ms". Measured on hardware 2026-09-12:
+     * the chart desynced, the song-select preview lagged, and a stage sat at
+     * READY and cleared with 0 steps. */
+    uint8_t  frame_sync_cnt;  /* ++ per frame actually PLAYED                  */
     uint8_t  frame_idle_cnt;  /* ++ per decode attempt that yielded no frame   */
 
     /* ---- the option-(c) consumption credit ---- */
-    uint32_t cons_bytes;      /* cumulative stream bytes pulled; low 16 go out */
+    uint32_t cons_bytes;      /* stream bytes whose audio has actually PLAYED  */
+    uint32_t pulled_bytes;    /* stream bytes pulled since the re-arm          */
+    uint32_t pull_stalls;     /* times the lead bound held the pull back       */
+
+    /* ---- pull snapshot, so a pull into not-yet-loaded memory can be undone ----
+     * The game streams a song into DIO RAM WHILE it plays. Real DIO silicon
+     * fetches on demand and cannot outrun that loader; we can, and on hardware
+     * 2026-09-12 we did: 48 KB into the window we read the BIOS POST's memory
+     * test fill (e7c6 e7c5 e7c4...) instead of the song, consumed it as
+     * "no sync, skip", and the real bytes then landed behind us where nothing
+     * would ever re-read them. Deadlock at lead=49152 until the game gave up.
+     * The descrambler is deterministic and resumable (the spike proved chunked
+     * pulls are byte-identical), so a pull can be rewound EXACTLY and retried
+     * next poll, by which time the loader has caught up. */
+    s573_desc_t snap_desc;
+    uint32_t snap_in_len;
+    uint32_t snap_pulled;
+    uint16_t snap_pending;
+    uint8_t  snap_valid;
+    uint32_t rewinds;         /* pulls undone because the bytes were not there */
+
+    /* ---- playback queue: turns drained beats into frames+bytes played ---- */
+    struct { uint16_t beats; uint16_t bytes; } pq[S573_PQ_LEN];
+    uint8_t  pq_head, pq_tail;
+    uint32_t pq_part;         /* beats drained into the frame at the head      */
+    uint16_t pq_pending_bytes;/* input bytes of skipped frames, ride the next  */
+    uint16_t last_fab_rd;     /* to diff the fabric read pointer per poll      */
+    uint8_t  rd_primed;
 
     /* ---- descrambler + window ---- */
     s573_desc_t desc;
@@ -183,10 +250,25 @@ uint32_t s573_core_pcm_byte_off(uint16_t ptr);
 /* Advance our write pointer by `beats` (full-width, wrap MSB preserved). */
 void     s573_core_wrote_pcm(s573_core_t *c, uint32_t beats);
 
-/* Collapse the ring to empty-relative-to-the-fabric: park our writer one beat
- * ahead of where the fabric has read to, so nothing already-decoded replays.
+/* Queue a decoded frame for playback accounting: `beats` of PCM produced from
+ * `bytes` of the descrambled stream. Call once per frame actually written to
+ * the ring. Bytes from frames that produced no audio are carried forward. */
+void     s573_core_queue_frame(s573_core_t *c, uint32_t beats, uint32_t bytes);
+void     s573_core_carry_bytes(s573_core_t *c, uint32_t bytes);
+
+/* Advance playback accounting from the fabric's ring read pointer. Returns the
+ * number of frames that finished playing since the last call; those are added
+ * to frame_sync_cnt and their input bytes to cons_bytes. */
+uint32_t s573_core_advance_played(s573_core_t *c, uint16_t fab_rd);
+
+/* Drop the playback queue (a re-arm discards decoded audio that never played). */
+void     s573_core_pq_reset(s573_core_t *c);
+
+/* Collapse the ring to empty-relative-to-the-fabric: park our writer `gap`
+ * beats ahead of where the fabric has read to, so nothing already-decoded
+ * replays. gap=1 for a parked reader; S573_LIVE_GAP_BEATS for a live one.
  * Returns the number of beats dropped. */
-uint32_t s573_core_ring_collapse(s573_core_t *c);
+uint32_t s573_core_ring_collapse(s573_core_t *c, uint32_t gap);
 
 /* The honest song-end test: the descrambled window is exhausted AND the decoded
  * tail has drained. The enable bits are a START gate only - ddrsbm asserts
@@ -201,8 +283,20 @@ int      s573_core_should_stop(const s573_core_t *c);
 int      s573_core_may_decode(const s573_core_t *c);
 
 /* Top up in_buf from the DIO window, compacting what minimp3 has not consumed.
- * `dio` points at the mmap of S573_DIO_PHYS. Returns bytes added. */
+ * `dio` points at the mmap of S573_DIO_PHYS. Returns bytes added. Takes the
+ * pull snapshot first. */
 uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio);
+
+/* Did the decoder's scan of [in_pos, in_pos+skip) reach into the bytes the
+ * LAST refill pulled? If so those bytes held no frame and were probably not
+ * loaded yet. */
+int      s573_core_skip_hits_new_bytes(const s573_core_t *c, uint32_t skip);
+
+/* Undo the last refill EXACTLY: the descrambler, the pull credit and the input
+ * length go back to before it, minus any bytes real frames consumed out of it
+ * (the descrambler is advanced past those without re-emitting them, so nothing
+ * plays twice). Next poll re-pulls the same region. */
+void     s573_core_rewind_pull(s573_core_t *c, const uint8_t *dio);
 
 /* The 16-bit words to send in the down direction. */
 uint16_t s573_core_ctrl_word1(const s573_core_t *c);   /* {sync, idle}         */

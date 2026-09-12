@@ -12,7 +12,7 @@ code and should be updated with it.
 | Quartus runs | 2 — **bitstream produced** |
 | Fit (CRT build) | 34,695/41,910 ALM (83%), LABs 4,041/4,191 (96.4%), DSP **89/112** |
 | Timing | met, TNS 0, worst setup **+1.196 ns** (was +0.006 with HDMI) |
-| Hardware runs | 7 — **ddrsbm boots with Select L/R working**; hypbbc2p installs from CD; hyperbbc on both bitstreams |
+| Hardware runs | 13 — **ddrsbm PLAYABLE, full credit with music**; hypbbc2p installs from CD; hyperbbc on both bitstreams |
 
 ## Two trees, one board
 
@@ -165,20 +165,20 @@ arithmetic is not available headroom. DSP is no longer binding; LAB occupancy is
   never advances and the step-chart sync never begins. So this is a hard
   prerequisite for a playable DDR, not a finishing touch.
 
-* **The HPS-side MP3 service has been WRITTEN but never compiled for ARM or run.**
-  It was missing from this repo entirely (the status table claimed it "plays on
-  real hardware" while the code lived in an unpublished `Main_MiSTer` fork, and
-  the SD card's `MiSTer` binary is stock). `support/s573/` now holds it: the
-  bit-exact descrambler copied from the decision-B spike, a portable core with
-  14 host-test groups and three mutation checks, and the Main-side glue. Four
-  defects that each cost upstream a hardware session are pre-cleared. Nothing is
-  verified on silicon — not even that it compiles against Main's headers. See
-  `docs/2026-09-11-hps-mp3-service.md`.
+* **DDR Solo Bass Mix is PLAYABLE (2026-09-12): a full credit, three songs, arrows and
+  music.** The HPS MP3 service — missing from this repo entirely when it arrived — was
+  written from the RTL contract, cross-compiled for ARM in the session's Linux VM, and
+  brought up over six boots with five firmware bugs found by its own log. Zero ring
+  underruns across the credit. Remaining: a song-select preview delay and a ~12 ms early
+  chart, both fixed and deployed but not yet heard. See `docs/2026-09-12-ddr-playable.md`.
 
-* **A DDR title launched from the bare `.rbf` will be silent even with the
-  service deployed.** The gate is the core name, and this core's CONF_STR still
-  begins `"PSX;"` — only the `.mgl` `<setname>System573` makes it 573-specific.
-  Upstream lost a session to exactly this.
+* **Flash persistence is still broken.** "Flash Saved" is reported, the slot bookmark
+  names `../usb0/games/System573/ddrsbm.sav`, and the file is never created — every cold
+  boot re-runs the installer.
+
+* **Launching the bare `.rbf` gives no MP3 audio.** The gate is the core name; only the
+  `.mgl` `<setname>System573` makes it 573-specific. Measured: the gate correctly misses
+  on a bare PSX core.
 
 * **The DDR targets are further off than the status table suggests.** *DDR
   Extreme* (`ddrextrm`) and *4th Mix Plus* (`ddr4mp`) need a 32 MB PCMCIA card,

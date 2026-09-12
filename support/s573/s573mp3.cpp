@@ -49,10 +49,13 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "../../spi.h"
 #include "../../user_io.h"
@@ -130,6 +133,22 @@ static void s573_log(const char *fmt, ...)
     va_end(ap);
 }
 
+/* Open the sink BEFORE anything that can fail. Appends, so a later core load
+ * cannot erase a 573 run's evidence; truncates only once the file gets large. */
+static void s573_open_log(void)
+{
+    struct stat st;
+    const char *mode = "a";
+    if (logf) return;
+    if (!stat(S573_LOG_FILE, &st) && st.st_size > (4 << 20)) mode = "w";
+    logf = fopen(S573_LOG_FILE, mode);
+    if (logf) {
+        setvbuf(logf, NULL, _IONBF, 0);
+        fprintf(logf, "\n===== s573mp3 session start =====\n");
+        fflush(logf); fsync(fileno(logf));
+    }
+}
+
 /* key=value lines, '#' comments. Absent file = diagnostics off. */
 static int s573_read_debug_file(void)
 {
@@ -152,7 +171,7 @@ static int s573_read_debug_file(void)
 }
 
 /* one-shot warnings */
-static int warned_hz = 0, warned_mono = 0, warned_odd = 0, warned_defer = 0;
+static int warned_hz = 0, warned_mono = 0, warned_odd = 0;
 static uint8_t last_rst_seen = 0;
 
 static uint64_t now_us(void)
@@ -177,15 +196,6 @@ static int is_573(void)
     if (on && (!strncasecmp(on, "System573", 9) ||
                !strncasecmp(on, "Konami_System_573", 17))) hit = 1;
 
-    /* Log the gate ONCE per decision. Design risk #6 is "a stale binary
-     * silently disables MP3"; this line plus an advancing 0xa8 on hardware is
-     * how we prove the HPS half is actually live. */
-    static int logged = -1;
-    if (logged != hit) {
-        logged = hit;
-        s573_log("s573mp3: gate %s -- core_name='%s' orig_name='%s'\n",
-               hit ? "HIT" : "miss", n ? n : "(null)", on ? on : "(null)");
-    }
     return hit;
 }
 
@@ -374,16 +384,27 @@ static void pcm_write(const int16_t *src, uint32_t beats)
     s573_core_wrote_pcm(&core, beats);
 }
 
-static void pcm_ring_collapse(const char *why)
+static void pcm_ring_collapse(const char *why, uint32_t gap)
 {
-    uint32_t dropped = s573_core_ring_collapse(&core);
-    s573_log("s573mp3: PCM FLUSH (%s) -- dropped %u beats (%.3f s), wr=%u rd=%u\n",
-           why, dropped, (double)dropped * S573_BEAT_SAMPLES / 44100.0,
+    uint32_t dropped, i;
+    /* The collapse parks one beat AHEAD of the fabric's read pointer (see
+     * s573_core_ring_collapse for why on-it is a race). That leaves exactly one
+     * beat advertised which we have not written, so zero it: the fabric will
+     * read it, and 2 samples of silence beats 2 samples of whatever was there.
+     * Measured on hardware: the reader does consume it (wr=1 -> rd=1, buf=2). */
+    for (i = 1; i <= gap; i++)
+        memset((void *)(dio_map + S573_PCM_RING_OFF
+                        + s573_core_pcm_byte_off((uint16_t)(core.pcm_rd + i))),
+               0, S573_BEAT_BYTES);
+    __sync_synchronize();
+    dropped = s573_core_ring_collapse(&core, gap);
+    s573_log("s573mp3: PCM FLUSH (%s, gap %u) -- dropped %u beats (%.3f s), wr=%u rd=%u\n",
+           why, gap, dropped, (double)dropped * S573_BEAT_SAMPLES / 44100.0,
            core.pcm_wr, core.pcm_rd);
 }
 
 /* ---------------------------------------------------------------- the decode -- */
-static void push_frame(const int16_t *pcm, int samples, int channels)
+static void push_frame(const int16_t *pcm, int samples, int channels, uint32_t in_bytes)
 {
     static int16_t stereo[S573_FRAME_SAMPLES * 2];
     uint32_t beats;
@@ -401,7 +422,7 @@ static void push_frame(const int16_t *pcm, int samples, int channels)
         s573_log("s573mp3: WARNING odd sample count %d -- dropping the spare\n", samples); }
 
     beats = (uint32_t)samples / S573_BEAT_SAMPLES;
-    if (!beats) return;
+    if (!beats) { s573_core_carry_bytes(&core, in_bytes); return; }
 
     if (opt_atten != 100) {
         static int16_t scaled[S573_FRAME_SAMPLES * 2];
@@ -412,7 +433,9 @@ static void push_frame(const int16_t *pcm, int samples, int channels)
     }
 
     pcm_write(pcm, beats);
-    core.frame_sync_cnt++;     /* CUMULATIVE: the fabric diffs and pulses */
+    /* Queued, NOT credited. frame_sync_cnt and cons_bytes are paid out in
+     * s573_core_advance_played() as the fabric actually drains these beats. */
+    s573_core_queue_frame(&core, beats, in_bytes);
     core.frames++;
 }
 
@@ -431,8 +454,36 @@ static void push_tone(void)
         tone_phase++;
     }
     pcm_write(buf, S573_FRAME_SAMPLES / S573_BEAT_SAMPLES);
-    core.frame_sync_cnt++;
+    s573_core_queue_frame(&core, S573_FRAME_SAMPLES / S573_BEAT_SAMPLES, 0);
     core.frames++;
+}
+
+/* When decoding stops mid-song, the question is whether the bytes are not there
+ * YET (the game streams a song into DIO RAM while it plays, so we can outrun the
+ * loader) or whether we are reading the right place wrongly. The raw window
+ * answers it: unwritten DDR3 reads as a constant, real scrambled MP3 does not. */
+static void report_decode_stall(const char *why)
+{
+    static uint16_t reported_epoch = 0xFFFF;
+    const volatile uint8_t *w;
+    uint8_t b[16];
+    int i, same = 1;
+
+    if (reported_epoch == core.cfg_epoch) return;
+    reported_epoch = core.cfg_epoch;
+    if (core.desc.cur + 16 > S573_DIO_SIZE) return;
+
+    w = dio_map + core.desc.cur;
+    for (i = 0; i < 16; i++) b[i] = w[i];
+    for (i = 1; i < 16; i++) if (b[i] != b[0]) same = 0;
+
+    s573_log("s573mp3: decode STALL (%s) at cur=%08x (%u of %u bytes into the "
+             "window, %u played) raw:"
+             " %02x%02x %02x%02x %02x%02x %02x%02x%s\n",
+             why, core.desc.cur, core.desc.cur - core.desc.mp3_start,
+             core.desc.mp3_end - core.desc.mp3_start, core.cons_bytes,
+             b[1], b[0], b[3], b[2], b[5], b[4], b[7], b[6],
+             same ? " (constant fill)" : "");
 }
 
 static void decode_some(void)
@@ -453,10 +504,16 @@ static void decode_some(void)
             s573_core_refill(&core, (const uint8_t *)dio_map);
             avail = core.in_len - core.in_pos;
             if (!avail) {
-                /* window spent. IDLE is a RECURRING per-no-frame-decode event
-                 * (k573dio derives mpeg IDLE from its cadence), not a one-shot,
-                 * and it is NOT the same thing as a transient buffer underrun. */
-                core.frame_idle_cnt++;
+                if (s573_core_window_exhausted(&core)) {
+                    /* window spent. IDLE is a RECURRING per-no-frame-decode
+                     * event (k573dio derives mpeg IDLE from its cadence), and
+                     * it means the STREAM ENDED -- so it is only sent when the
+                     * window really is exhausted, never while we are waiting
+                     * for the loader or the lead bound. */
+                    core.frame_idle_cnt++;
+                } else {
+                    report_decode_stall("input starved, waiting");
+                }
                 break;
             }
         }
@@ -464,20 +521,37 @@ static void decode_some(void)
         samples = mp3dec_decode_frame(&mp3d, core.in_buf + core.in_pos,
                                       (int)avail, pcm, &info);
         if (!info.frame_bytes) {
+            report_decode_stall("no MPEG sync found");
             /* no frame header in what we hold: need more input, or the tail is
              * short. Not progress -- do not spin on it. */
             core.frame_idle_cnt++;
             break;
         }
+        if (!samples) {
+            if (s573_core_skip_hits_new_bytes(&core, (uint32_t)info.frame_bytes)) {
+                /* The scan found no frame and ran into the bytes the last pull
+                 * fetched: they were NOT LOADED YET (the game streams the song
+                 * in while it plays -- measured: the BIOS POST's memory-test
+                 * fill was there instead). Do not skip them -- undo the pull
+                 * exactly and try again next poll, when the loader has caught
+                 * up. Not an idle event either: the stream has not ended. */
+                report_decode_stall("bytes not loaded yet -- rewinding the pull");
+                s573_core_rewind_pull(&core, (const uint8_t *)dio_map);
+                break;
+            }
+            /* a genuine skip wholly inside old bytes (ID3 etc.): rare here */
+            s573_core_carry_bytes(&core, (uint32_t)info.frame_bytes);
+            core.in_pos += (uint32_t)info.frame_bytes;
+            continue;
+        }
         core.in_pos += (uint32_t)info.frame_bytes;
-        if (!samples) continue;            /* skipped/ID3 frame, not an idle event */
 
         if (info.hz != 44100 && !warned_hz) {
             warned_hz = 1;
             s573_log("s573mp3: WARNING %d Hz stream -- the fabric drain is fixed at "
                    "44100, so pitch will be wrong (no resampler)\n", info.hz);
         }
-        push_frame(pcm, samples, info.channels);
+        push_frame(pcm, samples, info.channels, (uint32_t)info.frame_bytes);
     }
 }
 
@@ -488,17 +562,25 @@ static int s573_init(void)
     void *m;
     const char *e;
 
+    s573_log("s573mp3: init -- opening /dev/mem\n");
     fd = open("/dev/mem", O_RDWR | O_SYNC | O_CLOEXEC);
-    if (fd < 0) { s573_log("s573mp3: FATAL open /dev/mem failed\n"); return 0; }
+    if (fd < 0) {
+        s573_log("s573mp3: FATAL open /dev/mem failed: %s (errno %d)\n",
+                 strerror(errno), errno);
+        return 0;
+    }
 
     /* mmap ONLY -- STRICT_DEVMEM zeroes read()/dd here but allows mmap. phys is
      * 1:1 and the pointer must stay volatile: the fabric mutates underneath. */
+    s573_log("s573mp3: init -- mmap 0x%08x + %u bytes\n", S573_DIO_PHYS, S573_DIO_SIZE);
     m = mmap(0, S573_DIO_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, S573_DIO_PHYS);
     close(fd);
     if (m == MAP_FAILED) {
-        s573_log("s573mp3: FATAL mmap 0x%08x+%u failed\n", S573_DIO_PHYS, S573_DIO_SIZE);
+        s573_log("s573mp3: FATAL mmap 0x%08x+%u failed: %s (errno %d)\n",
+                 S573_DIO_PHYS, S573_DIO_SIZE, strerror(errno), errno);
         return 0;
     }
+    s573_log("s573mp3: init -- mmap OK\n");
     dio_map = (volatile uint8_t *)m;
 
     s573_core_init(&core);
@@ -512,12 +594,7 @@ static int s573_init(void)
         int v = atoi(e);
         if (v >= 0 && v <= 100) opt_atten = v;
     }
-    if (dbg) {
-        logf = fopen(S573_LOG_FILE, "w");
-        /* UNBUFFERED: with stdout on a plain file glibc block-buffers it, which
-         * silently swallowed an earlier capture attempt on this project. */
-        if (logf) setvbuf(logf, NULL, _IONBF, 0);
-    }
+    if (dbg) s573_open_log();
 
     ring_probe("init", &probe_sum_init, &probe_nz_init);
 
@@ -531,6 +608,36 @@ static int s573_init(void)
     return 1;
 }
 
+/* Until the first PCM write, re-checksum the ring region every few seconds. If
+ * it moves while we have written nothing, the game owns that memory and
+ * transport-design must-fix #2 is violated. This runs independently of song
+ * setup on purpose: the first hardware run never got a window at all, so the
+ * verdict tied to the first song could not fire, and the boot answered nothing
+ * about placement. */
+static void ring_watch(void)
+{
+    static uint64_t next = 0;
+    static int reported = 0;
+    uint32_t sum, nz;
+    uint64_t t;
+
+    if (reported || probe_done || core.pcm_wr != 0) return;
+    t = now_us();
+    if (t < next) { if (!next) next = t + 5000000ull; return; }
+    next = t + 5000000ull;
+
+    ring_probe("watch, nothing written yet", &sum, &nz);
+    if (sum != probe_sum_init || nz != probe_nz_init) {
+        reported = 1; ring_collides = 1;
+        s573_log("s573mp3: *** RING COLLISION: 0x%08x changed while we wrote "
+                 "NOTHING (init sum=%08x nz=%u, now sum=%08x nz=%u). The game "
+                 "owns this memory -- must-fix #2 VIOLATED. PCM writes are "
+                 "DISABLED. Move RING_OFF_BEAT in rtl/s573_pcm_ring.v, or set "
+                 "ring_unsafe_ok=1 to override. ***\n",
+                 S573_PCM_PHYS, probe_sum_init, probe_nz_init, sum, nz);
+    }
+}
+
 static void heartbeat(void)
 {
     static uint64_t next = 0;
@@ -542,14 +649,18 @@ static void heartbeat(void)
 
     status_exchange(&sf, &ur, &bl);
     s573_log("s573mp3: rst=%u ack=%u cfg=%u have=%u | in=%u/%u cons=%u "
-           "| frames=%u sync=%u idle=%u | wr=%u rd=%u free=%u "
-           "| ctrl=%04x flags=%04x underrun=%u buf=%u | flush=%u drop=%u torn=%u\n",
+           "| dec=%u played=%u q=%u idle=%u | wr=%u rd=%u free=%u "
+           "| ctrl=%04x flags=%04x underrun=%u buf=%u | flush=%u drop=%u torn=%u "
+           "| lead=%u stalls=%u rewinds=%u\n",
            last_rst_seen, core.rst_ack, core.cfg_epoch, core.have_cfg,
            core.in_pos, core.in_len, core.cons_bytes,
-           core.frames, core.frame_sync_cnt, core.frame_idle_cnt,
+           core.frames, core.frame_sync_cnt,
+           (unsigned)((uint8_t)(core.pq_tail - core.pq_head) % S573_PQ_LEN),
+           core.frame_idle_cnt,
            core.pcm_wr, core.pcm_rd, s573_core_pcm_free(&core),
            core.ctrl_flags, sf, ur, bl,
-           core.flushes, core.beats_dropped, core.torn_cfg);
+           core.flushes, core.beats_dropped, core.torn_cfg,
+           core.pulled_bytes - core.cons_bytes, core.pull_stalls, core.rewinds);
 
     if (sf & 0x0008) s573_log("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");
     if (ur)          s573_log("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
@@ -562,6 +673,26 @@ void s573mp3_poll(void)
     s573_ptrs_t p;
     uint64_t t;
 
+    /* FIRST-CALL EVIDENCE, before the gate and before anything that can fail.
+     * This was ordered the other way round and it cost a board cycle: the gate
+     * decision and BOTH init failures went through a sink that did not exist
+     * yet, so "gate missed", "open /dev/mem failed" and "mmap failed" were
+     * indistinguishable from each other AND from the service not being in the
+     * binary at all. Three causes, one empty file, no way to tell. */
+    static int first = 0;
+    if (!first) {
+        const char *n  = user_io_get_core_name();
+        const char *on = user_io_get_core_name(1);
+        first = 1;
+        (void)s573_read_debug_file();
+        s573_open_log();
+        s573_log("s573mp3: poll reached -- gate=%d core_name='%s' orig_name='%s'\n",
+                 is_573(), n ? n : "(null)", on ? on : "(null)");
+        if (!is_573())
+            s573_log("s573mp3: gate MISS -- the service will stay idle for this "
+                     "core. Launch via a .mgl whose <setname> is System573.\n");
+    }
+
     if (!is_573()) return;
     if (gave_up)   return;
     if (!inited && !s573_init()) { gave_up = 1; return; }
@@ -573,6 +704,12 @@ void s573mp3_poll(void)
     ptrs_exchange(&p);
     core.pcm_rd    = p.fab_pcm_rd;
     last_rst_seen  = p.rst_epoch;
+
+    /* Pay out what the speakers have actually consumed since the last poll.
+     * This is what puts the game's frame counter and stream position on the
+     * drain instead of the decoder -- ~5 ms behind the audio instead of
+     * ~1.5 s ahead of it. */
+    s573_core_advance_played(&core, p.fab_pcm_rd);
 
     /* A core soft reset zeroes every fabric consumer while we keep running with
      * stale pointers. The fabric IGNORES our pointer words until we ack, so
@@ -608,13 +745,16 @@ void s573mp3_poll(void)
 
         if (f.mp3_end > f.mp3_start) { ring_probe_verdict(); dump_window(&f); }
 
-        if (act & S573_ACT_FLUSH) { pcm_ring_collapse("re-arm"); mp3dec_init(&mp3d); }
-        if (act & S573_ACT_FLUSH_DEFER) {
-            /* Says so rather than failing silently: the first implementation of
-             * this deferred unconditionally and measured INERT, because ddrsbm
-             * delivers the new window and stream_en=1 in ONE adoption. */
-            if (!warned_defer) { warned_defer = 1;
-                s573_log("s573mp3: flush DEFERRED (drain was on at the re-arm)\n"); }
+        /* A null window (start == end == 0) is what the game presents before it
+         * has set up a song. There is nothing buffered to discard, and parking
+         * the writer one beat ahead would advertise one beat of whatever DDR3
+         * happens to hold -- so skip it until there is a real window. */
+        if ((act & S573_ACT_FLUSH) && f.mp3_end > f.mp3_start) {
+            /* live reader -> park well ahead of it, zeroed; parked -> one beat */
+            pcm_ring_collapse((act & S573_ACT_FLUSH_DEFER) ? "re-arm, drain live"
+                                                          : "re-arm",
+                              (act & S573_ACT_FLUSH_DEFER) ? S573_LIVE_GAP_BEATS : 1u);
+            mp3dec_init(&mp3d);
         }
         if (act & S573_ACT_SCHEME_BAD)
             s573_log("s573mp3: *** descramble scheme disagrees with the fabric ***\n");
@@ -633,5 +773,5 @@ void s573mp3_poll(void)
     }
 
     ctrl_exchange();
-    if (opt_hb) heartbeat();
+    if (opt_hb) { ring_watch(); heartbeat(); }
 }

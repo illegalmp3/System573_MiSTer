@@ -140,7 +140,7 @@ int main(void)
     s573_core_init(&c);
     c.pcm_rd = 0x1234; c.pcm_wr = (uint16_t)(0x1234 + 30000);
     {
-        uint32_t dropped = s573_core_ring_collapse(&c);
+        uint32_t dropped = s573_core_ring_collapse(&c, 1);
         CHECKEQ(dropped, 30000, "dropped == what was queued");
         CHECKEQ(c.pcm_wr, 0x1235, "parked one beat ahead of the fabric");
         CHECKEQ(c.flushes, 1, "flush counted");
@@ -172,8 +172,8 @@ int main(void)
     /* new window while the drain was ON -> defer, loudly */
     mkcfg(&f, 0x5000, 0x6000, 9, 9, 9, FLAGS_PLAY, 4);
     act = s573_core_apply_cfg(&c, &f, 4, 1);
-    CHECK(act & S573_ACT_FLUSH_DEFER, "new window mid-drain -> deferred");
-    CHECK(!(act & S573_ACT_FLUSH), "not both");
+    CHECK(act & S573_ACT_FLUSH_DEFER, "new window mid-drain -> flagged live");
+    CHECK(act & S573_ACT_FLUSH, "and STILL flushed -- deferring left the old tail playing");
 
     /* ------------------------------------------------------------------ */
     GROUP("a re-arm rebaselines the input window and the credit");
@@ -209,7 +209,7 @@ int main(void)
         got = s573_core_refill(&c, dio);
         CHECKEQ(got, S573_IN_BUF, "filled the input buffer");
         CHECKEQ(c.in_len, S573_IN_BUF, "in_len");
-        CHECKEQ(c.cons_bytes, S573_IN_BUF, "credit == bytes pulled");
+        CHECKEQ(c.cons_bytes, 0, "pulling does NOT credit -- the drain does");
         /* consume some, refill, and confirm the unconsumed tail is preserved */
         {
             uint8_t tail[64];
@@ -219,7 +219,7 @@ int main(void)
             CHECKEQ(memcmp(c.in_buf, tail, 64), 0, "unconsumed tail compacted forward");
             CHECKEQ(c.in_pos, 0, "cursor rebased");
             CHECKEQ(c.in_len, 64 + got, "length accounts for both halves");
-            CHECKEQ(c.cons_bytes, S573_IN_BUF + got, "credit is cumulative");
+            CHECKEQ(c.cons_bytes, 0, "still no credit without a drain");
         }
         /* an out-of-range cursor must clamp, not wrap into a 4 GiB memmove */
         c.in_pos = c.in_len + 1000;
@@ -284,9 +284,165 @@ int main(void)
         CHECKEQ(total, s573_desc_stream_len(0x0800, 0x1000), "2N-1 bytes emitted");
         CHECK(s573_core_window_exhausted(&c), "window reads exhausted");
         CHECKEQ(c.desc.cur, 0x1000, "cur lands EXACTLY on mp3_end");
-        CHECKEQ(c.cons_bytes, total, "credit == every byte pulled");
+        CHECKEQ(c.cons_bytes, 0, "no credit: none of it has played");
         CHECK(s573_core_should_stop(&c), "and the song can now end");
         free(dio);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("playback accounting follows the DRAIN, not the decoder");
+    {
+        /* The regression this exists for: crediting at decode time put the
+         * game's clock a full ring ahead of the speakers -- 1.486 s -- and on
+         * hardware that desynced the chart and hung a stage at READY with 0
+         * steps. Frames and bytes may only be credited as beats actually
+         * drain. */
+        uint32_t n;
+        s573_core_init(&c);
+        s573_core_adopt_ctrl_baseline(&c, 0x0000);
+
+        /* decode three frames: 576 beats each, 417 input bytes each */
+        s573_core_queue_frame(&c, S573_FRAME_BEATS, 417);
+        s573_core_queue_frame(&c, S573_FRAME_BEATS, 417);
+        s573_core_queue_frame(&c, S573_FRAME_BEATS, 417);
+        CHECKEQ(c.frame_sync_cnt, 0, "decoding alone credits no frame");
+        CHECKEQ(c.cons_bytes, 0, "decoding alone credits no bytes");
+
+        n = s573_core_advance_played(&c, 0);      /* primes the baseline */
+        CHECKEQ(n, 0, "first call only primes");
+
+        /* the reader took a whole frame -- but it is still IN the elastic
+         * buffer, not at the speaker: no credit yet */
+        n = s573_core_advance_played(&c, (uint16_t)(S573_FRAME_BEATS));
+        CHECKEQ(n, 0, "a frame inside the elastic buffer has not played");
+        CHECKEQ(c.frame_sync_cnt, 0, "no pulse yet");
+
+        /* the reader is two frames + the buffer depth along: two have played */
+        n = s573_core_advance_played(&c, (uint16_t)(S573_FRAME_BEATS * 2 + S573_ELASTIC_BEATS));
+        CHECKEQ(n, 2, "two frames finished");
+        CHECKEQ(c.frame_sync_cnt, 2, "two pulses");
+        CHECKEQ(c.cons_bytes, 834, "bytes credited == the two frames' input");
+
+        /* a skipped frame's bytes ride forward onto the next real frame */
+        s573_core_carry_bytes(&c, 100);
+        s573_core_queue_frame(&c, S573_FRAME_BEATS, 417);
+        n = s573_core_advance_played(&c, (uint16_t)(S573_FRAME_BEATS * 4 + S573_ELASTIC_BEATS));
+        CHECKEQ(n, 2, "third and fourth frames played");
+        CHECKEQ(c.cons_bytes, 834 + 417 + 517, "carried bytes are not lost");
+
+        /* the pointer wraps at 2^16 and the diff must still be right */
+        s573_core_init(&c);
+        s573_core_queue_frame(&c, 10, 7);
+        (void)s573_core_advance_played(&c, 0xFFF0);
+        n = s573_core_advance_played(&c, (uint16_t)(0x0002 + S573_ELASTIC_BEATS)); /* wrapped: 18 beats */
+        CHECKEQ(n, 1, "frame played across the 16-bit pointer wrap");
+
+        /* a re-arm drops queued audio that never played */
+        s573_core_init(&c);
+        s573_core_queue_frame(&c, S573_FRAME_BEATS, 417);
+        s573_core_pq_reset(&c);
+        (void)s573_core_advance_played(&c, 0);
+        n = s573_core_advance_played(&c, (uint16_t)(S573_FRAME_BEATS * 4 + S573_ELASTIC_BEATS));
+        CHECKEQ(n, 0, "discarded audio never credits the next song");
+        CHECKEQ(c.cons_bytes, 0, "and never credits its bytes");
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("the pull never runs further ahead of the speakers than the ring");
+    {
+        /* The hardware regression: with no bound, a stretch the decoder could
+         * not sync to consumed a 1,517,482-byte window in ~2 s while 16 KB of
+         * audio played, and the game was left at READY with the stream already
+         * exhausted. */
+        uint8_t *dio = (uint8_t *)malloc(0x200000);
+        uint32_t i, pulled = 0, got;
+        for (i = 0; i < 0x200000; i++) dio[i] = (uint8_t)(i * 31 + (i >> 7));
+        s573_core_init(&c);
+        mkcfg(&f, 0x40, 0x180000, 0x451b, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        /* nothing has played, so the pull must stop at the lead bound */
+        for (i = 0; i < 500; i++) {
+            c.in_pos = c.in_len;                  /* decoder ate it, made no audio */
+            got = s573_core_refill(&c, dio);
+            pulled += got;
+            if (!got) break;
+        }
+        CHECK(c.pull_stalls > 0, "the bound engaged");
+        CHECK(pulled <= S573_PULL_LEAD_MAX, "never pulled past the bound");
+        CHECK(c.desc.cur < 0x180000, "the window was NOT consumed");
+        CHECKEQ(c.pulled_bytes, pulled, "pulled_bytes tracks the pull");
+        /* once audio plays, the pull is allowed to continue */
+        s573_core_queue_frame(&c, S573_FRAME_BEATS, 20000);
+        (void)s573_core_advance_played(&c, 0);
+        (void)s573_core_advance_played(&c, (uint16_t)(S573_FRAME_BEATS + S573_ELASTIC_BEATS));
+        CHECKEQ(c.cons_bytes, 20000, "playback credited");
+        c.in_pos = c.in_len;
+        CHECK(s573_core_refill(&c, dio) > 0, "the pull resumes as audio drains");
+        free(dio);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("a pull into not-yet-loaded memory rewinds EXACTLY, nothing plays twice");
+    {
+        /* Model the loader: the disc bytes exist only up to LOADED; beyond it
+         * the DIO window still holds the POST's memory-test fill. The service
+         * must be able to pull, discover the data is not there, undo the pull,
+         * and later -- after the loader writes it -- produce the SAME stream a
+         * one-shot descramble would have. */
+        uint32_t i, n, one_shot_len, streamed_len = 0;
+        uint8_t *dio  = (uint8_t *)malloc(0x10000);
+        uint8_t *full = (uint8_t *)malloc(0x10000);
+        uint8_t *ref  = (uint8_t *)malloc(0x10000);
+        uint8_t *out  = (uint8_t *)malloc(0x10000);
+        const uint32_t START = 0x40, END = 0x4040, LOADED = 0x1240;
+        s573_desc_t one;
+        for (i = 0; i < 0x10000; i++) full[i] = (uint8_t)(i * 131 + (i >> 3));
+        memcpy(dio, full, 0x10000);
+        for (i = LOADED; i < END; i += 2) {           /* e7c6, e7c5, ... */
+            uint16_t w = (uint16_t)(0xe7c6 - (i - LOADED) / 2);
+            dio[i] = (uint8_t)w; dio[i+1] = (uint8_t)(w >> 8);
+        }
+        /* the reference: the whole window descrambled from the FULL data */
+        s573_desc_init(&one, START, END, 0x6546, 0, 0, 1);
+        one_shot_len = (uint32_t)s573_desc_pull(&one, full, ref, 0x10000);
+
+        s573_core_init(&c);
+        mkcfg(&f, START, END, 0x6546, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+
+        /* pull 1: entirely inside the loaded region -- "decode" it all */
+        n = s573_core_refill(&c, dio);
+        CHECK(n > 0, "first pull");
+        memcpy(out + streamed_len, c.in_buf, c.in_len); streamed_len += c.in_len;
+        c.in_pos = c.in_len;
+
+        /* pull 2: crosses into the unloaded fill (only the first 512 stream
+         * bytes of it are real). Pretend the decoder got one real frame (400
+         * bytes) out of it, then hit the fill. */
+        n = s573_core_refill(&c, dio);
+        CHECK(n > 0, "second pull");
+        CHECK(s573_core_skip_hits_new_bytes(&c, 3000), "the scan reaches the new bytes");
+        memcpy(out + streamed_len, c.in_buf, 400); streamed_len += 400;
+        c.in_pos = 400;
+        s573_core_rewind_pull(&c, dio);
+        CHECKEQ(c.rewinds, 1, "rewound once");
+        CHECKEQ(c.in_len, 0, "buffer emptied after consuming into the new bytes");
+        CHECKEQ(c.pulled_bytes, streamed_len, "pull credit == exactly what was kept");
+
+        /* the loader catches up */
+        memcpy(dio, full, 0x10000);
+
+        /* keep pulling until the window is exhausted */
+        for (i = 0; i < 100; i++) {
+            n = s573_core_refill(&c, dio);
+            if (!n) break;
+            memcpy(out + streamed_len, c.in_buf, c.in_len); streamed_len += c.in_len;
+            c.in_pos = c.in_len;
+        }
+        CHECKEQ(streamed_len, one_shot_len, "same total length as a one-shot descramble");
+        CHECKEQ(memcmp(out, ref, one_shot_len), 0,
+                "byte-identical: nothing lost, nothing duplicated across the rewind");
+        free(dio); free(full); free(ref); free(out);
     }
 
     printf("\n%d groups, %d failures\n", groups, fails);
