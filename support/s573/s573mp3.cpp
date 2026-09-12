@@ -105,6 +105,14 @@ static int   opt_tone  = 0;      /* tone=1   440 Hz instead of decode          *
 static int   opt_atten = 100;    /* atten=0..100  MP3 channel percent          */
 static int   opt_dump  = 0;      /* dump=1   write the raw window to the SD card */
 static int   opt_unsafe_ring = 0;/* ring_unsafe_ok=1  write PCM anyway           */
+static int   opt_cdtrace = 0;    /* cdtrace=1  log every CD sector read          */
+/* CD read activity, fed by Main's block-device read path (s573_cd_trace, hooked
+ * at the SD RD dispatch in user_io_poll). ddrs2k's attract demo stalled with the
+ * song loader silent for 50 s (2026-09-12); whether the game stopped ASKING for
+ * sectors or stopped GETTING them is the question this answers. */
+static uint32_t cd_reads_hb = 0, cd_secs_hb = 0, cd_reads_total = 0;
+static uint64_t cd_last_lba = 0, cd_last_us = 0;
+static int      cd_last_disk = -1, cd_last_blksz = 0;
 static FILE *logf      = 0;
 static uint32_t probe_sum_init = 0, probe_nz_init = 0;
 static int      probe_done = 0, ring_collides = 0;
@@ -165,6 +173,7 @@ static int s573_read_debug_file(void)
         else if (sscanf(p, "atten=%d", &v) == 1) { if (v >= 0 && v <= 100) opt_atten = v; }
         else if (sscanf(p, "dump=%d", &v)  == 1) opt_dump = (v != 0);
         else if (sscanf(p, "ring_unsafe_ok=%d", &v) == 1) opt_unsafe_ring = (v != 0);
+        else if (sscanf(p, "cdtrace=%d", &v) == 1) opt_cdtrace = (v != 0);
     }
     fclose(f);
     return 1;
@@ -663,7 +672,32 @@ static void heartbeat(void)
            core.pulled_bytes - core.cons_bytes, core.pull_stalls, core.rewinds);
 
     if (sf & 0x0008) s573_log("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");
-    if (ur)          s573_log("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
+    /* underrun_cnt is a saturating 16-bit fabric counter: once it pins at 65535
+     * it says nothing more, and it pinned within seconds of every boot. Report
+     * it only while it is still counting. */
+    if (ur && ur != 65535) s573_log("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
+    s573_log("s573mp3: cd: %u reads %u sectors this second | last disk=%d lba=%llu sz=%d %.1f s ago | total %u\n",
+             cd_reads_hb, cd_secs_hb, cd_last_disk, (unsigned long long)cd_last_lba,
+             cd_last_blksz, cd_last_us ? (double)(t - cd_last_us) / 1e6 : -1.0, cd_reads_total);
+    cd_reads_hb = 0; cd_secs_hb = 0;
+}
+
+/* Called by Main for every block-device READ the fabric requests (any slot: the
+ * CD image is slot 1 at 2352 bytes/sector; the flash save is slot 4). Cheap
+ * unless cdtrace=1, when every read is a log line (~100/s while a movie
+ * streams -- only for a short targeted run). */
+void s573_cd_trace(int disk, unsigned long long lba, int blks, int blksz)
+{
+    uint64_t t;
+    if (!inited) return;
+    t = now_us();
+    if (cd_last_us && t - cd_last_us > 3000000ull)
+        s573_log("s573mp3: cd: reads RESUMED after %.1f s of silence (disk=%d lba=%llu)\n",
+                 (double)(t - cd_last_us) / 1e6, disk, lba);
+    cd_reads_hb++; cd_secs_hb += (uint32_t)blks; cd_reads_total++;
+    cd_last_lba = lba; cd_last_us = t; cd_last_disk = disk; cd_last_blksz = blksz;
+    if (opt_cdtrace)
+        s573_log("s573mp3: cd rd disk=%d lba=%llu n=%d sz=%d\n", disk, lba, blks, blksz);
 }
 
 /* ---------------------------------------------------------------- the hook --

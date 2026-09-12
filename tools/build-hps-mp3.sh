@@ -148,7 +148,27 @@ else:
     s = s[:at] + '\n/* support/s573/s573mp3.cpp */\nextern void s573mp3_poll(void);\n' + s[at:]
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
     print('user_io.cpp: hook inserted after psx_poll()')
-PY
+
+# ---- 3. the CD read trace hook ---------------------------------------------
+# Every block-device READ the fabric asks for passes the commented-out
+# `//printf("SD RD (%llu,%d) on %d, WIDE=%d\n", ...)` in user_io_poll(), with
+# lba/blksz/disk/blks in scope. The service counts them per second and logs a
+# "reads RESUMED after N s" line, which is how a silent song loader (ddrs2k
+# attract demo, 2026-09-12) is told apart from a starved one.
+s = open(p, encoding='utf-8', errors='surrogateescape').read()
+if 's573_cd_trace' in s:
+    print('user_io.cpp: cd trace hook already present')
+else:
+    m = re.search(r'^([ \t]*)//printf\("SD RD \(%llu,%d\) on %d, WIDE=%d\\n", lba, blksz, disk, fio_size\);[ \t]*$', s, re.M)
+    if not m:
+        sys.exit('user_io.cpp: could not find the commented "SD RD" printf in the read path')
+    ind = m.group(1)
+    ins = m.group(0) + '\n' + ind + 's573_cd_trace(disk, lba, blks, blksz);   // System 573 CD read trace (gated inside)'
+    s = s[:m.start()] + ins + s[m.end():]
+    s = s.replace('extern void s573mp3_poll(void);\n',
+                  'extern void s573mp3_poll(void);\nextern void s573_cd_trace(int disk, unsigned long long lba, int blks, int blksz);\n', 1)
+    open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
+    print('user_io.cpp: cd trace hook inserted')
 PYEOF
   say "graft OK"
 }
