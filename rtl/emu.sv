@@ -445,8 +445,13 @@ parameter CONF_STR = {
 	"O[63],Automount Memory Card 1,Yes,No;",
 	// 573 onboard-flash PERSISTENCE (slot 4). A CD-installed game's 16 MB flash is
 	// saved to saves/System573/<name>.sav and restored on the next launch over the
-	// .mgl blank. The .mgl mounts this slot (type="s" index="4"); the save file is
-	// auto-created (Main pre=1/type=2) on the first write-back. "Save Flash" forces
+	// .mgl blank. The .mgl mounts this slot (type="s" index="4"). THE SAVE FILE IS
+	// NOT AUTO-CREATED: Main's user_io_file_mount() creates a missing file only when
+	// called with pre=1, and the sole pre=1 caller is the console-ROM save path on
+	// slot 0. An .mgl type="s" item and the SC4 bookmark both mount with pre=0, and a
+	// missing file then EJECTS the slot -- every block the saver sends is dropped
+	// while the "Flash saved" toast still shows. Measured 2026-09-12. The file must
+	// exist before launch; docs/2026-09-12-flash-persistence-fixed.md. "Save Flash" forces
 	// an immediate save; the OSD-open auto-save (Save to SDCard, On Open OSD) saves
 	// automatically after an install when the flash is dirty.
 	"SC4,SAV,Flash Save;",

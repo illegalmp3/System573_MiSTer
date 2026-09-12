@@ -93,7 +93,7 @@
        install, config/System573.s4 held
          ../usb0/games/System573/saves/System573/hypbbc2p.sav
        i.e. games/System573/ + the literal path above. That directory does not
-       exist, so Main's auto-create-on-first-LBA-0-write had nowhere to create the
+       exist, so Main EJECTS a slot whose file is missing (pre=0; there is no auto-create on this path) -- see
        file: the core programmed its 16 MB flash and the save went nowhere, and the
        next launch offered to initialize the flash again.
        A bare filename lands it in games/System573/, which exists. -->
