@@ -93,8 +93,9 @@
        install, config/System573.s4 held
          ../usb0/games/System573/saves/System573/hypbbc2p.sav
        i.e. games/System573/ + the literal path above. That directory does not
-       exist, so Main EJECTS a slot whose file is missing (pre=0; there is no auto-create on this path) -- see
-       file: the core programmed its 16 MB flash and the save went nowhere, and the
+       exist, and Main EJECTS a slot whose file is missing (pre=0; there is no
+       auto-create on this path -- docs/2026-09-12-flash-persistence-fixed.md):
+       the core programmed its 16 MB flash and the save went nowhere, and the
        next launch offered to initialize the flash again.
        A bare filename lands it in games/System573/, which exists. -->
   <file delay="3" type="s" index="4" path="ddrsbm.sav"/>
