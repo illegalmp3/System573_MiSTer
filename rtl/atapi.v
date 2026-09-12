@@ -328,13 +328,24 @@ module atapi #(
                                   // ===== full 12-byte packet received: dispatch =====
                                   pkt_idx <= 0;
                                   case (pkt[0])
-                                      8'h00, 8'h1b: begin       // TEST UNIT READY / START-STOP UNIT (non-data GOOD)
+                                      8'h00, 8'h1b, 8'hBB: begin // TEST UNIT READY / START-STOP UNIT / SET CD SPEED (non-data GOOD)
                                           // 0x1b is the per-song ritual opcode ddrsbm issues x2 after
                                           // every preload (oracle log n=545/546). A real CR-589 (+ MAME)
                                           // answer GOOD; the old default arm returned CHECK CONDITION
                                           // while REQUEST SENSE reports key 0 -- a contradiction the
                                           // game reacts to with extra drive resets (gate-5, RED sub-test
                                           // [B]). Both are non-data commands -> DRDY|DSC good completion.
+                                          //
+                                          // 0xBB SET CD SPEED: DDR Solo 2000 (ddrs2k, GC905) has a newer
+                                          // "ATAPI CD-ROM access library" than ddrsbm. Its CD init
+                                          // (GAME.DAT EXE 0x8005f83c) issues SET CD SPEED 0x0161 (353 KB/s,
+                                          // 2x) via 0x8008d458 right after the IDENTIFY check and treats
+                                          // ANY completion error as fatal: -1 -> "HARD-WARE ERROR -1N /
+                                          // CDROM INITIALIZE ERROR" (0x8001da80..daac). The default arm's
+                                          // CHECK CONDITION was that error, reproduced on hardware
+                                          // 2026-09-12 on the first flash boot of the installed game. A
+                                          // real CR-589 answers GOOD; we serve one speed and ignore the
+                                          // requested rate, which is what MAME's ATAPI CD-ROM does too.
                                           r_status  <= ST_DRDY | ST_DSC;
                                           r_ireason <= IR_CD | IR_IO;
                                           r_error   <= 8'h00;

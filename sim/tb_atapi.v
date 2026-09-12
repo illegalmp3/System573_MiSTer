@@ -79,6 +79,22 @@ module tb_atapi;
         io_read(4'd7, v); chk(v, 16'h0050, "TUR status");   // DRDY|DSC
         io_read(4'd2, v); chk(v, 16'h0003, "TUR done ireason");
 
+        // ---- SET CD SPEED (0xBB): ddrs2k's CD init issues it and dies on any error ----
+        // Packet = BB 00 01 61 00 ... (0x0161 = 353 KB/s, 2x), exactly what GAME.DAT
+        // 0x8008d458 builds. Must complete GOOD (DRDY|DSC, ERR clear, C/D|I/O), like
+        // TEST UNIT READY. Before the fix this took the default CHECK CONDITION arm
+        // (status 0x51, error 0x50) -> "CDROM INITIALIZE ERROR" on hardware.
+        io_write(4'd7, 16'h00A0);                 // PACKET
+        io_write(4'd0, 16'h00BB);                 // word0: opcode 0xBB, pkt[1]=0
+        io_write(4'd0, 16'h6101);                 // pkt[2]=0x01, pkt[3]=0x61 (speed BE 0x0161)
+        io_write(4'd0, 16'h0000);
+        io_write(4'd0, 16'h0000);
+        io_write(4'd0, 16'h0000);
+        io_write(4'd0, 16'h0000);                 // -> dispatch
+        io_read(4'd7, v); chk(v, 16'h0050, "SETSPEED status");   // DRDY|DSC, ERR clear
+        io_read(4'd1, v); chk(v, 16'h0000, "SETSPEED error");    // no sense key
+        io_read(4'd2, v); chk(v, 16'h0003, "SETSPEED ireason");  // C/D=1, I/O=1
+
         // ---- INQUIRY (PIO data-in PACKET command) ----
         io_write(4'd7, 16'h00A0);
         send_packet(8'h12);                        // INQUIRY
