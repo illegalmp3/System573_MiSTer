@@ -30,7 +30,8 @@ module tb_zs01_golden;
         .clk(clk), .rst(rst), .cs(cs), .sec_rst(sec_rst),
         .scl(scl), .sda_i(sda_m), .sda_o(sda_o),
         .load_we(L_we), .load_addr(L_addr), .load_data(L_data),
-        .load_ds_we(Lds_we), .load_ds_addr(Lds_addr), .load_ds_data(Lds_data)
+        .load_ds_we(Lds_we), .load_ds_addr(Lds_addr), .load_ds_data(Lds_data),
+        .dbg()
     );
 
     always #5 clk = ~clk;

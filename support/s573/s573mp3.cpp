@@ -262,6 +262,10 @@ static void ctrl_exchange(void)
 }
 
 static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
+/* zs01 packet-engine observability (STATUS words 6/7/8; rtl/zs01.v dbg). The engine
+ * is multi-cycle and the real host neither clock-stretches nor waits, so 'did the
+ * game clock the response before we finished' is a question only the board answers. */
+static uint16_t last_sec_dbg = 0, last_sec_dbg2 = 0, last_sec_dbg3 = 0;
 #ifndef CMD_573_STAGETRACE
 #define CMD_573_STAGETRACE 0x6C
 #endif
@@ -310,6 +314,9 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     last_stage_dbg  = spi_w(0);   /* word3: gn845pwbb {en, id_seen, st0, sh0[12:0]} (0 on older RTL) */
     last_stage_dbg2 = spi_w(0);   /* word4: {edges0[7:0], bit0[4:0], ck0, do0, st1} */
     last_stage_dbg3 = spi_w(0);   /* word5: last mask value that was not 0xffff (sticky) */
+    last_sec_dbg    = spi_w(0);   /* word6: {last_cmd[7:0], pkts[7:0]} (0 on older RTL) */
+    last_sec_dbg2   = spi_w(0);   /* word7: {status[7:0], addr[7:0]} */
+    last_sec_dbg3   = spi_w(0);   /* word8: {resp_bytes[7:0], -, loaded, crc_ok, overrun, -, state[2:0]} */
     DisableIO();
 }
 
@@ -727,6 +734,20 @@ static void heartbeat(void)
              (last_stage_dbg2 >> 3) & 31, (last_stage_dbg2 >> 8) & 255,
              (last_stage_dbg2 >> 2) & 1, (last_stage_dbg2 >> 1) & 1, last_stage_dbg3,
              last_stage_dbg, last_stage_dbg2, last_stage_dbg3);
+    /* Only speak up once the cassette has actually been talked to: a game with no
+     * ZS01 leaves every field 0 and the line would be pure noise. */
+    if (last_sec_dbg || last_sec_dbg2 || last_sec_dbg3) {
+        unsigned pkts = last_sec_dbg & 0xff, cmd = (last_sec_dbg >> 8) & 0xff;
+        unsigned addr = last_sec_dbg2 & 0xff, st = (last_sec_dbg2 >> 8) & 0xff;
+        unsigned state = last_sec_dbg3 & 7, ovr = (last_sec_dbg3 >> 4) & 1;
+        unsigned crcok = (last_sec_dbg3 >> 5) & 1, ld = (last_sec_dbg3 >> 6) & 1;
+        unsigned rb = (last_sec_dbg3 >> 8) & 0xff;
+        s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
+                 "resp_bytes_clocked=%u state=%u loaded=%u OVERRUN=%u%s (raw %04x %04x %04x)\n",
+                 pkts, cmd, addr, st, crcok, rb, state, ld, ovr,
+                 ovr ? "  <== the game clocked the response before the engine finished" : "",
+                 last_sec_dbg, last_sec_dbg2, last_sec_dbg3);
+    }
     s573_log("s573mp3: cd: %u reads %u sectors this second | last disk=%d lba=%llu sz=%d %.1f s ago | total %u\n",
              cd_reads_hb, cd_secs_hb, cd_last_disk, (unsigned long long)cd_last_lba,
              cd_last_blksz, cd_last_us ? (double)(t - cd_last_us) / 1e6 : -1.0, cd_reads_total);

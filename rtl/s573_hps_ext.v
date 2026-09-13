@@ -91,6 +91,7 @@
 //   word1        up: snapshotted underrun_cnt
 //   word2        up: snapshotted buf_level
 //   word3/4/5    up: snapshotted stage_dbg[15:0] / [31:16] / [47:32] (gn845pwbb.v)
+//   word6/7/8    up: snapshotted sec_dbg[15:0] / [31:16] / [47:32] (zs01.v)
 //
 // CMD_573_CTRL (0x6A) -- HPS->fabric control + decode events:
 //   word0 (cmd)  up: {last_sync_cnt, last_idle_cnt} (the fabric's current
@@ -202,6 +203,7 @@ module s573_hps_ext
     input      [15:0] underrun_cnt,  // s573_mp3_pcm underrun_cnt, SATURATED to 16 bits (see header)
     input      [15:0] buf_level,     // elastic-buffer occupancy (wr_level, zero-extended)
     input      [47:0] stage_dbg,     // gn845pwbb stage-multiplexor state (words 3/4/5; see gn845pwbb.v)
+    input      [47:0] sec_dbg,       // zs01 packet-engine state (words 6/7/8; see zs01.v)
     // ---- CMD_573_STAGETRACE: gn845pwbb line-event trace read-out ----
     output reg [6:0]  stage_trace_addr,
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
@@ -345,6 +347,9 @@ always @(posedge clk_sys) begin
                     snap[3] <= stage_dbg[15:0];
                     snap[4] <= stage_dbg[31:16];
                     snap[5] <= stage_dbg[47:32];
+                    snap[6] <= sec_dbg[15:0];
+                    snap[7] <= sec_dbg[31:16];
+                    snap[8] <= sec_dbg[47:32];
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -395,6 +400,9 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 3) io_dout <= snap[3];
                     else if(byte_cnt == 4) io_dout <= snap[4];
                     else if(byte_cnt == 5) io_dout <= snap[5];
+                    else if(byte_cnt == 6) io_dout <= snap[6];
+                    else if(byte_cnt == 7) io_dout <= snap[7];
+                    else if(byte_cnt == 8) io_dout <= snap[8];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin

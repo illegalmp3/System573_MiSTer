@@ -23,7 +23,8 @@ module tb_zs01;
         .clk(clk), .rst(rst), .cs(cs), .sec_rst(sec_rst),
         .scl(scl), .sda_i(sda_m), .sda_o(sda_o),
         .load_we(1'b0), .load_addr(13'd0), .load_data(8'd0),
-        .load_ds_we(1'b0), .load_ds_addr(3'd0), .load_ds_data(8'd0)
+        .load_ds_we(1'b0), .load_ds_addr(3'd0), .load_ds_data(8'd0),
+        .dbg()
     );
 
     // ---- Part 2 DUT: loaded with the REAL gtrfrk5m gea26jaa.u1 via the load port ----
@@ -35,7 +36,8 @@ module tb_zs01;
         .clk(clk), .rst(rst), .cs(cs2), .sec_rst(sec_rst2),
         .scl(scl2), .sda_i(sda_m2), .sda_o(sda_o2),
         .load_we(L_we), .load_addr(L_addr), .load_data(L_data),
-        .load_ds_we(Lds_we), .load_ds_addr(Lds_addr), .load_ds_data(Lds_data)
+        .load_ds_we(Lds_we), .load_ds_addr(Lds_addr), .load_ds_data(Lds_data),
+        .dbg()
     );
 
     always #5 clk = ~clk;

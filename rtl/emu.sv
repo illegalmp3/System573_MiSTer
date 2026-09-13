@@ -810,6 +810,7 @@ s573_hps_ext hps_ext
 	.underrun_cnt(mp3_underrun_sat),
 	.buf_level(mp3_buf_level16),
 	.stage_dbg(stage_dbg16),
+	.sec_dbg(sec_dbg48),
 	.stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
 
 	.ctrl_flags(mp3_ctrl_flags),
@@ -1890,6 +1891,7 @@ reg  flash_save_trigger = 1'b0;
 // ERASE trigger: the "Erase Flash Save" R-bit -> blank the .sav (roll back clean).
 wire bk_erase_flash = status[98];                  // "R[98],Erase Flash Save;" (CONF_STR)
 wire [47:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS words 3/4/5
+wire [47:0] sec_dbg48;                              // zs01 engine -> HPS STATUS words 6/7/8
 wire [6:0]  stage_trace_addr; wire [15:0] stage_trace_data; wire [7:0] stage_trace_count;
 wire solo_cab       = status[100];                 // "O[100],573 Cabinet;" 1 = DDR Solo: strap
                                                    // P2-START grounded (cab-type sense line)
@@ -2414,6 +2416,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .cdrom_irq      (exp_irq10),
    .lamp_out       (),
    .stage_dbg      (stage_dbg16),
+   .sec_dbg        (sec_dbg48),
    .stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
    // MP3 sink back-pressure: STAYS 0 -- this is the fabric->HPS byte-ring leg,
    // gated on decision B (the descramble-on-HPS spike may delete it) and its

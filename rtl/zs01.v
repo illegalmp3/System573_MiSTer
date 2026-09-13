@@ -113,7 +113,16 @@ module zs01 #(
     // dsid[k] = .u6 file byte k. Defaults to the DS2401_ID param when not loaded.
     input  wire        load_ds_we,
     input  wire [2:0]  load_ds_addr,  // file byte index 0..7
-    input  wire [7:0]  load_ds_data
+    input  wire [7:0]  load_ds_data,
+
+    // ---- observability (HPS STATUS words 6/7/8; see docs 2026-09-13 ddrusa) ----
+    // The engine is multi-cycle and the real host neither clock-stretches nor waits,
+    // so "did the game clock the response before we finished" is a real question that
+    // only the board can answer. dbg carries it, plus what the game actually asked for.
+    //   [7:0] packets received   [15:8] last cmd byte   [23:16] last address byte
+    //   [31:24] last PLAINTEXT status   [35:32] state   [36] overrun (sticky)
+    //   [37] last CRC ok   [38] image loaded   [47:40] response bytes clocked out
+    output wire [47:0] dbg
 );
     localparam [2:0] ST_STOP = 3'd0, ST_RTR = 3'd1, ST_CMD = 3'd2, ST_PROC = 3'd3, ST_READ = 3'd4;
     // packet-engine sub-states (active while state == ST_PROC)
@@ -199,6 +208,10 @@ module zs01 #(
     reg [7:0]  pprev;     // cipher chain byte
     reg [15:0] crcv;      // running CRC
     reg        overrun;   // sticky: an SCL edge arrived while still processing (bench-visible)
+    reg [7:0]  dbg_pkts, dbg_cmd, dbg_addr, dbg_status, dbg_rbytes;
+    reg        dbg_crc_ok;
+    assign dbg = {dbg_rbytes, 1'b0, loaded, dbg_crc_ok, overrun, 1'b0, state,
+                  dbg_status, dbg_addr, dbg_cmd, dbg_pkts};
     wire [7:0] rc_next = creg[CONFIG_RC] + 8'd1;
     // data_offset() = address*8; valid only below the 112-byte body (address < 14)
     wire       off_ok  = (wbuf[1] < 8'd14);
@@ -298,6 +311,7 @@ module zs01 #(
             state <= ST_STOP; bitc <= 0; bytec <= 0; shift <= 0;
             prevbyte <= 0; sda_o <= 1'b0;
             pstate <= P_DEC_CMD; pidx <= 0; pcnt <= 0; pprev <= 0; crcv <= 16'hffff; overrun <= 1'b0;
+            dbg_pkts <= 0; dbg_cmd <= 0; dbg_addr <= 0; dbg_status <= 0; dbg_rbytes <= 0; dbg_crc_ok <= 0;
         end else begin
             // ================= packet engine: one byte per clock =================
             if (state == ST_PROC) begin
@@ -325,6 +339,9 @@ module zs01 #(
                     if (pidx == 4'd9) pstate <= P_DISPATCH; else pidx <= pidx + 4'd1;
                 end
                 P_DISPATCH: begin
+                    dbg_cmd    <= wbuf[0];                        // observability
+                    dbg_addr   <= wbuf[1];
+                    dbg_crc_ok <= (~crcv == {wbuf[10], wbuf[11]});
                     pcnt   <= 7'd0;
                     pstate <= P_CRC_RESP; pidx <= 4'd0; crcv <= 16'hffff;   // default next
                     if (~crcv == {wbuf[10], wbuf[11]}) begin
@@ -377,7 +394,7 @@ module zs01 #(
                     else pcnt <= pcnt + 7'd1;
                 end
                 P_CRC_RESP: begin                // m_previous_byte = read_buffer[1]; calc_crc(rbuf, 10)
-                    if (pidx == 4'd0) prevbyte <= rbuf[1];
+                    if (pidx == 4'd0) begin prevbyte <= rbuf[1]; dbg_status <= rbuf[0]; end
                     crcv <= crc_step(crcv, rbuf[pidx]);
                     if (pidx == 4'd9) pstate <= P_CRC_WR; else pidx <= pidx + 4'd1;
                 end
@@ -436,6 +453,8 @@ module zs01 #(
                             if (bytec == 8'd11) begin
                                 // ===== full packet received: run the engine =====
                                 state  <= ST_PROC;
+                                dbg_pkts   <= dbg_pkts + 8'd1;   // observability
+                                dbg_rbytes <= 8'd0;
                                 pstate <= P_DEC_CMD;
                                 pidx   <= 4'd11;
                                 pprev  <= 8'hff;                 // decrypt() seed
@@ -452,6 +471,7 @@ module zs01 #(
                         end else begin
                             bitc  <= 4'd0;
                             sda_o <= 1'b0;
+                            dbg_rbytes <= dbg_rbytes + 8'd1;         // observability
                             if (sda_i == 1'b0) begin                 // master ACK
                                 if (bytec == 8'd11) begin
                                     bytec <= 8'd0; sda_o <= 1'b1; state <= ST_CMD;
