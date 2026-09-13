@@ -343,7 +343,9 @@ module zs01 #(
                             if (wbuf[1] == 8'hfc || wbuf[1] == 8'hfd)
                                  for (i = 0; i < 8; i = i + 1) rbuf[2+i] <= dsid[7-i];
                             else if (wbuf[1] == 8'hfe)
-                                 for (i = 0; i < 8; i = i + 1) rbuf[2+i] <= creg[i];
+                                 // RC was zeroed above IN THIS CLOCK (nonblocking): the copy must
+                                 // see the new value, as MAME's memcpy does after its RC = 0.
+                                 for (i = 0; i < 8; i = i + 1) rbuf[2+i] <= (i == CONFIG_RC) ? 8'h00 : creg[i];
                             else if (off_ok) pstate <= P_RD_DATA;
                         end
                     end else begin

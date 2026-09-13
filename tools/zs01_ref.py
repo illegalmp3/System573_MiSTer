@@ -233,6 +233,9 @@ def main():
             f.write('// %s : status %02x%s\n' % (label, st, ('' if plain is None else ' data ' + ' '.join('%02x' % x for x in plain))))
             f.write(' '.join('%02x' % x for x in wire) + '\n')
             f.write(' '.join('%02x' % x for x in resp) + '\n')
+        used = 1 + 24 * len(vectors)
+        f.write('// zero padding to 1024 entries so $readmemh fills the bench array without a range warning\n')
+        for _ in range(used, 1024): f.write('00\n')
     print('wrote %s: %d vectors, model self-checks pass' % (a.out, len(vectors)))
 
 if __name__ == '__main__':

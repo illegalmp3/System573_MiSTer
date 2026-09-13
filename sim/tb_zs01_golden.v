@@ -77,7 +77,7 @@ module tb_zs01_golden;
         if (fh != 0) begin
             $fclose(fh);
             for (k = 0; k < 4116; k = k + 1) u1[k] = 8'h00;
-            $readmemh("secdata/ddrusa_u1.hex", u1);
+            $readmemh("secdata/ddrusa_u1.hex", u1, 0, 139);
             $readmemh("secdata/ddrusa_u6.hex", u6);
             $readmemh("secdata/ddrusa_zs01_vectors.hex", vec);
             present = 1'b1;
