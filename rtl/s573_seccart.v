@@ -123,9 +123,21 @@ module s573_seccart #(
         .load_we(load_eep_we), .load_addr(load_eep_addr[9:0]), .load_data(load_eep_data)
     );
 
-    // ZS01: SDA-out comes from the CONTROL register bit 6 (io0_dir), ACTIVE-LOW (per
-    // k573cass write_line_zs01_sda) -- NOT from D0. SCL/CS/RST stay on D1/D2/D3.
-    wire zs01_sda_i = ~io0_dir;   // control bit 6 is active-low -> released(1) when bit=0
+    // ZS01 SDA-in (host -> chip). MEASURED on hardware (ddrusa install, 2026-09-13,
+    // disasm of the game's ZS01 bit-bang at PSX.EXE 0x80323b40): the game clocks the
+    // command bits out on the DATA LATCH D0 -- `or v1, latch&0xfffe, data_bit; sw
+    // 0x1f6a0000` -- exactly like the X76 carts, and uses the CONTROL register bit 6
+    // (io0_dir, active-low) only to RELEASE the line before a read (PSX.EXE 0x80323cc4
+    // clears it). So SDA is the wired-AND of both open-drain drivers: D0 and the
+    // control bit. The first cut drove it from io0_dir ALONE (D0 ignored), which read
+    // MAME's k573cass write_line_zs01_sda too literally -- the ZI cassette really does
+    // leave D0 off the ZS01, but the 573 side ORs the latch D0 onto the same physical
+    // SDA net, so the chip sees it. With D0 ignored every command bit fell on the floor
+    // and the chip returned garbage: "Cassette does not match this game" (error 121-3).
+    // (The bench's synthetic gtrfrk5m master hid this by driving io0_dir directly, so
+    // RTL and bench shared the same wrong assumption -- tb_s573_seccart Part 3 now
+    // drives D0 like the game.) SCL/CS/RST stay on D1/D2/D3.
+    wire zs01_sda_i = d_q[0] & ~io0_dir;   // open-drain: low if EITHER driver pulls low
     zs01 eeprom_zs01 (
         .clk(clk), .rst(rst),
         .cs(sel_zs01 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),

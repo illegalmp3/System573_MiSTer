@@ -84,9 +84,11 @@ module tb_s573_seccart;
     );
 
     // ---- Part 3 DUT: ZS01 (cart_type 2), loaded with the real gtrfrk5m dump ----
-    // SDA WIRING DIFFERS: the ZS01 cassette drives SDA-out from CONTROL bit 6 (io0_dir,
-    // ACTIVE-LOW) -- NOT D0. SCL=D1, CS=D2, RST=D3, DS2401=D4; readback = sec_io0.
-    reg [7:0]  dl3   = 8'b0000_0100;  // cs=1(desel via D2), scl=0, rst=0, ds=0
+    // ZS01 SDA-in is the wired-AND of DATA LATCH D0 and CONTROL bit 6 (io0_dir,
+    // active-low). The real game drives the command bits on D0 (PSX.EXE 0x80323b40)
+    // and only releases via bit 6, so THIS bench drives D0 and holds io0_3 released
+    // (0). SCL=D1, CS=D2, RST=D3, DS2401=D4; readback = sec_io0.
+    reg [7:0]  dl3   = 8'b0000_0101;  // sda=1(rel via D0), cs=1(desel D2), scl=0, rst=0, ds=0
     reg        io0_3 = 1'b0;          // control bit 6 (active-low): 0 -> SDA released(1)
     reg        e3_we = 0;  reg [12:0] e3_addr = 0;  reg [7:0] e3_data = 0;
     reg        s3_we = 0;  reg [2:0]  s3_addr = 0;  reg [7:0] s3_data = 0;
@@ -233,27 +235,27 @@ module tb_s573_seccart;
     endtask
 
     // drive ZS01 SDA via control bit 6 (active-low): sda_drv=1 -> pull low (io0_3=1).
-    task z_sda(input v); begin io0_3 = ~v; tk; end endtask   // v=1 release(high), v=0 low
+    task z_sda(input v); begin dl3[0] = v; tk; end endtask   // v=1 release(high), v=0 low
     task z_scl(input v); begin dl3[1] = v; tk; end endtask
 
     // I2C-like start: SDA 1->0 while SCL high
     task z_start; begin
-        dl3[1]=0;tk; io0_3=~1'b1;tk; dl3[1]=1;tk; io0_3=~1'b0;tk; dl3[1]=0;tk;
+        dl3[1]=0;tk; dl3[0]=1'b1;tk; dl3[1]=1;tk; dl3[0]=1'b0;tk; dl3[1]=0;tk;
     end endtask
     task z_stop; begin
-        dl3[1]=0;tk; io0_3=~1'b0;tk; dl3[1]=1;tk; io0_3=~1'b1;tk;
+        dl3[1]=0;tk; dl3[0]=1'b0;tk; dl3[1]=1;tk; dl3[0]=1'b1;tk;
     end endtask
     task z_send(input [7:0] dat, output ack);
         integer i; begin
-            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; io0_3=~dat[i];tk; dl3[1]=1;tk; end
-            dl3[1]=0;tk; io0_3=~1'b1;tk; dl3[1]=1;tk; ack=sec_io0_3; dl3[1]=0;tk; // 9th = dev ack
+            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; dl3[0]=dat[i];tk; dl3[1]=1;tk; end
+            dl3[1]=0;tk; dl3[0]=1'b1;tk; dl3[1]=1;tk; ack=sec_io0_3; dl3[1]=0;tk; // 9th = dev ack
         end
     endtask
     task z_read(output [7:0] dat);   // master ACKs every byte (drives SDA low on 9th)
         integer i; begin
             dat=8'h00;
-            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; io0_3=~1'b1;tk; dl3[1]=1;tk; dat[i]=sec_io0_3; end
-            dl3[1]=0;tk; io0_3=~1'b0;tk; dl3[1]=1;tk; dl3[1]=0;tk; io0_3=~1'b1; // master ack (low)
+            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; dl3[0]=1'b1;tk; dl3[1]=1;tk; dat[i]=sec_io0_3; end
+            dl3[1]=0;tk; dl3[0]=1'b0;tk; dl3[1]=1;tk; dl3[1]=0;tk; dl3[0]=1'b1; // master ack (low)
         end
     endtask
     task z_read_rtr(output [7:0] dat);   // RTR: device shifts MSB-first on falling SCL
