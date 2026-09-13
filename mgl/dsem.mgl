@@ -1,0 +1,36 @@
+<!--
+  dsem (Dancing Stage EURO MIX, GE936 VER. EAA) -- System 573 DIGITAL-board
+  (k573dio) CD game. Konami Bemani. Security cassette = X76F041 (ge936ea.u1,
+  548 B; the FIRST X76F041 cart this core meets on hardware) + DS2401
+  (ge936ea.u6, 8 B). Single cassette: the same cart installs and plays, so
+  ONE launcher -- the OSD Boot Device toggles install vs play.
+
+  DISC NOTE: 936eaa is stored as TYPE:MODE1 (2048-byte sectors) in the CHD,
+  where the ATAPI path and the core's cdimg both want RAW 2352-byte sectors
+  (user data at offset 16). So the disc ships here as dsem.cue + dsem.bin,
+  rebuilt to MODE1/2352 by tools/s573_oracle/chd_extract.c -raw2352 (12 sync +
+  MSF/mode-1 header + 2048 user + zeroed EDC/ECC). ddrs2k/ddrsbm were
+  MODE1_RAW already and needed no rebuild.
+
+  Six items max: Main parses at most SIX file/reset items per .mgl and drops
+  the rest (mra_loader.h mgl_item_struct item[6]).
+
+  OSD for this title: 573 Cabinet = STANDARD (not a Solo cabinet);
+  573 MP3 Descramble = DEFAULT (not the ddrsbm scheme); 573 Boot Device =
+  CD-ROM to install, then Flash ROM to play. The .sav MUST exist before launch
+  or Main ejects the slot (pre=0, docs/2026-09-12-flash-persistence-fixed.md);
+  a blank 16 MB dsem.sav ships for the first boot.
+
+  Cassette TYPE is inferred from the .u1 SIZE in emu.sv: 548 B -> X76F041
+  (type 1). No padding needed (unlike the ZS01 carts).
+-->
+<mistergamedescription>
+  <rbf>_Console/Konami_System_573</rbf>
+  <setname>System573</setname>
+  <file delay="1" type="f" index="0" path="573bios.bin"/>
+  <file delay="1" type="f" index="4" path="dsem.u1"/>
+  <file delay="1" type="f" index="5" path="dsem.u6"/>
+  <file delay="2" type="s" index="1" path="dsem.cue"/>
+  <file delay="3" type="s" index="4" path="dsem.sav"/>
+  <reset delay="1"/>
+</mistergamedescription>

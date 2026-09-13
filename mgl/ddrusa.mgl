@@ -1,0 +1,36 @@
+<!--
+  ddrusa (Dance Dance Revolution USA, GKA44 VER. UAA) -- System 573
+  DIGITAL-board (k573dio) CD game. Security cassette = ZS01 / NS2K001 PIC
+  (gka44ua.u1) + DS2401 (gka44ua.u6, 8 B). The FIRST ZS01 cart this core meets
+  on hardware. Single cassette: one launcher, OSD toggles install vs play.
+
+  ZS01 SIZE PADDING: the MAME dump gka44ua.u1 is the raw 140-byte ZS01 nvram
+  image (RTR + cmd key + data key + config + 112 data). emu.sv infers the cart
+  type from the .u1 SIZE (>=561 B -> ZS01 type 2; >=257 -> X76F041; else
+  X76F100), so ddrusa.u1 here is padded with zeros to 4116 B -- the same size
+  as gtrfrk5m's dump and the width the loader (AW=13) and zs01.v expect. zs01.v
+  drops every loaded byte at addr >= 140, so the padding is inert.
+
+  Six items max (mra_loader.h item[6]).
+
+  OSD for this title: 573 Cabinet = STANDARD; 573 MP3 Descramble = DEFAULT;
+  573 Boot Device = CD-ROM to install, then Flash ROM to play. Disc a44uaa02 is
+  MODE1_RAW already, so ddrusa.chd is used directly. A blank 16 MB ddrusa.sav
+  ships so the slot mounts on the first boot.
+
+  RISK NOTE: ddrusa's GAME.DAT carries a prominent FLASH CARD / "NOW COPYING TO
+  FLASH CARD" path alongside CD-ROM>FLASHROM / PCCARD1>ONBOARD. The core models
+  only the 16 MB ONBOARD flash, no PCMCIA card. The install-destination select
+  (DIP/OSD) must land on ONBOARD; if the title insists on a PCMCIA flash card,
+  it will stop at a FLASH CARD error and this becomes a Tier-3 (PCMCIA) item.
+-->
+<mistergamedescription>
+  <rbf>_Console/Konami_System_573</rbf>
+  <setname>System573</setname>
+  <file delay="1" type="f" index="0" path="573bios.bin"/>
+  <file delay="1" type="f" index="4" path="ddrusa.u1"/>
+  <file delay="1" type="f" index="5" path="ddrusa.u6"/>
+  <file delay="2" type="s" index="1" path="ddrusa.chd"/>
+  <file delay="3" type="s" index="4" path="ddrusa.sav"/>
+  <reset delay="1"/>
+</mistergamedescription>

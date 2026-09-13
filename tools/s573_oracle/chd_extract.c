@@ -23,9 +23,18 @@ int main(int argc, char **argv)
     FILE *out;
     unsigned i, s, sectors_per_hunk, framesize;
     int iso = (argc > 3 && !strcmp(argv[3], "-iso"));
+    /* -m1: the CHD track is TYPE:MODE1 (2048-byte storage, NO sync/header in the
+     * frame -- dsem's 936eaa.chd), so the user data sits at byte 0 of each frame.
+     * -raw2352: emit a proper raw MODE1 sector stream (12 sync + MSF/mode header +
+     * 2048 user + zero EDC/ECC) from a MODE1-storage CHD, i.e. a .bin the core's
+     * cdimg can consume as-is (it keeps bytes 16..2063; Main never checks EDC/ECC). */
+    int m1  = (argc > 3 && !strcmp(argv[3], "-m1"));
+    int raw = (argc > 3 && !strcmp(argv[3], "-raw2352"));
     unsigned long long written = 0;
+    unsigned lba = 0;
+    static const unsigned char sync12[12] = {0,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0};
 
-    if (argc < 3) { fprintf(stderr, "usage: %s in.chd out.bin [-iso]\n", argv[0]); return 2; }
+    if (argc < 3) { fprintf(stderr, "usage: %s in.chd out.bin [-iso|-m1|-raw2352]\n", argv[0]); return 2; }
     if (chd_open(argv[1], CHD_OPEN_READ, NULL, &chd) != CHDERR_NONE) {
         fprintf(stderr, "chd_open failed\n"); return 1;
     }
@@ -45,10 +54,22 @@ int main(int argc, char **argv)
         if (chd_read(chd, i, hunk) != CHDERR_NONE) {
             fprintf(stderr, "chd_read failed at hunk %u\n", i); break;
         }
-        if (!iso) { fwrite(hunk, 1, h->hunkbytes, out); written += h->hunkbytes; continue; }
+        if (!iso && !m1 && !raw) { fwrite(hunk, 1, h->hunkbytes, out); written += h->hunkbytes; continue; }
         for (s = 0; s < sectors_per_hunk; s++) {
             unsigned char *sec = hunk + (size_t)s * framesize;
-            /* Mode 1: 12 sync + 4 header + 2048 user + 288 EDC/ECC */
+            if (m1) { fwrite(sec, 1, 2048, out); written += 2048; lba++; continue; }
+            if (raw) {
+                unsigned char hdr[4]; unsigned a = lba + 150, mm = a / 4500, ss = (a / 75) % 60, ff = a % 75;
+                hdr[0] = (unsigned char)(((mm / 10) << 4) | (mm % 10));
+                hdr[1] = (unsigned char)(((ss / 10) << 4) | (ss % 10));
+                hdr[2] = (unsigned char)(((ff / 10) << 4) | (ff % 10));
+                hdr[3] = 1;
+                static const unsigned char zeros[288];
+                fwrite(sync12, 1, 12, out); fwrite(hdr, 1, 4, out);
+                fwrite(sec, 1, 2048, out); fwrite(zeros, 1, 288, out);
+                written += 2352; lba++; continue;
+            }
+            /* Mode 1 raw: 12 sync + 4 header + 2048 user + 288 EDC/ECC */
             fwrite(sec + 16, 1, 2048, out); written += 2048;
         }
     }
