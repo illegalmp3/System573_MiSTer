@@ -1,5 +1,6 @@
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) rtl/emu.sv]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/system573_top.v]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/gn845pwbb.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_bus.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_io.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/watchdog.v]

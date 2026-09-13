@@ -110,6 +110,8 @@ module system573_top #(
     input  wire [3:0]  dip_sw,
     input  wire [7:0]  p1_ctrl,
     input  wire [7:0]  p2_ctrl,
+    input  wire        stage_mux_en,    // 1 = standard cab: GN845-PWB(B) stage PCBs on the
+                                        // JAMMA direction bits (gn845pwbb.v); 0 = Solo cab
     input  wire [1:0]  coin_sw,
     input  wire        service_btn,
     input  wire        test_btn,
@@ -386,12 +388,23 @@ module system573_top #(
 
     // --- Konami ASIC I/O ---
     wire [15:0] asic_dout;
+    // GN845-PWB(B) DDR stage multiplexors (standard cabinets). The game programs
+    // them over lamp lines 4/7 (stage 0) and 12/15 (stage 1) and reads the reply on
+    // the JAMMA direction bits; until the boot handshake is answered a standard-cab
+    // DDR stops at "STAGE PCB INITIALIZE ERROR". The mask is all-ones when idle or
+    // on a Solo cab, so every other title sees its pads unchanged.
+    wire [15:0] stage_mask;
+    gn845pwbb u_stage (
+        .clk(clk), .rst(rst), .en(stage_mux_en),
+        .lamp(lamp_out), .stage_mask(stage_mask)
+    );
+
     s573_io u_io (
         .clk(clk), .rst(rst),
         .sel(sel_asic), .off(asic_off),
         .we(sel_asic & exp1_we), .re(sel_asic & exp1_re),
         .din(exp1_wdata), .dout(asic_dout),
-        .dip_sw(dip_sw), .p1_ctrl(p1_ctrl), .p2_ctrl(p2_ctrl),
+        .dip_sw(dip_sw), .p1_ctrl(p1_ctrl & stage_mask[15:8]), .p2_ctrl(p2_ctrl & stage_mask[7:0]),
         .coin_sw(coin_sw), .service_btn(service_btn), .test_btn(test_btn),
         .btn5_p1(btn5_p1), .btn5_p2(btn5_p2),
         .pcmcia_present(pcmcia_present),

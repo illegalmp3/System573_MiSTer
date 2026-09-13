@@ -25,7 +25,7 @@ module tb_drivecheck;
         .clk(clk), .rst(rst),
         .exp1_addr(exp1_addr), .exp1_reqsize(exp1_reqsize), .exp1_wdata(exp1_wdata),
         .exp1_we(exp1_we), .exp1_re(exp1_re), .exp1_rdata(exp1_rdata),
-        .dip_sw(dip_sw), .p1_ctrl(8'h00), .p2_ctrl(8'h00),
+        .dip_sw(dip_sw), .stage_mux_en(1'b0), .p1_ctrl(8'h00), .p2_ctrl(8'h00),
         .coin_sw(2'b00), .service_btn(1'b0), .test_btn(1'b0),
         .pcmcia_present(2'b00),
         .cd_present(1'b1),

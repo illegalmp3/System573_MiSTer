@@ -2341,6 +2341,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    // Solo-cab strap that used to be OR'd into P2 bit[7] here now lives inside
    // p2_solo, so the standard expression can never see it (solo_cab is 0 there
    // anyway, so dropping the OR is behaviour-preserving for a standard cab).
+   .stage_mux_en   (~solo_cab),            // standard cab -> GN845-PWB(B) stage PCBs (gn845pwbb.v)
    .p1_ctrl        (solo_cab ? p1_solo
                              : ~{joy[9],  joy[6],  joy[5],  joy[4],  joy[2],  joy[3],  joy[0],  joy[1] }),
                                            // P1 JAMMA: START,B3,B2,B1,DOWN,UP,RIGHT,LEFT (active-low)
