@@ -32,7 +32,11 @@ set -euo pipefail
 DOCS="${DOCS:-$HOME/mnt/Documents}"
 PROJ="${PROJ:-$DOCS/System573_MiSTer}"
 WORK="${WORK:-$HOME/s573build}"
-TC="$WORK/toolchain"
+# The extraction target is VERSION-NAMED on purpose. $WORK/toolchain holds a 13.3
+# toolchain from an earlier experiment, and pointing TC there is exactly the
+# mistake this file's header is about: it builds a valid ARM binary the console
+# cannot load. Name the directory after the pin, and verify the compiler below.
+TC="${TC:-$WORK/tc102}"
 MAIN="$WORK/Main_MiSTer"
 SD="${SD:-$HOME/mnt/MiSTer_Data}"
 
@@ -63,7 +67,20 @@ stage_setup() {
   else
     say "toolchain already extracted"
   fi
-  "$TC/bin/arm-none-linux-gnueabihf-gcc" --version | head -1
+  local tcver
+  tcver="$("$TC/bin/arm-none-linux-gnueabihf-gcc" --version | head -1)"
+  printf '%s\n' "$tcver"
+  # The pin is a RUNTIME ABI pin (see the header). Enforce it here rather than
+  # letting the ABI gate catch it after a full build -- or, worse, letting a
+  # differently-named toolchain directory decide which compiler runs.
+  case "$tcver" in
+    *" 10.2."*) : ;;
+    *) die "toolchain at $TC is not 10.2 ($tcver).
+Main pins gcc-arm-10.2-2020.11 and that pin is a runtime ABI pin: a 13.3 build
+requires GLIBC_2.34/2.35/2.38, which MiSTer's rootfs does not have, so the
+loader refuses the binary and the console never boots. Point TC at the 10.2
+toolchain or delete $TC and re-run setup to extract it." ;;
+  esac
 
   if [ ! -f "$MAIN/Makefile" ]; then
     say "extracting Main_MiSTer"
@@ -179,8 +196,16 @@ stage_build() {
   export PATH="$TC/bin:$PATH"
   make -C "$MAIN" -j"$(nproc)" 2>&1 | tail -60
   local out
-  out="$(ls -1 "$MAIN"/MiSTer 2>/dev/null || true)"
-  [ -n "$out" ] || die "no MiSTer binary produced"
+  # Main has moved its link output before (bin/MiSTer today, ./MiSTer historically).
+  # Search both rather than assume, and say which one was found -- a build that
+  # "succeeded" while the script reads a stale binary from the other path is the
+  # kind of null this project keeps getting bitten by.
+  out=""
+  for cand in "$MAIN/bin/MiSTer" "$MAIN/MiSTer"; do
+    [ -f "$cand" ] && { out="$cand"; break; }
+  done
+  [ -n "$out" ] || die "no MiSTer binary produced (looked in $MAIN/bin/MiSTer and $MAIN/MiSTer)"
+  say "link output: $out"
   file "$out"
   arm-none-linux-gnueabihf-strip -s "$out" || true
   ls -la "$out"
