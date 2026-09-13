@@ -262,6 +262,40 @@ static void ctrl_exchange(void)
 }
 
 static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
+#ifndef CMD_573_STAGETRACE
+#define CMD_573_STAGETRACE 0x6C
+#endif
+/* gn845pwbb line-event trace: the first 128 changes of the stage-0 DO/CLK lines
+ * after reset, each {dt[13:0] in 64-clk ticks, ck, do}. Dumped once, when the
+ * count has stopped moving -- i.e. after the game's handshake (or the whole
+ * boot) is over -- so a failed STAGE PCB INITIALIZE shows the exact waveform
+ * the game put on the wire and what the multiplexor made of it. */
+static uint16_t trace_seen_cnt = 0xffff, trace_dumped = 0;
+static void stagetrace_dump(void)
+{
+    static uint64_t next = 0;
+    uint16_t cnt, base, w[10];
+    int i;
+    uint64_t t = now_us();
+    if (t < next) return;            /* once a second: "unchanged" must mean a whole second */
+    next = t + 1000000ull;
+    cnt = spi_uio_cmd_cont(CMD_573_STAGETRACE);
+    DisableIO();
+    cnt &= 0xff;
+    if (cnt != trace_seen_cnt) { trace_seen_cnt = cnt; return; }   /* still moving */
+    if (cnt == 0 || trace_dumped) return;
+    trace_dumped = 1;
+    s573_log("s573mp3: stage trace: %u line events (dt = 64-clk ticks since previous; ck/do = inverted lines as MAME sees them)\n", cnt);
+    for (base = 0; base < cnt; base += 8) {
+        w[0] = spi_uio_cmd_cont(CMD_573_STAGETRACE);
+        w[1] = spi_w(base);
+        for (i = 2; i <= 9; i++) w[i] = spi_w(0);
+        DisableIO();
+        for (i = 0; i < 8 && base + i < cnt; i++)
+            s573_log("s573mp3: stage trace[%3u]: dt=%5u ck=%u do=%u\n", base + i,
+                     (w[2 + i] >> 2) & 0x3fff, (w[2 + i] >> 1) & 1, w[2 + i] & 1);
+    }
+}
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
     *flags    = spi_uio_cmd_cont(CMD_573_STATUS);
@@ -818,5 +852,5 @@ void s573mp3_poll(void)
     }
 
     ctrl_exchange();
-    if (opt_hb) { ring_watch(); heartbeat(); }
+    if (opt_hb) { ring_watch(); heartbeat(); stagetrace_dump(); }
 }

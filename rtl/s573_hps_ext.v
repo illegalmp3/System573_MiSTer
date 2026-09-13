@@ -202,6 +202,10 @@ module s573_hps_ext
     input      [15:0] underrun_cnt,  // s573_mp3_pcm underrun_cnt, SATURATED to 16 bits (see header)
     input      [15:0] buf_level,     // elastic-buffer occupancy (wr_level, zero-extended)
     input      [47:0] stage_dbg,     // gn845pwbb stage-multiplexor state (words 3/4/5; see gn845pwbb.v)
+    // ---- CMD_573_STAGETRACE: gn845pwbb line-event trace read-out ----
+    output reg [6:0]  stage_trace_addr,
+    input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
+    input      [7:0]  stage_trace_count,
 
     // ---- CMD_573_CTRL: HPS -> fabric control + decode events ----
     output reg [15:0] ctrl_flags,      // bit0=cfg_ddrsbm, bit1=mp3_drain_en, rest reserved
@@ -229,7 +233,12 @@ localparam CD_SET = 'h35;
 localparam CMD_573_PTRS   = 'h68;
 localparam CMD_573_STATUS = 'h69;
 localparam CMD_573_CTRL   = 'h6A;
-localparam CMD_573_MP3CFG = 'h6B;   // must stay the TOP of the range (dout_en)
+localparam CMD_573_MP3CFG = 'h6B;
+localparam CMD_573_STAGETRACE = 'h6C;  // must stay the TOP of the range (dout_en)
+// CMD_573_STAGETRACE (0x6C): word0 up = entries recorded (0..128); word1 dn = base
+// index (HPS), up = echo; words 2..9 up = trace[base+0..7]. Same-word semantics:
+// the address for word k+1 is set at word k's strobe, the registered read is
+// ready long before the next SPI word.
 
 // Snapshot bank: latched at the cmd strobe, served on words 1..N. ONE command
 // is in flight at a time, so the bank is shared across PTRS (3), STATUS (2)
@@ -318,13 +327,16 @@ always @(posedge clk_sys) begin
         if(byte_cnt == 0) begin
             cmd <= io_din;
             dout_en <= (io_din >= CD_GET && io_din <= CD_SET) ||
-                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_MP3CFG);
+                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_STAGETRACE);
             case(io_din)
                 CMD_573_PTRS: begin
                     io_dout <= fab_pcm_rd;
                     snap[1] <= fab_pos_lo;    // consistent {pos, cfg_epoch,
                     snap[2] <= cfg_epoch;     // rst_epoch} tuple in ONE
                     snap[3] <= {8'd0, rst_epoch};  // exchange (must-fix #1)
+                end
+                CMD_573_STAGETRACE: begin
+                    io_dout <= {8'd0, stage_trace_count};
                 end
                 CMD_573_STATUS: begin
                     io_dout <= status_flags;
@@ -383,6 +395,16 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 3) io_dout <= snap[3];
                     else if(byte_cnt == 4) io_dout <= snap[4];
                     else if(byte_cnt == 5) io_dout <= snap[5];
+                end
+                CMD_573_STAGETRACE: begin
+                    if(byte_cnt == 1) begin
+                        stage_trace_addr <= io_din[6:0];
+                        io_dout <= io_din;
+                    end
+                    else if(byte_cnt >= 2 && byte_cnt <= 9) begin
+                        io_dout <= stage_trace_data;
+                        stage_trace_addr <= stage_trace_addr + 7'd1;
+                    end
                 end
                 CMD_573_MP3CFG: begin
                     // pure read-out of the latched tuple; the HPS may stop

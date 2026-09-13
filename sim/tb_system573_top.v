@@ -25,7 +25,7 @@ module tb_system573_top;
         .clk(clk), .rst(rst),
         .exp1_addr(exp1_addr), .exp1_reqsize(exp1_reqsize), .exp1_wdata(exp1_wdata),
         .exp1_we(exp1_we), .exp1_re(exp1_re), .exp1_rdata(exp1_rdata),
-        .dip_sw(dip_sw), .stage_mux_en(1'b0), .p1_ctrl(p1_ctrl), .p2_ctrl(p2_ctrl),
+        .dip_sw(dip_sw), .stage_mux_en(1'b0), .stage_trace_addr(7'd0), .stage_trace_data(), .stage_trace_count(), .p1_ctrl(p1_ctrl), .p2_ctrl(p2_ctrl),
         .coin_sw(coin_sw), .service_btn(service_btn), .test_btn(test_btn),
         .pcmcia_present(pcmcia_present),
         .cd_present(1'b1),   // this integration test exercises the ATAPI/CD path, so model a drive present

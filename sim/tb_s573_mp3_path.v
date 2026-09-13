@@ -100,7 +100,7 @@ module tb_s573_mp3_path;
         .mp3_key1(16'd0), .mp3_key2(16'd0), .mp3_key3(16'd0),
         .cfg_ddrsbm(1'b0), .fpga_ctrl_en(3'd0),
         .status_flags(mp3_status_flags), .underrun_cnt(mp3_underrun_sat),
-        .buf_level(mp3_buf_level16), .stage_dbg(48'h0),
+        .buf_level(mp3_buf_level16), .stage_dbg(48'h0), .stage_trace_addr(), .stage_trace_data(16'h0), .stage_trace_count(8'd0),
         .ctrl_flags(mp3_ctrl_flags), .dec_frame_sync(mp3_dec_frame_sync),
         .dec_frame_idle(mp3_dec_frame_idle), .evt_ovf(mp3_evt_ovf)
     );

@@ -52,7 +52,13 @@ module gn845pwbb (
     //                 ck0, do0, st1}
     //   dbg[47:32] = the last value the mask held while it was NOT 0xffff (sticky):
     //                how far an INIT sequence got, or 0xffff if none ever started
-    output wire [47:0] dbg
+    output wire [47:0] dbg,
+    // ---- line-event trace (first 128 changes of the stage-0 DO/CLK lines after
+    //      reset; entry = {dt[13:0] in 64-clk ticks since the previous event,
+    //      saturating, ck0, do0}). Read by the HPS through CMD_573_STAGETRACE.
+    input  wire [6:0]  trace_addr,
+    output reg  [15:0] trace_data,   // registered: valid the cycle after trace_addr
+    output wire [7:0]  trace_count   // entries recorded (0..128)
 );
     localparam ST_IDLE = 1'b0, ST_INIT = 1'b1;
 
@@ -83,6 +89,16 @@ module gn845pwbb (
     reg        id_seen;
     reg [15:0] last_mask;
 
+    // ---- event trace ----
+    reg [15:0] trace_mem [0:127];
+    reg [7:0]  twr;
+    reg [13:0] tdt;
+    reg [5:0]  ttick;
+    reg        do0_q;
+    wire       tev = (ck0 != ck0_q) || (do0 != do0_q);
+    assign trace_count = twr;
+    always @(posedge clk) trace_data <= trace_mem[trace_addr];
+
     assign stage_mask = en ? mask_r : 16'hffff;
     assign dbg = {last_mask,   edges0, bit0, ck0, do0, st1,   en, id_seen, st0, sh0};
 
@@ -99,7 +115,16 @@ module gn845pwbb (
             bit0 <= 5'd0; bit1 <= 5'd0;
             mask_r <= 16'hffff;
             edges0 <= 8'd0; id_seen <= 1'b0; last_mask <= 16'hffff;
+            twr <= 8'd0; tdt <= 14'd0; ttick <= 6'd0; do0_q <= 1'b0;
         end else begin
+            do0_q <= do0;
+            ttick <= ttick + 6'd1;
+            if (ttick == 6'd63 && tdt != 14'h3fff) tdt <= tdt + 14'd1;
+            if (tev && !twr[7]) begin
+                trace_mem[twr[6:0]] <= {tdt, ck0, do0};
+                twr <= twr + 8'd1;
+                tdt <= 14'd0;
+            end
             if (mask_r != 16'hffff) last_mask <= mask_r;
             ck0_q <= ck0; ck1_q <= ck1;
             if (ck0_rise) edges0 <= edges0 + 8'd1;
