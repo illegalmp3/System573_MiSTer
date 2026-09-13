@@ -6,7 +6,7 @@
 // that is not 0x0c90 never leaves IDLE.
 module tb_gn845pwbb;
     reg clk = 0, rst = 1, en = 1;
-    reg [31:0] lamp = 32'hffff_ffff;   // lamp bit HIGH = line idle (DO/CLK read inverted)
+    reg [31:0] lamp = 32'h0000_0000;   // lamp bit = logical line level (measured); idle low
     wire [15:0] stage_mask;
     gn845pwbb dut(.clk(clk), .rst(rst), .en(en), .lamp(lamp), .stage_mask(stage_mask), .dbg(), .trace_addr(7'd0), .trace_data(), .trace_count());
     always #5 clk = ~clk;
@@ -17,12 +17,13 @@ module tb_gn845pwbb;
     task chk(input [15:0] got, input [15:0] exp, input integer n);
         if (got !== exp) begin $display("FAIL: after clock %0d mask=%04h expected %04h", n, got, exp); errors = errors + 1; end
     endtask
-    // one stage-0 clock: set DO (lamp[4] = ~DO), then CLK rising = lamp[7] 1->0, then release
+    // one stage-0 clock, exactly as the game does it (GAME.DAT 0x800873fc): CLK low,
+    // DO = bit, then CLK high (the sampling edge), as measured on the board 2026-09-13
     task clk0(input do_bit);
         begin
-            lamp[4] = ~do_bit; @(negedge clk);
-            lamp[7] = 1'b0;    @(negedge clk); @(negedge clk);   // clk rises (inverted)
-            lamp[7] = 1'b1;    @(negedge clk);
+            lamp[7] = 1'b0;    @(negedge clk);
+            lamp[4] = do_bit;  @(negedge clk);
+            lamp[7] = 1'b1;    @(negedge clk); @(negedge clk);   // rising = shift
         end
     endtask
     initial begin
@@ -44,6 +45,36 @@ module tb_gn845pwbb;
         // wrong ID never arms
         en = 1; rst = 1; @(negedge clk); rst = 0; @(negedge clk);
         for (i = 0; i < 40; i = i + 1) begin clk0(i[0]); if (stage_mask !== 16'hffff) begin $display("FAIL: bogus ID armed %04h at %0d", stage_mask, i); errors = errors + 1; end end
+        // ---- replay the waveform RECORDED ON THE BOARD (dsem, 2026-09-13, run 8) ----
+        // sim/gn845pwbb_dsem_trace.txt: "idx dt ck do" per line-change event, where
+        // ck/do are the INVERTED lines as the first cut logged them. The game's ID
+        // must be recognised at event 34 (the 13th CLK rising edge). This is the
+        // regression for the polarity bug: under the old inverted wiring the ID never
+        // matches on this exact waveform.
+        begin : replay
+            integer fd, r, idx, dtv, ckv, dov, ev, matched_at;
+            en = 1; rst = 1; lamp = 32'h0; @(negedge clk); rst = 0; @(negedge clk);
+            fd = $fopen("gn845pwbb_dsem_trace.txt", "r");
+            if (fd == 0) begin $display("FAIL: cannot open gn845pwbb_dsem_trace.txt"); errors = errors + 1; end
+            else begin
+                matched_at = -1; ev = 0;
+                while (!$feof(fd)) begin
+                    r = $fscanf(fd, "%d %d %d %d\n", idx, dtv, ckv, dov);
+                    if (r == 4) begin
+                        lamp[4] = ~dov[0]; lamp[7] = ~ckv[0];
+                        repeat (3) @(negedge clk);
+                        if (matched_at < 0 && dut.st0 == 1'b1) matched_at = idx;
+                        ev = ev + 1;
+                    end
+                end
+                $fclose(fd);
+                if (matched_at != 34) begin
+                    $display("FAIL: board waveform replay -- ID matched at event %0d (expected 34)", matched_at);
+                    errors = errors + 1;
+                end
+                if (ev < 100) begin $display("FAIL: replay read only %0d events", ev); errors = errors + 1; end
+            end
+        end
         if (errors == 0) $display("RESULT: PASS (gn845pwbb)"); else $display("RESULT: FAIL (gn845pwbb, %0d errors)", errors);
         $finish;
     end

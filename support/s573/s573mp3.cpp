@@ -288,7 +288,7 @@ static void stagetrace_dump(void)
     cnt &= 0xff;
     if (cnt <= trace_dumped) return;
     if (trace_dumped == 0)
-        s573_log("s573mp3: stage trace: (dt = 64-clk ticks since previous event; ck/do = the inverted lines, as MAME's gn845pwbb sees them)\n");
+        s573_log("s573mp3: stage trace: (dt = 64-clk ticks since previous event; ck/do = the k573dio lamp bits 13/12 = the logical CLK/DO levels)\n");
     for (base = trace_dumped & ~7; base < cnt; base += 8) {
         w[0] = spi_uio_cmd_cont(CMD_573_STAGETRACE);
         w[1] = spi_w(base);
@@ -720,7 +720,7 @@ static void heartbeat(void)
      * it says nothing more, and it pinned within seconds of every boot. Report
      * it only while it is still counting. */
     if (ur && ur != 65535) s573_log("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
-    s573_log("s573mp3: stage: en=%u id_seen=%u st0=%u st1=%u sh0=%04x (last 13 DO bits, LSB=first) "
+    s573_log("s573mp3: stage: en=%u id_seen=%u st0=%u st1=%u sh0=%04x (last 13 DO bits clocked in, LSB=first) "
              "bit0=%u clk0_edges=%u ck0=%u do0=%u last_mask=%04x (raw %04x %04x %04x)\n",
              (last_stage_dbg >> 15) & 1, (last_stage_dbg >> 14) & 1, (last_stage_dbg >> 13) & 1,
              last_stage_dbg2 & 1, last_stage_dbg & 0x1fff,

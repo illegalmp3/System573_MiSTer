@@ -17,8 +17,9 @@
 //     lamp register's [15:12] nibble out as callback offsets reg*4+{0..3} with
 //     the bit remap {0,2,3,1} -- exactly what k573dio.v's set_lamp() produces on
 //     `lamp[]`. ddr_output_callback maps offset 4 -> stage0 DO, 7 -> stage0 CLK,
-//     12 -> stage1 DO, 15 -> stage1 CLK (0xe0 bits 12/13, 0xe4 bits 12/13), each
-//     INVERTED (DO = !data, clk = !data).
+//     12 -> stage1 DO, 15 -> stage1 CLK (0xe0 bits 12/13, 0xe4 bits 12/13). In
+//     THIS core's register sense the lamp bit is the logical level (see the
+//     measured note at the wire declarations): DO = lamp bit, CLK = lamp bit.
 //   * On each rising edge of clk: shift = (shift >> 1) | (DO << 12).
 //     IDLE: shift == 0x0c90 -> INIT, bit = 0, mask = 0xf9f9.
 //     INIT: bit++; if bit < 22 -> mask = {byte(stage0), byte(stage1)} with
@@ -77,8 +78,17 @@ module gn845pwbb (
         mbyte = (~8'h06) | {5'b0, tab(b)};      // (~0x06 | tab[bit]) & 0xff
     endfunction
 
-    wire do0 = ~lamp[4],  ck0 = ~lamp[7];
-    wire do1 = ~lamp[12], ck1 = ~lamp[15];
+    // LINE POLARITY -- measured, not inferred (2026-09-13, dsem, the line-event
+    // trace over CMD_573_STAGETRACE): the game's stage driver (GAME.DAT 0x80086974)
+    // keeps its shadow word inverted and writes ~shadow, so the k573dio lamp bit
+    // IS the logical level: bit13 = CLK, bit12 = DO, and DO is set while CLK is
+    // low, then CLK goes high. Sampling lamp[4] on lamp[7]'s rising edge gives
+    // 0,0,0,0,1,0,0,1,0,0,1,1,0 = 0x0c90 LSB-first, bit for bit. The first cut
+    // of this module inverted both (MAME's `!data`, which is relative to how
+    // MAME's own DIO output path presents the bit) and clocked in the complement
+    // of every bit -- five failed boards' worth of STAGE PCB INITIALIZE ERROR.
+    wire do0 = lamp[4],  ck0 = lamp[7];
+    wire do1 = lamp[12], ck1 = lamp[15];
 
     reg        ck0_q, ck1_q;
     reg [12:0] sh0, sh1;
