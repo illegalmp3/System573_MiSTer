@@ -164,6 +164,7 @@ module system573_top #(
     output wire        wdog_reset,      // watchdog bite (board reset request)
     output wire        cdrom_irq,       // ATAPI INTRQ (IRQ10)
     output wire [31:0] lamp_out,        // BEMANI Digital I/O lamp lines
+    output wire [15:0] stage_dbg,       // gn845pwbb observability (HPS STATUS word3)
     input  wire        dio_mp3_ready,   // MP3 sink back-pressure (P4b HPS FIFO not-full)
     output wire [7:0]  dio_mp3_byte,    // descrambled MP3 byte stream -> MAS3507D
     output wire        dio_mp3_valid,
@@ -396,7 +397,7 @@ module system573_top #(
     wire [15:0] stage_mask;
     gn845pwbb u_stage (
         .clk(clk), .rst(rst), .en(stage_mux_en),
-        .lamp(lamp_out), .stage_mask(stage_mask)
+        .lamp(lamp_out), .stage_mask(stage_mask), .dbg(stage_dbg)
     );
 
     s573_io u_io (

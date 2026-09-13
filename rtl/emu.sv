@@ -809,6 +809,7 @@ s573_hps_ext hps_ext
 	.status_flags(mp3_status_flags),
 	.underrun_cnt(mp3_underrun_sat),
 	.buf_level(mp3_buf_level16),
+	.stage_dbg(stage_dbg16),
 
 	.ctrl_flags(mp3_ctrl_flags),
 	.dec_frame_sync(mp3_dec_frame_sync),
@@ -1887,6 +1888,7 @@ reg  flash_save_trigger = 1'b0;
 
 // ERASE trigger: the "Erase Flash Save" R-bit -> blank the .sav (roll back clean).
 wire bk_erase_flash = status[98];                  // "R[98],Erase Flash Save;" (CONF_STR)
+wire [15:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS word3
 wire solo_cab       = status[100];                 // "O[100],573 Cabinet;" 1 = DDR Solo: strap
                                                    // P2-START grounded (cab-type sense line)
 reg  old_eflash = 1'b0;
@@ -2403,6 +2405,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .wdog_reset     (),
    .cdrom_irq      (exp_irq10),
    .lamp_out       (),
+   .stage_dbg      (stage_dbg16),
    // MP3 sink back-pressure: STAYS 0 -- this is the fabric->HPS byte-ring leg,
    // gated on decision B (the descramble-on-HPS spike may delete it) and its
    // writer does not exist. Held low, the demand-paced streamer honestly

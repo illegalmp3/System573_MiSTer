@@ -90,6 +90,7 @@
 //   word0 (cmd)  up: status_flags + SNAPSHOT of {underrun_cnt, buf_level}
 //   word1        up: snapshotted underrun_cnt
 //   word2        up: snapshotted buf_level
+//   word3        up: snapshotted stage_dbg (gn845pwbb.v, DDR stage-PCB handshake)
 //
 // CMD_573_CTRL (0x6A) -- HPS->fabric control + decode events:
 //   word0 (cmd)  up: {last_sync_cnt, last_idle_cnt} (the fabric's current
@@ -200,6 +201,7 @@ module s573_hps_ext
     input      [15:0] status_flags,  // wire-up picks (mp3_synced, drain_en, evt_ovf, cfg_ddrsbm echo...)
     input      [15:0] underrun_cnt,  // s573_mp3_pcm underrun_cnt, SATURATED to 16 bits (see header)
     input      [15:0] buf_level,     // elastic-buffer occupancy (wr_level, zero-extended)
+    input      [15:0] stage_dbg,     // gn845pwbb stage-multiplexor state (word3; see gn845pwbb.v)
 
     // ---- CMD_573_CTRL: HPS -> fabric control + decode events ----
     output reg [15:0] ctrl_flags,      // bit0=cfg_ddrsbm, bit1=mp3_drain_en, rest reserved
@@ -328,6 +330,7 @@ always @(posedge clk_sys) begin
                     io_dout <= status_flags;
                     snap[1] <= underrun_cnt;
                     snap[2] <= buf_level;
+                    snap[3] <= stage_dbg;
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -375,6 +378,7 @@ always @(posedge clk_sys) begin
                 CMD_573_STATUS: begin
                     if(byte_cnt == 1) io_dout <= snap[1];
                     else if(byte_cnt == 2) io_dout <= snap[2];
+                    else if(byte_cnt == 3) io_dout <= snap[3];
                 end
                 CMD_573_MP3CFG: begin
                     // pure read-out of the latched tuple; the HPS may stop
