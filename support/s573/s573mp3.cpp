@@ -270,31 +270,37 @@ static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
  * count has stopped moving -- i.e. after the game's handshake (or the whole
  * boot) is over -- so a failed STAGE PCB INITIALIZE shows the exact waveform
  * the game put on the wire and what the multiplexor made of it. */
-static uint16_t trace_seen_cnt = 0xffff, trace_dumped = 0;
+static uint16_t trace_dumped = 0;
 static void stagetrace_dump(void)
 {
+    /* Incremental: once a second, print every entry recorded since the last
+     * dump. The fabric keeps recording until its 128-entry buffer is full, so
+     * a handshake that happens 30 s into the boot is still captured -- the
+     * earlier one-shot "dump when still" fired on the idle boot event alone. */
     static uint64_t next = 0;
     uint16_t cnt, base, w[10];
     int i;
     uint64_t t = now_us();
-    if (t < next) return;            /* once a second: "unchanged" must mean a whole second */
+    if (t < next) return;
     next = t + 1000000ull;
     cnt = spi_uio_cmd_cont(CMD_573_STAGETRACE);
     DisableIO();
     cnt &= 0xff;
-    if (cnt != trace_seen_cnt) { trace_seen_cnt = cnt; return; }   /* still moving */
-    if (cnt == 0 || trace_dumped) return;
-    trace_dumped = 1;
-    s573_log("s573mp3: stage trace: %u line events (dt = 64-clk ticks since previous; ck/do = inverted lines as MAME sees them)\n", cnt);
-    for (base = 0; base < cnt; base += 8) {
+    if (cnt <= trace_dumped) return;
+    if (trace_dumped == 0)
+        s573_log("s573mp3: stage trace: (dt = 64-clk ticks since previous event; ck/do = the inverted lines, as MAME's gn845pwbb sees them)\n");
+    for (base = trace_dumped & ~7; base < cnt; base += 8) {
         w[0] = spi_uio_cmd_cont(CMD_573_STAGETRACE);
         w[1] = spi_w(base);
         for (i = 2; i <= 9; i++) w[i] = spi_w(0);
         DisableIO();
         for (i = 0; i < 8 && base + i < cnt; i++)
-            s573_log("s573mp3: stage trace[%3u]: dt=%5u ck=%u do=%u\n", base + i,
-                     (w[2 + i] >> 2) & 0x3fff, (w[2 + i] >> 1) & 1, w[2 + i] & 1);
+            if (base + i >= trace_dumped)
+                s573_log("s573mp3: stage trace[%3u]: dt=%5u ck=%u do=%u\n", base + i,
+                         (w[2 + i] >> 2) & 0x3fff, (w[2 + i] >> 1) & 1, w[2 + i] & 1);
     }
+    trace_dumped = cnt;
+    if (cnt >= 128) s573_log("s573mp3: stage trace: buffer full (128 events)\n");
 }
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
