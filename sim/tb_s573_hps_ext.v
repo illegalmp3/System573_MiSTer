@@ -201,8 +201,8 @@ module tb_s573_hps_ext;
         chk(dut_en == 0,            "P2 boundary 0x67: not claimed");
         spi_end;
         spi_begin;
-        spi_word(16'h006C, r0);     // one above CMD_573_MP3CFG (the new top)
-        chk(dut_en == 0,            "P2 boundary 0x6C: not claimed");
+        spi_word(16'h006D, r0);     // one above CMD_573_STAGETRACE (the new top)
+        chk(dut_en == 0,            "P2 boundary 0x6D: not claimed");
         spi_end;
         spi_begin;
         spi_word(16'h0033, r0);     // one below CD_GET
@@ -611,7 +611,12 @@ module tb_s573_hps_ext;
         spi_begin;
         @(negedge clk); tb_din = 16'h006C; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6C (one past the range)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6C (CMD_573_STAGETRACE, the new top)");
+        spi_end;
+        spi_begin;
+        @(negedge clk); tb_din = 16'h006D; tb_strobe = 1;
+        @(negedge clk); tb_strobe = 0; @(negedge clk);
+        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6D (one past the range)");
         spi_end;
 
         if (errors == 0) $display("RESULT: PASS (s573_hps_ext)");
