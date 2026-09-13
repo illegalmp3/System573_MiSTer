@@ -2339,18 +2339,24 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .dip_sw         ({status[93], 3'b111}), // DIP SW4 (bit3) from OSD "573 Boot Device": 0=Flash ROM (default,
                                            // boots onboard flash, no CD needed), 1=CD-ROM. 0x1f400004 bit3,
                                            // MAME ksys573 DIP SW:4. SW1-3 left off (active-low).
-   // Standard branch is the audit IO-003 mapping, byte-for-byte UNCHANGED (the old
-   // ~joy[7:0] had L/R + U/D transposed and START missing -- do not "tidy" it).
+   // Standard branch is the audit IO-003 mapping (the old ~joy[7:0] had L/R + U/D
+   // transposed and START missing -- do not "tidy" it). Its ONE later change is
+   // joy[7] OR'd into the B2 position for the song wheel -- see the note at p1_ctrl.
    // Solo branch: see the ddrsolo bit map at the p1_solo/p2_solo decode above. The
    // Solo-cab strap that used to be OR'd into P2 bit[7] here now lives inside
    // p2_solo, so the standard expression can never see it (solo_cab is 0 there
    // anyway, so dropping the OR is behaviour-preserving for a standard cab).
    .stage_mux_en   (~solo_cab),            // standard cab -> GN845-PWB(B) stage PCBs (gn845pwbb.v)
    .p1_ctrl        (solo_cab ? p1_solo
-                             : ~{joy[9],  joy[6],  joy[5],  joy[4],  joy[2],  joy[3],  joy[0],  joy[1] }),
+                             : ~{joy[9],  joy[6],  joy[5] | joy[7],  joy[4],  joy[2],  joy[3],  joy[0],  joy[1] }),
                                            // P1 JAMMA: START,B3,B2,B1,DOWN,UP,RIGHT,LEFT (active-low)
+                                           // Standard-cab song wheel (dsem, 2026-09-13): the game's menu
+                                           // code (0x80021e00) polls B3 (0x40) as Select L and B2 (0x20)
+                                           // as Select R. The OSD's "Button 4/Select R" is joy[7], which
+                                           // had no JAMMA sink on a standard cab, so only Left worked.
+                                           // OR it into B2; Button 2 itself (joy[5]) stays a B2 too.
    .p2_ctrl        (solo_cab ? p2_solo
-                             : ~{joy2[9], joy2[6], joy2[5], joy2[4], joy2[2], joy2[3], joy2[0], joy2[1]}),
+                             : ~{joy2[9], joy2[6], joy2[5] | joy2[7], joy2[4], joy2[2], joy2[3], joy2[0], joy2[1]}),
                                            // [7] P2-START on a Solo cab is the cab-type strap, hardwired to
                                            // ground (reads LOW = active); it is forced inside p2_solo.
    .coin_sw        (~{joy2[8], joy[8]}),   // P2/P1 coin = Select (active-low); Start is JAMMA START
