@@ -326,6 +326,9 @@ module tb_s573_seccart;
             z_encrypt(k0,k1,k2,k3,k4,k5,k6,k7);
             z_start;
             for (i=0;i<12;i=i+1) z_send(zpkt[i], lack);
+            // the engine is multi-cycle (~70 clocks; a 0xFD erase ~250): the real PIC takes
+            // hundreds of microseconds and the host waits for it. Do the same.
+            repeat (1000) @(posedge clk);
             for (i=0;i<12;i=i+1) z_read(zrsp[i]);
             z_decrypt(rkey[63:56],rkey[55:48],rkey[47:40],rkey[39:32],
                       rkey[31:24],rkey[23:16],rkey[15:8],rkey[7:0]);

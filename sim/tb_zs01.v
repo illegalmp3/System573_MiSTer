@@ -192,6 +192,9 @@ module tb_zs01;
             tb_encrypt2(bad_key ? (cmdkey2 ^ 64'hFFFF_FFFF_FFFF_FFFF) : cmdkey2);
             i2c_start2;
             for (i = 0; i < 12; i = i + 1) send_byte2(pkt2[i]);
+            // the engine is multi-cycle (~70 clocks; a 0xFD erase ~250): the real PIC takes
+            // hundreds of microseconds and the host waits for it. Do the same.
+            repeat (1000) @(posedge clk);
             for (i = 0; i < 12; i = i + 1) read_byte2(resp2[i]);
             tb_decrypt2(rkey);
             status = resp2[0];
@@ -214,6 +217,9 @@ module tb_zs01;
 
             i2c_start;
             for (i = 0; i < 12; i = i + 1) send_byte(pkt[i]);
+            // the engine is multi-cycle (~70 clocks; a 0xFD erase ~250): the real PIC takes
+            // hundreds of microseconds and the host waits for it. Do the same.
+            repeat (1000) @(posedge clk);
             for (i = 0; i < 12; i = i + 1) read_byte(resp[i]);
             tb_decrypt(rkey);
 

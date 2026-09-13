@@ -5,6 +5,9 @@
 #   sim/secdata/pnchmn2_u6.hex   (8 bytes,    DS2401 serial image, pnchmn2)
 #   sim/secdata/gtrfrk5m_u1.hex  (4116 bytes, ZS01 NVRAM image, gtrfrk5m)
 #   sim/secdata/gtrfrk5m_u6.hex  (8 bytes,    DS2401 serial image, gtrfrk5m)
+#   sim/secdata/ddrusa_u1.hex    (140 bytes,  ZS01 NVRAM image, ddrusa)
+#   sim/secdata/ddrusa_u6.hex    (8 bytes,    DS2401 serial image, ddrusa)
+#   sim/secdata/ddrusa_zs01_vectors.hex  (golden wire vectors, tools/zs01_ref.py)
 #
 # Source preference: dumps/mame573/<game>.zip else /tmp/secA/*.
 # If a dump is absent this exits 0 WITHOUT writing its fixtures -- the testbench then
@@ -46,3 +49,9 @@ extract() {
 
 extract "$ROOT/dumps/mame573/pnchmn2.zip"  gqa09ja.u1 gqa09ja.u6 pnchmn2  "pnchmn2 X76F041"
 extract "$ROOT/dumps/mame573/gtrfrk5m.zip" gea26jaa.u1 gea26jaa.u6 gtrfrk5m "gtrfrk5m ZS01"
+extract "$ROOT/dumps/mame573/ddrusa.zip"   gka44ua.u1 gka44ua.u6 ddrusa   "ddrusa ZS01"
+# Golden ciphertext vectors for tb_zs01_golden.v from the INDEPENDENT reference model.
+if [ -f "$OUT/ddrusa_u1.hex" ]; then
+  python3 "$ROOT/tools/zs01_ref.py" --u1hex "$OUT/ddrusa_u1.hex" --u6hex "$OUT/ddrusa_u6.hex" \
+          --out "$OUT/ddrusa_zs01_vectors.hex"
+fi
