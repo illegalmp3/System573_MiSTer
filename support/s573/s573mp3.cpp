@@ -261,13 +261,15 @@ static void ctrl_exchange(void)
     DisableIO();
 }
 
-static uint16_t last_stage_dbg = 0;
+static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
     *flags    = spi_uio_cmd_cont(CMD_573_STATUS);
     *underrun = spi_w(0);
     *buflvl   = spi_w(0);
-    last_stage_dbg = spi_w(0);   /* word3: gn845pwbb stage-PCB handshake state (0 on older RTL) */
+    last_stage_dbg  = spi_w(0);   /* word3: gn845pwbb {en, id_seen, st0, sh0[12:0]} (0 on older RTL) */
+    last_stage_dbg2 = spi_w(0);   /* word4: {edges0[7:0], bit0[4:0], ck0, do0, st1} */
+    last_stage_dbg3 = spi_w(0);   /* word5: last mask value that was not 0xffff (sticky) */
     DisableIO();
 }
 
@@ -678,10 +680,13 @@ static void heartbeat(void)
      * it says nothing more, and it pinned within seconds of every boot. Report
      * it only while it is still counting. */
     if (ur && ur != 65535) s573_log("s573mp3: underrun_cnt=%u -- the ring is starving\n", ur);
-    s573_log("s573mp3: stage: en=%u st0=%u st1=%u bit0=%u clk0_edges=%u ck0=%u do0=%u id_seen=%u (raw %04x)\n",
+    s573_log("s573mp3: stage: en=%u id_seen=%u st0=%u st1=%u sh0=%04x (last 13 DO bits, LSB=first) "
+             "bit0=%u clk0_edges=%u ck0=%u do0=%u last_mask=%04x (raw %04x %04x %04x)\n",
              (last_stage_dbg >> 15) & 1, (last_stage_dbg >> 14) & 1, (last_stage_dbg >> 13) & 1,
-             (last_stage_dbg >> 8) & 31, (last_stage_dbg >> 3) & 31, (last_stage_dbg >> 2) & 1,
-             (last_stage_dbg >> 1) & 1, last_stage_dbg & 1, last_stage_dbg);
+             last_stage_dbg2 & 1, last_stage_dbg & 0x1fff,
+             (last_stage_dbg2 >> 3) & 31, (last_stage_dbg2 >> 8) & 255,
+             (last_stage_dbg2 >> 2) & 1, (last_stage_dbg2 >> 1) & 1, last_stage_dbg3,
+             last_stage_dbg, last_stage_dbg2, last_stage_dbg3);
     s573_log("s573mp3: cd: %u reads %u sectors this second | last disk=%d lba=%llu sz=%d %.1f s ago | total %u\n",
              cd_reads_hb, cd_secs_hb, cd_last_disk, (unsigned long long)cd_last_lba,
              cd_last_blksz, cd_last_us ? (double)(t - cd_last_us) / 1e6 : -1.0, cd_reads_total);

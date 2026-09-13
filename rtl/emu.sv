@@ -1888,7 +1888,7 @@ reg  flash_save_trigger = 1'b0;
 
 // ERASE trigger: the "Erase Flash Save" R-bit -> blank the .sav (roll back clean).
 wire bk_erase_flash = status[98];                  // "R[98],Erase Flash Save;" (CONF_STR)
-wire [15:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS word3
+wire [47:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS words 3/4/5
 wire solo_cab       = status[100];                 // "O[100],573 Cabinet;" 1 = DDR Solo: strap
                                                    // P2-START grounded (cab-type sense line)
 reg  old_eflash = 1'b0;

@@ -43,12 +43,16 @@ module gn845pwbb (
     input  wire        en,          // 1 = standard cabinet (stage PCBs present)
     input  wire [31:0] lamp,        // k573dio lamp lines (MAME callback offsets)
     output wire [15:0] stage_mask,  // AND mask over the JAMMA word {P1, P2}
-    // Observability for the HPS log (CMD_573_STATUS word3), so a failed boot
+    // Observability for the HPS log (CMD_573_STATUS words 3/4), so a failed boot
     // handshake on hardware says WHICH leg failed instead of nothing at all:
-    //   [15] en  [14] st0  [13] st1  [12:8] bit0  [7:3] stage-0 CLK rising
-    //   edges seen (wraps)  [2] ck0 (current, inverted line)  [1] do0  [0] the
-    //   0x0c90 ID has matched at least once since reset (sticky)
-    output wire [15:0] dbg
+    //   dbg[15:0]  = {en, id_seen(sticky: 0x0c90 matched since reset), st0, sh0[12:0]}
+    //                sh0 = the last 13 DO bits clocked into stage 0, i.e. what the
+    //                game actually sent, bit order and polarity included
+    //   dbg[31:16] = {edges0[7:0] (stage-0 CLK rising edges, wraps), bit0[4:0],
+    //                 ck0, do0, st1}
+    //   dbg[47:32] = the last value the mask held while it was NOT 0xffff (sticky):
+    //                how far an INIT sequence got, or 0xffff if none ever started
+    output wire [47:0] dbg
 );
     localparam ST_IDLE = 1'b0, ST_INIT = 1'b1;
 
@@ -75,11 +79,12 @@ module gn845pwbb (
     reg        st0, st1;
     reg [4:0]  bit0, bit1;
     reg [15:0] mask_r;
-    reg [4:0]  edges0;
+    reg [7:0]  edges0;
     reg        id_seen;
+    reg [15:0] last_mask;
 
     assign stage_mask = en ? mask_r : 16'hffff;
-    assign dbg = {en, st0, st1, bit0, edges0, ck0, do0, id_seen};
+    assign dbg = {last_mask,   edges0, bit0, ck0, do0, st1,   en, id_seen, st0, sh0};
 
     wire ck0_rise = ck0 & ~ck0_q;
     wire ck1_rise = ck1 & ~ck1_q;
@@ -93,10 +98,11 @@ module gn845pwbb (
             st0 <= ST_IDLE; st1 <= ST_IDLE;
             bit0 <= 5'd0; bit1 <= 5'd0;
             mask_r <= 16'hffff;
-            edges0 <= 5'd0; id_seen <= 1'b0;
+            edges0 <= 8'd0; id_seen <= 1'b0; last_mask <= 16'hffff;
         end else begin
+            if (mask_r != 16'hffff) last_mask <= mask_r;
             ck0_q <= ck0; ck1_q <= ck1;
-            if (ck0_rise) edges0 <= edges0 + 5'd1;
+            if (ck0_rise) edges0 <= edges0 + 8'd1;
             if ((ck0_rise && st0 == ST_IDLE && sh0_n == 13'h0c90) ||
                 (ck1_rise && st1 == ST_IDLE && sh1_n == 13'h0c90)) id_seen <= 1'b1;
             // The two stages live on different lamp registers, so their clocks

@@ -76,7 +76,7 @@ module tb_s573_hps_ext;
         .mp3_start(mp3_start), .mp3_end(mp3_end),
         .mp3_key1(mp3_key1), .mp3_key2(mp3_key2), .mp3_key3(mp3_key3),
         .cfg_ddrsbm(cfg_ddrsbm), .fpga_ctrl_en(fpga_ctrl_en),
-        .status_flags(status_flags), .underrun_cnt(underrun_cnt), .buf_level(buf_level), .stage_dbg(16'h0000),
+        .status_flags(status_flags), .underrun_cnt(underrun_cnt), .buf_level(buf_level), .stage_dbg(48'h0),
         .ctrl_flags(ctrl_flags), .dec_frame_sync(dec_frame_sync),
         .dec_frame_idle(dec_frame_idle), .evt_ovf(evt_ovf)
     );
