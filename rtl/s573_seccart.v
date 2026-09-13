@@ -69,7 +69,7 @@ module s573_seccart #(
     input  wire [7:0]  load_ser_data,
 
     // read-back toward the ASIC status words
-    output wire [47:0] sec_dbg,     // ZS01 engine observability -> HPS STATUS 6/7/8
+    output wire [63:0] sec_dbg,     // ZS01 engine observability -> HPS STATUS 6..9
     output wire        sec_io0,     // IO0  = EEPROM SDA (device-driven)
     output wire [7:0]  sec_in,      // I0-I7 ; I0 = DS2401 line
     output reg         sec_drdy,
@@ -96,6 +96,10 @@ module s573_seccart #(
     // All three EEPROM models are instantiated; only the selected one's chip-select is
     // driven (the others held deselected, cs=1) and the read-back SDA is muxed.
     wire sda100_o, sda041_o, sda_zs01_o;
+    // The ZS01 cannot see its own chip-select decision, and "which model is even
+    // selected" is the question its dbg bus cannot answer alone. Stamp it here.
+    wire [63:0] zs01_dbg;
+    assign sec_dbg = {eff_type, zs01_dbg[61:0]};
     wire eeprom_cs = d_q[2];
     wire sel041    = (eff_type == 2'd1);
     wire sel_zs01  = (eff_type == 2'd2);
@@ -146,7 +150,7 @@ module s573_seccart #(
         .load_we(load_eep_we), .load_addr(load_eep_addr), .load_data(load_eep_data),
         // the same .u6 serial feeds the ZS01's internal DS2401 (0xFC/0xFD reads)
         .load_ds_we(load_ser_we), .load_ds_addr(load_ser_addr), .load_ds_data(load_ser_data),
-        .dbg(sec_dbg)
+        .dbg(zs01_dbg)
     );
 
     wire eeprom_sda_o = sel_zs01 ? sda_zs01_o : (sel041 ? sda041_o : sda100_o);

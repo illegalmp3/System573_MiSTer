@@ -91,7 +91,11 @@
 //   word1        up: snapshotted underrun_cnt
 //   word2        up: snapshotted buf_level
 //   word3/4/5    up: snapshotted stage_dbg[15:0] / [31:16] / [47:32] (gn845pwbb.v)
-//   word6/7/8    up: snapshotted sec_dbg[15:0] / [31:16] / [47:32] (zs01.v)
+//   word6..9     up: snapshotted sec_dbg[15:0]/[31:16]/[47:32]/[63:48] (zs01.v)
+//   word10       up: {0, cart_type[1:0], eep_max[12:0]} -- the MEASURED .u1 size and
+//                    the type inferred from it (emu.sv). A transfer truncated into
+//                    256..559 silently selects an X76F041 and the game sees the
+//                    wrong response-to-reset.
 //
 // CMD_573_CTRL (0x6A) -- HPS->fabric control + decode events:
 //   word0 (cmd)  up: {last_sync_cnt, last_idle_cnt} (the fabric's current
@@ -203,7 +207,8 @@ module s573_hps_ext
     input      [15:0] underrun_cnt,  // s573_mp3_pcm underrun_cnt, SATURATED to 16 bits (see header)
     input      [15:0] buf_level,     // elastic-buffer occupancy (wr_level, zero-extended)
     input      [47:0] stage_dbg,     // gn845pwbb stage-multiplexor state (words 3/4/5; see gn845pwbb.v)
-    input      [47:0] sec_dbg,       // zs01 packet-engine state (words 6/7/8; see zs01.v)
+    input      [63:0] sec_dbg,       // zs01 packet-engine state (words 6..9; see zs01.v)
+    input      [15:0] sec_size_dbg,  // {0, cart_type[1:0], eep_max[12:0]} (word 10; see emu.sv)
     // ---- CMD_573_STAGETRACE: gn845pwbb line-event trace read-out ----
     output reg [6:0]  stage_trace_addr,
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
@@ -350,6 +355,8 @@ always @(posedge clk_sys) begin
                     snap[6] <= sec_dbg[15:0];
                     snap[7] <= sec_dbg[31:16];
                     snap[8] <= sec_dbg[47:32];
+                    snap[9] <= sec_dbg[63:48];
+                    snap[10] <= sec_size_dbg;
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -403,6 +410,8 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 6) io_dout <= snap[6];
                     else if(byte_cnt == 7) io_dout <= snap[7];
                     else if(byte_cnt == 8) io_dout <= snap[8];
+                    else if(byte_cnt == 9) io_dout <= snap[9];
+                    else if(byte_cnt == 10) io_dout <= snap[10];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin

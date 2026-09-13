@@ -266,6 +266,7 @@ static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
  * is multi-cycle and the real host neither clock-stretches nor waits, so 'did the
  * game clock the response before we finished' is a question only the board answers. */
 static uint16_t last_sec_dbg = 0, last_sec_dbg2 = 0, last_sec_dbg3 = 0;
+static uint16_t last_sec_dbg4 = 0, last_sec_size = 0;
 #ifndef CMD_573_STAGETRACE
 #define CMD_573_STAGETRACE 0x6C
 #endif
@@ -316,7 +317,9 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     last_stage_dbg3 = spi_w(0);   /* word5: last mask value that was not 0xffff (sticky) */
     last_sec_dbg    = spi_w(0);   /* word6: {last_cmd[7:0], pkts[7:0]} (0 on older RTL) */
     last_sec_dbg2   = spi_w(0);   /* word7: {status[7:0], addr[7:0]} */
-    last_sec_dbg3   = spi_w(0);   /* word8: {resp_bytes[7:0], -, loaded, crc_ok, overrun, -, state[2:0]} */
+    last_sec_dbg3   = spi_w(0);   /* word8: {resp_bytes[7:0], cs_seen, loaded, crc_ok, overrun, -, state[2:0]} */
+    last_sec_dbg4   = spi_w(0);   /* word9: {type[1:0], starts[5:0], rtr[7:0]} */
+    last_sec_size   = spi_w(0);   /* word10: {0, cart_type[1:0], eep_max[12:0]} */
     DisableIO();
 }
 
@@ -736,12 +739,24 @@ static void heartbeat(void)
              last_stage_dbg, last_stage_dbg2, last_stage_dbg3);
     /* Only speak up once the cassette has actually been talked to: a game with no
      * ZS01 leaves every field 0 and the line would be pure noise. */
-    if (last_sec_dbg || last_sec_dbg2 || last_sec_dbg3) {
+    if (last_sec_dbg || last_sec_dbg2 || last_sec_dbg3 || last_sec_dbg4 || last_sec_size) {
         unsigned pkts = last_sec_dbg & 0xff, cmd = (last_sec_dbg >> 8) & 0xff;
         unsigned addr = last_sec_dbg2 & 0xff, st = (last_sec_dbg2 >> 8) & 0xff;
         unsigned state = last_sec_dbg3 & 7, ovr = (last_sec_dbg3 >> 4) & 1;
         unsigned crcok = (last_sec_dbg3 >> 5) & 1, ld = (last_sec_dbg3 >> 6) & 1;
-        unsigned rb = (last_sec_dbg3 >> 8) & 0xff;
+        unsigned rb = (last_sec_dbg3 >> 8) & 0xff, cs = (last_sec_dbg3 >> 7) & 1;
+        unsigned rtr = last_sec_dbg4 & 0xff, starts = (last_sec_dbg4 >> 8) & 0x3f;
+        unsigned etype = (last_sec_dbg4 >> 14) & 3;
+        unsigned emax = last_sec_size & 0x1fff, ltype = (last_sec_size >> 13) & 3;
+        static const char *tn[4] = { "X76F100", "X76F041", "ZS01", "?" };
+        /* The cassette type is inferred from the loaded .u1 SIZE alone. If the image
+         * arrived short, the wrong model is selected, it answers the response-to-reset
+         * with the wrong chip ID, and the game rejects the cassette without ever
+         * sending a command packet -- which is exactly pkts=0. */
+        s573_log("s573mp3: zs01: .u1 max_byte=%u -> latched type %u (%s), selected %u (%s)%s\n",
+                 emax, ltype, tn[ltype], etype, tn[etype],
+                 (emax < 560) ? "   <== TOO SMALL FOR ZS01 (needs max_byte >= 560)" : "");
+        s573_log("s573mp3: zs01: cs_seen=%u rtr_probes=%u i2c_starts=%u\n", cs, rtr, starts);
         s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
                  "resp_bytes_clocked=%u state=%u loaded=%u OVERRUN=%u%s (raw %04x %04x %04x)\n",
                  pkts, cmd, addr, st, crcok, rb, state, ld, ovr,

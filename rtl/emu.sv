@@ -811,6 +811,7 @@ s573_hps_ext hps_ext
 	.buf_level(mp3_buf_level16),
 	.stage_dbg(stage_dbg16),
 	.sec_dbg(sec_dbg48),
+	.sec_size_dbg(sec_size_dbg),
 	.stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
 
 	.ctrl_flags(mp3_ctrl_flags),
@@ -1891,7 +1892,11 @@ reg  flash_save_trigger = 1'b0;
 // ERASE trigger: the "Erase Flash Save" R-bit -> blank the .sav (roll back clean).
 wire bk_erase_flash = status[98];                  // "R[98],Erase Flash Save;" (CONF_STR)
 wire [47:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS words 3/4/5
-wire [47:0] sec_dbg48;                              // zs01 engine -> HPS STATUS words 6/7/8
+wire [63:0] sec_dbg48;                              // zs01 engine -> HPS STATUS words 6..9
+// The cassette TYPE is inferred from the loaded .u1 SIZE and nothing reports either.
+// A transfer truncated anywhere into 256..559 silently selects an X76F041 and the
+// game sees the wrong response-to-reset. Report both. (HPS STATUS word 10.)
+wire [15:0] sec_size_dbg = {1'b0, sec_cart_type, sec_eep_max};
 wire [6:0]  stage_trace_addr; wire [15:0] stage_trace_data; wire [7:0] stage_trace_count;
 wire solo_cab       = status[100];                 // "O[100],573 Cabinet;" 1 = DDR Solo: strap
                                                    // P2-START grounded (cab-type sense line)

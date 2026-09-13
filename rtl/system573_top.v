@@ -165,7 +165,7 @@ module system573_top #(
     output wire        cdrom_irq,       // ATAPI INTRQ (IRQ10)
     output wire [31:0] lamp_out,        // BEMANI Digital I/O lamp lines
     output wire [47:0] stage_dbg,       // gn845pwbb observability (HPS STATUS words 3/4/5)
-    output wire [47:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6/7/8)
+    output wire [63:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6..9)
     input  wire [6:0]  stage_trace_addr,
     output wire [15:0] stage_trace_data,
     output wire [7:0]  stage_trace_count,
