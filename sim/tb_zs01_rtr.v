@@ -49,16 +49,43 @@ module tb_zs01_rtr;
         repeat (20) @(negedge clk);   // >> the CPU's own inter-write delay
     end endtask
 
+    task probe(input d0, output [31:0] idout);
+        integer k; reg bb; reg [7:0] LL;
+        begin
+            // return the chip to idle: STOP = SDA rising while SCL high
+            LL = 8'b0000_1111; LL[D0]=0; LL[D1]=1; LL[D2]=0; wr(LL);
+            LL[D0]=1;                                        wr(LL);  // STOP
+            LL[D1]=0;                                        wr(LL);
+            // ---- detector preamble (PSX.EXE 0x803250fc..0x80325194) ----
+            LL[D0]=d0;           wr(LL);   // whatever the board left on D0
+            LL[D1]=0;            wr(LL);   // SCL low
+            LL[D2]=0;            wr(LL);   // CS low = selected
+            LL[D3]=0;            wr(LL);   // RST low
+            LL[D3]=1;            wr(LL);   // RST high -> response to reset
+            LL[D1]=1;            wr(LL);   // SCL high
+            LL[D1]=0;            wr(LL);   // SCL low -> chip drives bit 0
+            idout = 32'd0;
+            for (k=0;k<32;k=k+1) begin
+                bb    = sec_io0;                  // sample bit2 while SCL low
+                idout = {idout[30:0], bb};
+                LL[D1]=1;        wr(LL);          // SCL high
+                LL[D1]=0;        wr(LL);          // SCL low -> next bit
+            end
+        end
+    endtask
+
+    integer cfg, errors_unused;
     reg [7:0] u1 [0:4115];
     reg [7:0] u6 [0:7];
     reg [31:0] id; integer i; reg present; integer fh;
-    reg b;
+    reg b; integer errors;
 
     // bit positions
     localparam D0=0, D1=1, D2=2, D3=3;
     reg [7:0] L;
 
     initial begin
+        errors = 0;
         present = 1'b0;
         fh = $fopen("secdata/ddrusa_u1.hex","r");
         if (fh != 0) begin
@@ -80,31 +107,22 @@ module tb_zs01_rtr;
         @(negedge clk); Ls_we=0;
         repeat (4) @(negedge clk); rst = 0; repeat (4) @(negedge clk);
 
-        // ---- detector preamble (0x803250fc..0x80325194) ----
-        // idle high, then: SCL low; CS low(select); RST low; delay; RST high(->RTR);
-        // delay; SCL high; delay; SCL low(1st falling -> chip drives bit0); delay.
-        L = 8'b0000_1111;              wr(L);            // start released
-        L[D1]=0;                       wr(L);            // SCL low
-        L[D2]=0;                       wr(L);            // CS low = selected
-        L[D3]=0;                       wr(L);            // RST low
-        L[D3]=1;                       wr(L);            // RST high -> RESPONSE TO RESET
-        L[D1]=1;                       wr(L);            // SCL high (rising)
-        L[D1]=0;                       wr(L);            // SCL low  (falling #1 -> bit0)
-
-        // ---- 32 samples, MSB-first (0x8032519c inner x 4 bytes) ----
-        id = 32'd0;
-        for (i=0;i<32;i=i+1) begin
-            b  = sec_io0;                                 // SAMPLE bit2 while SCL low
-            id = {id[30:0], b};
-            L[D1]=1;                    wr(L);            // SCL high (rising)
-            L[D1]=0;                    wr(L);            // SCL low  (falling -> next bit)
+        // ---- sweep the two host-side drive signals the board may leave in any
+        // ---- state: io0_dir (control bit 6) and D0. Neither should affect what the
+        // ---- DEVICE drives, so all four must read back the id. If one fails, that
+        // ---- is the board's condition and the bug.
+        for (cfg = 0; cfg < 4; cfg = cfg + 1) begin
+            io0_dir = cfg[1];
+            probe(cfg[0], id);
+            $display("tb_zs01_rtr: io0_dir=%0d D0=%0d -> assembled 0x%08x  edges=%0d  drove 0x%08x%s",
+                     cfg[1], cfg[0], id, sec_rtr_edges, sec_rtr_emit,
+                     (id === 32'h5a53_0001) ? "  ok" : "   <== FAILS");
+            if (id !== 32'h5a53_0001) errors = errors + 1;
         end
 
         $display("tb_zs01_rtr: assembled 0x%08x  (want 0x5a530001; hw saw 0xb4a60002)", id);
-        $display("tb_zs01_rtr: chip serviced %0d RTR falling edges, drove 0x%08x",
-                 sec_rtr_edges, sec_rtr_emit);
-        if (id === 32'h5a53_0001) $display("RESULT: PASS");
-        else                      $display("RESULT: FAIL");
+        if (errors == 0) $display("RESULT: PASS");
+        else             $display("RESULT: FAIL (%0d of 4 combinations fail)", errors);
         $finish;
     end
 endmodule
