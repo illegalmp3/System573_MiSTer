@@ -178,7 +178,7 @@ module atapi #(
     // fit). Byte 'k' of the response for command 'cmd'. The drive check validates only
     // the handshake + byte count (not content), except REQUEST SENSE key (resp[2]==0)
     // which is naturally 0 here.
-    function [7:0] resp_byte(input [7:0] cmd, input [5:0] k);
+    function [7:0] resp_byte(input [7:0] cmd, input [8:0] k);
         reg [7:0] b;
         begin
             b = 8'h00;
@@ -191,8 +191,14 @@ module atapi #(
                         6'd16:b="C"; 6'd17:b="D"; 6'd18:b="-"; 6'd19:b="R";  // product
                         6'd20:b="O"; 6'd21:b="M"; 6'd23:b="C"; 6'd24:b="R";  // "CD-ROM CR-589"
                         6'd25:b="-"; 6'd26:b="5"; 6'd27:b="8"; 6'd28:b="9";
-                        6'd32:b="1"; 6'd33:b="."; 6'd34:b="0"; 6'd35:b="b";  // rev "1.0b"
-                        default: if ((k==6'd22) || (k>=6'd29 && k<=6'd31)) b=8'h20; // spaces
+                        // revision bytes 32..35. Was "1.0b", which is not a string any
+                        // 573 title accepts: dsfdr and ddrusa both walk a table of
+                        // exactly three allowed drive firmware revisions -- "GS0N",
+                        // "kona", "GSCA" (dsfdr PSX.EXE table at 0x80340be4, compared
+                        // against INQUIRY bytes 32..35 at 0x80314918) -- and MAME's
+                        // CR-589 reports GS0N ("MATSHITACD-ROM CR-589   GS0N").
+                        9'd32:b="G"; 9'd33:b="S"; 9'd34:b="0"; 9'd35:b="N";
+                        default: if ((k==9'd22) || (k>=9'd29 && k<=9'd31)) b=8'h20; // spaces
                     endcase
                 end
                 // (READ CAPACITY 0x25 / READ TOC 0x43 moved to the DYNAMIC response
@@ -281,6 +287,10 @@ module atapi #(
 
     integer i;
     reg [6:0] n;
+    // INQUIRY allocation length (CDB byte 4; 0 means 256 per SPC). A real CR-589
+    // transfers exactly this many bytes -- see the INQUIRY arm below for why this
+    // is not the base ATAPI CD-ROM's clamp-to-36.
+    reg [8:0] inq_alloc;
     reg [15:0] rd_len;       // blocking temp: CDB transfer length (sectors)
 
     // ---- unified data-in consumption (PIO data-register read OR ch5 DMA read) ----
@@ -355,8 +365,23 @@ module atapi #(
                                       // Fixed data-in commands: select the resp_byte ROM + set the
                                       // exact byte count the BIOS latches/checks. (Bytes live in the
                                       // resp_byte() combinational ROM, not a register array.)
-                                      8'h12: begin n = 7'd36; resp_cmd <= 8'h12;        // INQUIRY
-                                          resp_len <= n; r_bclo <= {1'b0, n}; r_bchi <= 8'h00;
+                                      // INQUIRY -- transfer EXACTLY the CDB's allocation length.
+                                      // This was a hardcoded 36 and that is MAME's base
+                                      // t10mmc behaviour ("if (m_transfer_length > 36)
+                                      // m_transfer_length = 36;"), but the Matsushita CR-589
+                                      // OVERRIDES precisely that clamp and honours the request
+                                      // in full (src/devices/bus/ata/cr589.cpp). dsfdr's ATAPI
+                                      // library asks for 96 bytes and records 96 as the expected
+                                      // count, so a 36-byte drive is a short transfer, its
+                                      // INQUIRY helper (PSX.EXE 0x8031fad0) returns negative and
+                                      // the game raises ERROR 184 / CD-ROM DRIVE ERROR before it
+                                      // looks at a single byte of content. Reproduced on hardware
+                                      // 2026-09-14 on dsfdr's install boot. Bytes past the 36-byte
+                                      // page read 0, exactly as the CR-589's memset leaves them.
+                                      8'h12: begin resp_cmd <= 8'h12;
+                                          inq_alloc = (pkt[4] == 8'h00) ? 9'd256 : {1'b0, pkt[4]};
+                                          resp_len <= {4'd0, inq_alloc};
+                                          r_bclo <= inq_alloc[7:0]; r_bchi <= {7'd0, inq_alloc[8]};
                                           ridx <= 0; datain_disc <= 1'b0; datain_ident <= 1'b0; datain_toc <= 1'b0;
                                           r_status <= ST_DRDY | ST_DRQ; r_ireason <= IR_IO; r_error <= 8'h00;
                                           irq_pending <= 1'b1; irq_event <= 1'b1; state <= S_DATAIN; end
@@ -704,8 +729,8 @@ module atapi #(
                             datain_toc   ? {dresp_byte(resp_cmd, ridx[3:0] + 4'd1),
                                             dresp_byte(resp_cmd, ridx[3:0])} :
                             datain_disc  ? (cd_attached ? dma_word : disc_dout)
-                                         : {resp_byte(resp_cmd, ridx[5:0] + 6'd1),
-                                            resp_byte(resp_cmd, ridx[5:0])};
+                                         : {resp_byte(resp_cmd, ridx[8:0] + 9'd1),
+                                            resp_byte(resp_cmd, ridx[8:0])};
             4'd1:    dout = {8'h00, r_error};
             4'd2:    dout = {8'h00, r_ireason};
             4'd3:    dout = {8'h00, r_lbalo};

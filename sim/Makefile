@@ -10,7 +10,7 @@ IVFLAGS := -g2005-sv -Wall
 RTL     := ../rtl
 BUILD   := build
 
-TESTS := gn845pwbb watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdtoc atapi_cdread cdboot
+TESTS := gn845pwbb watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdtoc atapi_cdread cdboot
 
 # `make` with no target must run the whole suite: the secdata/cddata helper
 # targets were added ABOVE `all`, silently turning `make -C sim` into a no-op
@@ -77,6 +77,8 @@ SRC_system573_top := $(RTL)/system573_top.v $(RTL)/s573_bus.v $(RTL)/s573_io.v $
                      $(RTL)/s573_flash.v $(RTL)/flash_nor.v $(RTL)/s573_seccart.v $(RTL)/s573_sectrace.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v \
                      $(RTL)/atapi.v $(RTL)/s573_cdimg.v $(RTL)/s573_cdtoc.v $(RTL)/k573dio.v $(RTL)/k573_mp3stream.v $(RTL)/k573_mp3dec.v $(RTL)/mas3507d_i2c.v
 SRC_drivecheck     := $(SRC_system573_top)
+# (must come AFTER SRC_system573_top: := expands immediately)
+SRC_atapi_inquiry  := $(SRC_system573_top)
 
 .PHONY: all clean secdata cddata gate5_replay $(TESTS)
 
