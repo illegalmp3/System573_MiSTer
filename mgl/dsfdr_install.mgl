@@ -1,0 +1,42 @@
+<!--
+  dsfdr (Dancing Stage Fever, GCA37 VER. JAA) -- INSTALL launcher. Loads the
+  INSTALL cassette (gea37ja: X76F041 + DS2401), which the CD installer checks.
+  After the install, launch dsfdr_console.mgl instead. Digital-board (k573dio)
+  CD game, STANDARD two-player cabinet. Disc = a37jaa02.chd.
+
+  TWO CASSETTES, ONE SLOT. MAME's dsfdr romset carries both chips, but a real 573
+  has a single cassette receptacle: gea37ja is the INSTALL cassette and gca37ja is
+  the OPERATOR/GAME cassette, physically swapped between phases -- PSX.EXE even
+  carries the string for getting it wrong ("Installation cassette is inserted.
+  Turn off the power. Before turning the power on: 1. Change the cassette to the
+  Oper..."). So this is two launchers, exactly as ddrs2k does it (ge905ja install
+  / gc905ja game), NOT dual-cassette RTL. Prefix convention: GE = install,
+  GC = game.
+
+  The install cassette is an X76F041 -- the SAME chip that authenticates on
+  hardware for dsem (2026-09-13) -- so this phase does not depend on the open
+  ZS01 detection bug (docs/2026-09-14-ddrusa-error121-decoded.md). Only
+  dsfdr_console.mgl needs the ZS01 working.
+
+  Six items max: Main parses at most SIX file/reset items per .mgl and silently
+  drops the rest (mra_loader.h mgl_item_struct item[6]). This is exactly six.
+
+  OSD for this title: 573 Cabinet = STANDARD (standard cabs handshake with the
+  GN845-PWB(B) stage multiplexor, rtl/gn845pwbb.v); 573 MP3 Descramble = DEFAULT;
+  573 Boot Device = CD-ROM to install, Flash ROM afterwards.
+
+  Paths are bare filenames: resolved games-folder-relative across storages, so
+  they work with games on USB. The save file MUST exist before launch -- Main does
+  not auto-create it on this path (pre=0), it ejects the slot
+  (docs/2026-09-12-flash-persistence-fixed.md).
+-->
+<mistergamedescription>
+  <rbf>_Console/Konami_System_573</rbf>
+  <setname>System573</setname>
+  <file delay="1" type="f" index="0" path="573bios.bin"/>
+  <file delay="1" type="f" index="4" path="dsfdr_install.u1"/>
+  <file delay="1" type="f" index="5" path="dsfdr_install.u6"/>
+  <file delay="2" type="s" index="1" path="dsfdr.chd"/>
+  <file delay="3" type="s" index="4" path="dsfdr.sav"/>
+  <reset delay="1"/>
+</mistergamedescription>

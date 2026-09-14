@@ -1,0 +1,42 @@
+<!--
+  dsfdr (Dancing Stage Fever, GCA37 VER. JAA) -- PLAY launcher. Loads the GAME
+  cassette (gca37ja.u1 + gca37ja.u6: ZS01 / NS2K001 PIC). Boots from the flash
+  restored out of dsfdr.sav, so run dsfdr_install.mgl first.
+
+  ZS01 SIZE PADDING: the MAME dump gca37ja.u1 is the raw 140-byte ZS01 nvram image
+  (RtR + cmd key + data key + config + 112 data). emu.sv infers the cart type from
+  the .u1 SIZE (>=560 -> ZS01 type 2; >=256 -> X76F041; else X76F100), so
+  dsfdr.u1 is that image padded with zeros to 4116 B. zs01.v drops every loaded
+  byte at addr >= 140, so the padding is inert. Generate and VERIFY it with
+  tools/stage_zs01_u1.py (checks the RtR, the fixed PIC command key against
+  zs01.v's default, the plaintext game code, and the DS2401 serial cross-checked
+  byte-reversed against the .u6).
+
+  Verified for this cassette: game code GCA37, region JA, command key
+  ed68504bc644483e (identical to ddrusa's -- the fixed PIC key is shared across
+  cartridges), per-cart data key c187d3242284edb2, DS2401 d202030405060701 found
+  byte-reversed at data[40].
+
+  BLOCKED until the ZS01 detection bug is fixed: PSX.EXE identifies the cassette
+  from its response-to-reset before any command, and on ddrusa that probe is
+  rejected -- ERROR 121 (3), which decodes to "no cassette type detected"
+  (docs/2026-09-14-ddrusa-error121-decoded.md). dsfdr's INSTALL phase uses an
+  X76F041 and is unaffected, so install with dsfdr_install.mgl meanwhile.
+
+  Disc a37jaa02.chd is MODE1_RAW (TRACK:1 TYPE:MODE1_RAW SUBTYPE:RW_RAW
+  FRAMES:57277), so dsfdr.chd is used directly -- no cue+raw2352 conversion of
+  the kind dsem's MODE1/2048 disc needed.
+
+  Six items max (mra_loader.h item[6]). OSD: 573 Cabinet = STANDARD; 573 MP3
+  Descramble = DEFAULT; 573 Boot Device = Flash ROM.
+-->
+<mistergamedescription>
+  <rbf>_Console/Konami_System_573</rbf>
+  <setname>System573</setname>
+  <file delay="1" type="f" index="0" path="573bios.bin"/>
+  <file delay="1" type="f" index="4" path="dsfdr.u1"/>
+  <file delay="1" type="f" index="5" path="dsfdr.u6"/>
+  <file delay="2" type="s" index="1" path="dsfdr.chd"/>
+  <file delay="3" type="s" index="4" path="dsfdr.sav"/>
+  <reset delay="1"/>
+</mistergamedescription>
