@@ -191,13 +191,33 @@ module atapi #(
                         6'd16:b="C"; 6'd17:b="D"; 6'd18:b="-"; 6'd19:b="R";  // product
                         6'd20:b="O"; 6'd21:b="M"; 6'd23:b="C"; 6'd24:b="R";  // "CD-ROM CR-589"
                         6'd25:b="-"; 6'd26:b="5"; 6'd27:b="8"; 6'd28:b="9";
-                        // revision bytes 32..35. Was "1.0b", which is not a string any
-                        // 573 title accepts: dsfdr and ddrusa both walk a table of
-                        // exactly three allowed drive firmware revisions -- "GS0N",
-                        // "kona", "GSCA" (dsfdr PSX.EXE table at 0x80340be4, compared
-                        // against INQUIRY bytes 32..35 at 0x80314918) -- and MAME's
-                        // CR-589 reports GS0N ("MATSHITACD-ROM CR-589   GS0N").
-                        9'd32:b="G"; 9'd33:b="S"; 9'd34:b="0"; 9'd35:b="N";
+                        // revision bytes 32..35 = "gscb": the ALREADY-UPDATED Konami
+                        // firmware, i.e. the steady state of a deployed cabinet.
+                        //
+                        // Traced in ddrusa's installer (PSX.EXE, extracted from a44uaa02.chd):
+                        //  * drive_identify (0x80314774) walks a table at 0x80340be4 of the
+                        //    revisions it knows how to UPGRADE FROM -- "GS0N", "kona", "GSCA"
+                        //    -- and returns -1 for anything else.
+                        //  * the update task's init (0x80313f2c) launches the flash routine
+                        //    (0x80314374) only when drive_identify returns 0; on -1 it returns
+                        //    without starting it, run_task (0x80300fbc) exits on init<0, and
+                        //    the caller (0x8030b5cc) never examines the result: boot continues.
+                        //  * the flash routine is unconditional otherwise: 0xCC FIRMWARE
+                        //    DOWNLOAD ENABLE -> INQUIRY -> WRITE BUFFER(0x3b, mode 5, 52086 B
+                        //    image at 0x8034ada0) -> READ BUFFER(0x3c) -> verify -> 0xCC ->
+                        //    INQUIRY, and it verifies the NEW revision == "gscb" (0x80300894),
+                        //    which is the identity embedded in that image (body+0x3ab).
+                        // Reporting the stock "GS0N" (MAME cr589.cpp nvram_default) therefore
+                        // makes the installer try to flash the drive; with no 0xCC/0x3b/0x3c
+                        // support that fails at step 1 -> ERROR 185 (120). Reporting "gscb"
+                        // takes the same path a real, previously-flashed drive takes: the
+                        // installer finds nothing to upgrade and proceeds.
+                        // dsfdr's installer (PSX.EXE from 936eaa.chd) contains no drive-
+                        // firmware code and no CR-589 identity strings at all -- its ERROR 184
+                        // was purely the INQUIRY transfer length -- so it is unaffected.
+                        // (The earlier comment placed the revision table in dsfdr's EXE; it
+                        // is ddrusa's.)
+                        9'd32:b="g"; 9'd33:b="s"; 9'd34:b="c"; 9'd35:b="b";
                         default: if ((k==9'd22) || (k>=9'd29 && k<=9'd31)) b=8'h20; // spaces
                     endcase
                 end

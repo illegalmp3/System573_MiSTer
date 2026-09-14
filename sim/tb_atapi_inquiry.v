@@ -13,14 +13,18 @@
 //               it is a short transfer, not a content mismatch.
 //   0x80314918  only then compares INQUIRY bytes 32..35 against a table of accepted
 //               drive firmware revisions at 0x80340be4 -- exactly three entries,
-//               "GS0N", "kona", "GSCA".
+//               "GS0N", "kona", "GSCA" -- which are the revisions it will UPGRADE
+//               FROM; anything else makes it skip the drive-firmware flash. The
+//               drive reports "gscb" (the post-update revision, see rtl/atapi.v)
+//               precisely so the installer finds nothing to upgrade.
 //
 // atapi.v served a hardcoded 36 bytes and reported revision "1.0b", so it failed
 // the first check and would have failed the second. Both are MAME's CR-589
 // behaviour, and MAME is the reference these games actually run against:
 // src/devices/bus/ata/cr589.cpp overrides the base t10mmc INQUIRY *specifically* to
 // drop its `if (m_transfer_length > 36) m_transfer_length = 36;` clamp, and its
-// nvram_default writes "MATSHITACD-ROM CR-589   GS0N" as bytes 8..35.
+// nvram_default writes "MATSHITACD-ROM CR-589   GS0N" as bytes 8..35 (stock);
+// we report the flashed identity "MATSHITACD-ROM CR-589   gscb".
 //
 // This bench pins all of it: the honoured allocation length at 96 (dsfdr), at 36
 // (the BIOS POST path, so the three playable titles cannot regress) and at 0
@@ -205,7 +209,7 @@ module tb_atapi_inquiry;
         inquiry(96, 96, "alloc=96");
         expect_string(8,  "MATSHITA",         8,  "vendor id");
         expect_string(16, "CD-ROM CR-589   ", 16, "product id");
-        expect_string(32, "GS0N",             4,  "firmware revision");
+        expect_string(32, "gscb",             4,  "firmware revision");
         // the 24-byte concatenation the game memcmps at PSX.EXE 0x803148dc
         expect_string(8,  "MATSHITACD-ROM CR-589   ", 24, "vendor+product as the game compares it");
         pad_bad = 0;
@@ -225,7 +229,7 @@ module tb_atapi_inquiry;
         // ---- SPC: an allocation length of 0 means 256 ----
         $display("tb_atapi_inquiry: INQUIRY alloc=0 (SPC: means 256)");
         inquiry(0, 256, "alloc=0 -> 256");
-        expect_string(32, "GS0N", 4, "revision at alloc=256");
+        expect_string(32, "gscb", 4, "revision at alloc=256");
 
         if (errors == 0) $display("RESULT: PASS");
         else             $display("RESULT: FAIL (%0d checks)", errors);
