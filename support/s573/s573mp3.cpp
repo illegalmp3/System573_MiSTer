@@ -267,6 +267,7 @@ static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
  * game clock the response before we finished' is a question only the board answers. */
 static uint16_t last_sec_dbg = 0, last_sec_dbg2 = 0, last_sec_dbg3 = 0;
 static uint16_t last_sec_dbg4 = 0, last_sec_size = 0;
+static uint16_t last_sec_rd0 = 0, last_sec_rd1 = 0, last_sec_rd2 = 0;
 #ifndef CMD_573_STAGETRACE
 #define CMD_573_STAGETRACE 0x6C
 #endif
@@ -319,7 +320,10 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     last_sec_dbg2   = spi_w(0);   /* word7: {status[7:0], addr[7:0]} */
     last_sec_dbg3   = spi_w(0);   /* word8: {resp_bytes[7:0], cs_seen, loaded, crc_ok, overrun, -, state[2:0]} */
     last_sec_dbg4   = spi_w(0);   /* word9: {type[1:0], starts[5:0], rtr[7:0]} */
-    last_sec_size   = spi_w(0);   /* word10: {0, cart_type[1:0], eep_max[12:0]} */
+    last_sec_size   = spi_w(0);   /* word10: {1, cart_type[1:0], eep_max[12:0]} */
+    last_sec_rd0    = spi_w(0);   /* word11: captured SDA bits [15:0]  */
+    last_sec_rd1    = spi_w(0);   /* word12: captured SDA bits [31:16] */
+    last_sec_rd2    = spi_w(0);   /* word13: {rtr_edges[7:0], reads[7:0]} */
     DisableIO();
 }
 
@@ -765,6 +769,19 @@ static void heartbeat(void)
             s573_log("s573mp3: zs01: .u1 size/type NOT REPORTED -- this bitstream predates "
                      "STATUS word 10. Rebuild the core; ignore any size below.\n");
         s573_log("s573mp3: zs01: cs_seen=%u rtr_probes=%u i2c_starts=%u\n", cs, rtr, starts);
+        {
+            unsigned reads = last_sec_rd2 & 0xff, edges = (last_sec_rd2 >> 8) & 0xff;
+            unsigned long bits = ((unsigned long)last_sec_rd1 << 16) | last_sec_rd0;
+            /* PSX.EXE's detector reads 0x1f400006 bit 2 once per clock with CS low and
+             * wants 0x5a530001. This is what it actually assembled. */
+            if (size_valid)
+                s573_log("s573mp3: zs01: RTR: we serviced %u falling edges; the CPU read SDA %u times "
+                         "while selected and assembled 0x%08lx (ZS01 id = 0x5a530001)%s\n",
+                         edges, reads, bits,
+                         (reads >= 32 && bits == 0x5a530001ul) ? "  <== id read CORRECTLY" :
+                         (reads == 0) ? "  <== the game never read the line" :
+                         (edges == 0) ? "  <== the game read but we never emitted" : "");
+        }
         s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
                  "resp_bytes_clocked=%u state=%u loaded=%u OVERRUN=%u%s (raw %04x %04x %04x)\n",
                  pkts, cmd, addr, st, crcok, rb, state, ld, ovr,

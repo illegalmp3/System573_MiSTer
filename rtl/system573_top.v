@@ -166,6 +166,7 @@ module system573_top #(
     output wire [31:0] lamp_out,        // BEMANI Digital I/O lamp lines
     output wire [47:0] stage_dbg,       // gn845pwbb observability (HPS STATUS words 3/4/5)
     output wire [63:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6..9)
+    output wire [47:0] sec_rd_dbg,      // what the CPU READ from the cassette SDA (HPS STATUS 11..13)
     input  wire [6:0]  stage_trace_addr,
     output wire [15:0] stage_trace_data,
     output wire [7:0]  stage_trace_count,
@@ -258,6 +259,8 @@ module system573_top #(
 
     // --- security cartridge (EEPROM + board DS2401) via the D0-D7 latch ---
     wire        sec_io0, sec_drdy, sec_irdy;
+    wire        sec_cs_n;          // live cassette CS (latch D2), for the read-back capture
+    wire [7:0]  sec_rtr_edges;     // RTR falling edges the ZS01 serviced
     wire [7:0]  sec_in;
     s573_seccart #(.DS_SERIAL(CART_SERIAL), .DS_CLK_HZ(CLK_FREQ_HZ)) u_seccart (
         .clk(clk), .rst(rst),
@@ -266,9 +269,30 @@ module system573_top #(
         .io0_dir(sec_io0_dir),
         .load_eep_we(sec_eep_we), .load_eep_addr(sec_eep_addr), .load_eep_data(sec_eep_din),
         .load_ser_we(sec_ser_we), .load_ser_addr(sec_ser_addr), .load_ser_data(sec_ser_din),
-        .sec_dbg(sec_dbg),
+        .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rtr_edges(sec_rtr_edges),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
+
+    // ---- cassette read-back capture (ddrusa ERROR 121 (3), docs 2026-09-14) ----
+    // PSX.EXE's ZS01 detector (0x803250b8) identifies the cassette by reading
+    // 0x1f400006 bit 2 once per SCL clock with the cassette selected, assembling 32
+    // bits MSB-first and comparing to 0x5a530001. Nothing in the fabric could say what
+    // the CPU actually assembled -- the benches read the RTR the way the RTL emits it,
+    // so they cannot see a read-back-path error. This shifts sec_io0 in on every CPU
+    // read of the misc word while CS is asserted: after the probe it holds exactly the
+    // value the game compared. Together with the RTR edge count it separates "we never
+    // emitted", "we emitted the wrong bits" and "the read-back path is wrong".
+    wire        misc_rd = sel_asic & exp1_re & (asic_off == 4'h6);
+    reg  [31:0] cap_bits = 32'd0;
+    reg  [7:0]  cap_cnt  = 8'd0;
+    always @(posedge clk) begin
+        if (rst) begin cap_bits <= 32'd0; cap_cnt <= 8'd0; end
+        else if (misc_rd && ~sec_cs_n) begin
+            cap_bits <= {cap_bits[30:0], sec_io0};
+            if (~&cap_cnt) cap_cnt <= cap_cnt + 8'd1;
+        end
+    end
+    assign sec_rd_dbg = {sec_rtr_edges, cap_cnt, cap_bits};
 
     // --- ATAPI CD-ROM (IDE bank 0 = command block, bank 1 = control block) ---
     wire [15:0] atapi_dout;

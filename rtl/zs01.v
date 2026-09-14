@@ -124,7 +124,8 @@ module zs01 #(
     //   [37] last CRC ok   [38] image loaded   [39] cs has been asserted (sticky)
     //   [47:40] response bytes clocked out   [55:48] RTR probes answered
     //   [61:56] I2C STARTs seen   [63:62] filled in by s573_seccart (effective type)
-    output wire [63:0] dbg
+    output wire [63:0] dbg,
+    output reg  [7:0]  rtr_edges   // falling SCL edges serviced in ST_RTR (saturating)
 );
     localparam [2:0] ST_STOP = 3'd0, ST_RTR = 3'd1, ST_CMD = 3'd2, ST_PROC = 3'd3, ST_READ = 3'd4;
     // packet-engine sub-states (active while state == ST_PROC)
@@ -317,7 +318,7 @@ module zs01 #(
             prevbyte <= 0; sda_o <= 1'b0;
             pstate <= P_DEC_CMD; pidx <= 0; pcnt <= 0; pprev <= 0; crcv <= 16'hffff; overrun <= 1'b0;
             dbg_pkts <= 0; dbg_cmd <= 0; dbg_addr <= 0; dbg_status <= 0; dbg_rbytes <= 0; dbg_crc_ok <= 0;
-            dbg_rtr <= 0; dbg_starts <= 0; dbg_cs_seen <= 1'b0;
+            dbg_rtr <= 0; dbg_starts <= 0; dbg_cs_seen <= 1'b0; rtr_edges <= 0;
         end else begin
             // ================= packet engine: one byte per clock =================
             if (state == ST_PROC) begin
@@ -437,6 +438,7 @@ module zs01 #(
                 end
                 // ----- response-to-reset: FALLING edge, MSB-first -----
                 if (state == ST_RTR && pscl != 1'b0 && scl == 1'b0) begin
+                    if (~&rtr_edges) rtr_edges <= rtr_edges + 8'd1;   // observability
                     sbyte = (bitc == 4'd0) ? rtr_val(bytec) : shift;
                     sda_o <= sbyte[7];
                     shift <= sbyte << 1;
