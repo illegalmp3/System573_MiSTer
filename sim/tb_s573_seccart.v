@@ -84,11 +84,23 @@ module tb_s573_seccart;
     );
 
     // ---- Part 3 DUT: ZS01 (cart_type 2), loaded with the real gtrfrk5m dump ----
-    // ZS01 SDA-in is the wired-AND of DATA LATCH D0 and CONTROL bit 6 (io0_dir,
-    // active-low). The real game drives the command bits on D0 (PSX.EXE 0x80323b40)
-    // and only releases via bit 6, so THIS bench drives D0 and holds io0_3 released
-    // (0). SCL=D1, CS=D2, RST=D3, DS2401=D4; readback = sec_io0.
-    reg [7:0]  dl3   = 8'b0000_0101;  // sda=1(rel via D0), cs=1(desel D2), scl=0, rst=0, ds=0
+    // ZS01 SDA-in is CONTROL bit 6 (io0_dir) ALONE, active-low -- latch D0 is NOT
+    // wired to the ZS01. MAME k573cass konami573_cassette_zi_device overrides
+    // write_line_d1/d2/d3/d4 and write_line_zs01_sda but NOT write_line_d0 (the base
+    // konami573_cassette_interface::write_line_d0 is an empty method). Confirmed
+    // against the game itself: the ddrusa installer's ZS01 driver (PSX.EXE
+    // 0x80325000-0x80326200, extracted from a44uaa02.chd) NEVER writes latch D0 and
+    // drives SDA only through the control-bit-6 setter at 0x803208f4; 0x80323b40 --
+    // which an earlier reading took for the ZS01 bit-bang -- is the X76 driver.
+    // So THIS bench drives SDA on io0_3: io0_3=1 -> SDA low, io0_3=0 -> SDA released.
+    // SCL=D1, CS=D2, RST=D3, DS2401=D4; readback = sec_io0.
+    // D0 is held LOW here ON PURPOSE. The real ZS01 driver never writes latch D0, so
+    // the board leaves it at 0 -- that is the condition that exposed the bug. Holding
+    // D0=1 (the old value) would make the buggy `d_q[0] & ~io0_dir` reduce to
+    // `~io0_dir` and this bench could not tell the two wirings apart. With D0=0 the
+    // old expression pins SDA low, no START is ever seen, and Part 3 FAILS -- which is
+    // what a regression test for this bug has to do.
+    reg [7:0]  dl3   = 8'b0000_0100;  // D0=0 (as the board leaves it), cs=1(desel D2), scl=0, rst=0, ds=0
     reg        io0_3 = 1'b0;          // control bit 6 (active-low): 0 -> SDA released(1)
     reg        e3_we = 0;  reg [12:0] e3_addr = 0;  reg [7:0] e3_data = 0;
     reg        s3_we = 0;  reg [2:0]  s3_addr = 0;  reg [7:0] s3_data = 0;
@@ -234,33 +246,34 @@ module tb_s573_seccart;
         @(negedge clk); s3_we=0; end
     endtask
 
-    // drive ZS01 SDA via control bit 6 (active-low): sda_drv=1 -> pull low (io0_3=1).
-    task z_sda(input v); begin dl3[0] = v; tk; end endtask   // v=1 release(high), v=0 low
+    // drive ZS01 SDA via CONTROL bit 6 (active-low), exactly as the game's driver
+    // does: sda=1 (released high) -> io0_3=0 ; sda=0 (pulled low) -> io0_3=1.
+    task z_sda(input v); begin io0_3 = ~v; tk; end endtask   // v=1 release(high), v=0 low
     task z_scl(input v); begin dl3[1] = v; tk; end endtask
 
     // I2C-like start: SDA 1->0 while SCL high
     task z_start; begin
-        dl3[1]=0;tk; dl3[0]=1'b1;tk; dl3[1]=1;tk; dl3[0]=1'b0;tk; dl3[1]=0;tk;
+        dl3[1]=0;tk; io0_3=1'b0;tk; dl3[1]=1;tk; io0_3=1'b1;tk; dl3[1]=0;tk;
     end endtask
     task z_stop; begin
-        dl3[1]=0;tk; dl3[0]=1'b0;tk; dl3[1]=1;tk; dl3[0]=1'b1;tk;
+        dl3[1]=0;tk; io0_3=1'b1;tk; dl3[1]=1;tk; io0_3=1'b0;tk;
     end endtask
     task z_send(input [7:0] dat, output ack);
         integer i; begin
-            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; dl3[0]=dat[i];tk; dl3[1]=1;tk; end
-            dl3[1]=0;tk; dl3[0]=1'b1;tk; dl3[1]=1;tk; ack=sec_io0_3; dl3[1]=0;tk; // 9th = dev ack
+            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; io0_3=~dat[i];tk; dl3[1]=1;tk; end
+            dl3[1]=0;tk; io0_3=1'b0;tk; dl3[1]=1;tk; ack=sec_io0_3; dl3[1]=0;tk; // 9th = dev ack
         end
     endtask
     task z_read(output [7:0] dat);   // master ACKs every byte (drives SDA low on 9th)
         integer i; begin
             dat=8'h00;
-            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; dl3[0]=1'b1;tk; dl3[1]=1;tk; dat[i]=sec_io0_3; end
-            dl3[1]=0;tk; dl3[0]=1'b0;tk; dl3[1]=1;tk; dl3[1]=0;tk; dl3[0]=1'b1; // master ack (low)
+            for (i=7;i>=0;i=i-1) begin dl3[1]=0;tk; io0_3=1'b0;tk; dl3[1]=1;tk; dat[i]=sec_io0_3; end
+            dl3[1]=0;tk; io0_3=1'b1;tk; dl3[1]=1;tk; dl3[1]=0;tk; io0_3=1'b0; // master ack (low)
         end
     endtask
     task z_read_rtr(output [7:0] dat);   // RTR: device shifts MSB-first on falling SCL
         integer i; begin
-            dat=8'h00;
+            dat=8'h00; io0_3=1'b0;                       // SDA released while reading
             for (i=0;i<8;i=i+1) begin dl3[1]=1;tk; dl3[1]=0;tk; dat={dat[6:0],sec_io0_3}; end
         end
     endtask
@@ -365,10 +378,13 @@ module tb_s573_seccart;
         end
         // Part 3 (ZS01) uses gtrfrk5m's real dump, gated independently.
         z_present = 1'b0;
+        // Pre-zero: gen_secdata.sh emits the raw 140-byte MAME image; the real board
+        // loads it zero-padded to 4116 B, so mirror that instead of streaming X bytes.
+        for (i=0;i<4116;i=i+1) z_eep[i] = 8'h00;
         fh3 = $fopen("secdata/gtrfrk5m_u1.hex", "r");
         if (fh3 != 0) begin
             $fclose(fh3);
-            $readmemh("secdata/gtrfrk5m_u1.hex", z_eep);
+            $readmemh("secdata/gtrfrk5m_u1.hex", z_eep, 0, 139);
             $readmemh("secdata/gtrfrk5m_u6.hex", z_ser);
             z_present = 1'b1;
         end
@@ -588,7 +604,12 @@ module tb_s573_seccart;
       //         the device CRC and returns STATUS_ERROR (0x02), not OK.
       // =====================================================================
       if (!z_present) begin
-        $display("NOTE: gtrfrk5m dump absent -- skipping ZS01 real-data test (run sim/gen_secdata.sh with dumps/)");
+        // A missing fixture is a FAILURE, not a pass. This branch silently reported
+        // PASS for weeks while it was the ONLY coverage of the ZS01 command path, which
+        // is how the SDA-wiring bug (docs/2026-09-14-ddrusa-zs01-sda-is-control-bit6.md)
+        // survived. Put dumps/mame573/gtrfrk5m.zip in place and run sim/gen_secdata.sh.
+        $display("FAIL: gtrfrk5m fixture absent (secdata/gtrfrk5m_u1.hex) -- ZS01 real-data Part 3 did NOT run");
+        errors = errors + 1;
       end else begin
         // ---- stream the real .u1 (4116 B) + .u6 (8 B) in through the load ports ----
         for (i=0;i<4116;i=i+1) z_load_eep(i[12:0], z_eep[i]);
@@ -608,22 +629,32 @@ module tb_s573_seccart;
         // ---- (b) authenticated READ of address 0x00 = the real data ----
         z_command(8'h01, 8'h00, 64'hA0A1_A2A3_A4A5_A6A7, 1'b0, 64'hA0A1_A2A3_A4A5_A6A7, zst, zdat);
         if (zst !== 8'h00) begin $display("FAIL: zs01 read0 status=%02h (want 00)", zst); errors=errors+1; end
-        if (zdat !== 64'h0000_4a41_0000_f746) begin
-            $display("FAIL: zs01 read addr0 = %016h (want real 00004a410000f746)", zdat); errors=errors+1; end
+        // Expected values are DERIVED from the loaded image via MAME's nvram layout
+        // (zs01.cpp nvram_read: [0:4] RtR, [4:12] cmd key, [12:20] data key, [20:28]
+        // config, [28:140] data) -- NOT hand-typed. The previous constants were off by
+        // one 8-byte slot (they put the game code "GEA26" in config) and were never
+        // caught because this Part had never actually run.
+        if (zdat !== {z_eep[28],z_eep[29],z_eep[30],z_eep[31],z_eep[32],z_eep[33],z_eep[34],z_eep[35]}) begin
+            $display("FAIL: zs01 read addr0 = %016h (want data[0:8] = %02h%02h%02h%02h%02h%02h%02h%02h)", zdat,
+                     z_eep[28],z_eep[29],z_eep[30],z_eep[31],z_eep[32],z_eep[33],z_eep[34],z_eep[35]); errors=errors+1; end
         if (zdat === 64'h0001_0203_0405_0607) begin
             $display("FAIL: zs01 read addr0 is the SIM-DEFAULT ramp -- load not applied"); errors=errors+1; end
 
         // ---- (c) READ of address 0x01 = the real data ----
         z_command(8'h01, 8'h01, 64'hB0B1_B2B3_B4B5_B6B7, 1'b0, 64'hB0B1_B2B3_B4B5_B6B7, zst, zdat);
         if (zst !== 8'h00) begin $display("FAIL: zs01 read1 status=%02h", zst); errors=errors+1; end
-        if (zdat !== 64'h0200_0000_0000_00fd) begin
-            $display("FAIL: zs01 read addr1 = %016h (want real 020000000000 00fd)", zdat); errors=errors+1; end
+        if (zdat !== {z_eep[36],z_eep[37],z_eep[38],z_eep[39],z_eep[40],z_eep[41],z_eep[42],z_eep[43]}) begin
+            $display("FAIL: zs01 read addr1 = %016h (want data[8:16] = %02h%02h%02h%02h%02h%02h%02h%02h)", zdat,
+                     z_eep[36],z_eep[37],z_eep[38],z_eep[39],z_eep[40],z_eep[41],z_eep[42],z_eep[43]); errors=errors+1; end
 
         // ---- (d) READ config registers (address 0xFE) = the dump's config ----
         z_command(8'h01, 8'hfe, 64'hC0C1_C2C3_C4C5_C6C7, 1'b0, 64'hC0C1_C2C3_C4C5_C6C7, zst, zdat);
         if (zst !== 8'h00) begin $display("FAIL: zs01 cfg status=%02h", zst); errors=errors+1; end
-        if (zdat !== 64'h4745_4132_3600_0000) begin
-            $display("FAIL: zs01 config = %016h (want real 4745413236000000)", zdat); errors=errors+1; end
+        // config = image[20:28]; MAME zeroes CONFIG_RC (index 5) on every good-CRC
+        // command before copying, so byte 5 must read 0 regardless of the image.
+        if (zdat !== {z_eep[20],z_eep[21],z_eep[22],z_eep[23],z_eep[24],8'h00,z_eep[26],z_eep[27]}) begin
+            $display("FAIL: zs01 config = %016h (want image[20:28] with RC=0 = %02h%02h%02h%02h%02h00%02h%02h)", zdat,
+                     z_eep[20],z_eep[21],z_eep[22],z_eep[23],z_eep[24],z_eep[26],z_eep[27]); errors=errors+1; end
 
         // ---- (e) READ internal DS2401 (address 0xFC) = the loaded .u6 serial ----
         // MAME returns direct_read(7-i) for i=0..7 = file bytes 7,6,...,0.
@@ -658,7 +689,7 @@ module tb_s573_seccart;
             end else
                 $display("  (X76F041 real-data Part 2 skipped: pnchmn2 dump absent)");
             if (z_present)
-                $display("  ZS01 gtrfrk5m: authenticated READ addr0 = 00004a410000f746 (REAL, not default ramp),");
+                $display("  ZS01 gtrfrk5m: authenticated READ addr0/addr1/config/DS2401 all match the real dump,");
             else
                 $display("  (ZS01 real-data Part 3 skipped: gtrfrk5m dump absent)");
         end else

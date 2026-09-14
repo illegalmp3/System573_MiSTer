@@ -55,7 +55,11 @@ module tb_zs01_rtr;
     task probe(input d0, output [31:0] idout);
         integer k; reg bb; reg [7:0] LL;
         begin
-            // return the chip to idle: STOP = SDA rising while SCL high
+            // return the chip to idle. NOTE: as of the 2026-09-14 wiring fix, latch
+            // D0 is NOT connected to the ZS01 (SDA is control bit 6 alone), so this
+            // D0 wiggle no longer reaches the chip -- it is harmless, and the RST
+            // rising edge below forces ST_RTR regardless. Kept as bus stimulus.
+            // (was: STOP = SDA rising while SCL high)
             LL = 8'b0000_1111; LL[D0]=0; LL[D1]=1; LL[D2]=0; wr(LL);
             LL[D0]=1;                                        wr(LL);  // STOP
             LL[D1]=0;                                        wr(LL);
@@ -110,8 +114,9 @@ module tb_zs01_rtr;
 
         // ---- sweep the two host-side drive signals the board may leave in any
         // ---- state: io0_dir (control bit 6) and D0. Neither should affect what the
-        // ---- DEVICE drives, so all four must read back the id. If one fails, that
-        // ---- is the board's condition and the bug.
+        // ---- DEVICE drives during the response-to-reset, so all four must read back
+        // ---- the id. Since the 2026-09-14 fix D0 is not wired to the ZS01 at all, so
+        // ---- the D0 half of the sweep is now trivially independent by construction.
         for (cfg = 0; cfg < 4; cfg = cfg + 1) begin
             cfg_io0 = (cfg / 2) % 2;
             cfg_d0  = cfg % 2;

@@ -142,18 +142,18 @@ module tb_atapi_inquiry;
     endtask
 
     reg [15:0] v;
-    reg [7:0]  buf [0:255];
+    reg [7:0]  dbuf [0:255];
     integer i, want;
     reg [8:0] got_bc;
     reg       pad_bad;
 
-    // read `n` bytes of the data phase into buf
+    // read `n` bytes of the data phase into dbuf
     task drain(input integer n);
         integer k; reg [15:0] w; begin
             for (k = 0; k < n; k = k + 2) begin
                 exp1_read(24'h480000, w);
-                buf[k]   = w[7:0];
-                buf[k+1] = w[15:8];
+                dbuf[k]   = w[7:0];
+                dbuf[k+1] = w[15:8];
             end
         end
     endtask
@@ -164,11 +164,11 @@ module tb_atapi_inquiry;
             bad = 0;
             for (k = 0; k < len; k = k + 1) begin
                 c = str[8*(len-1-k) +: 8];
-                if (buf[at+k] !== c) bad = 1;
+                if (dbuf[at+k] !== c) bad = 1;
             end
             if (bad) begin
                 $write("FAIL: %0s at byte %0d = \"", what, at);
-                for (k = 0; k < len; k = k + 1) $write("%c", buf[at+k]);
+                for (k = 0; k < len; k = k + 1) $write("%c", dbuf[at+k]);
                 $display("\"");
                 errors = errors + 1;
             end else
@@ -180,8 +180,12 @@ module tb_atapi_inquiry;
         integer k; begin
             packet_inquiry(alloc[7:0]);
             wait_not_busy(what);
-            exp1_read(24'h480004, v); got_bc[7:0] = v[7:0];
-            exp1_read(24'h480006, v); got_bc[8]   = v[0];
+            // IDE reg N is at exp1 byte offset 2N (system573_top: atapi_addr = exp1_addr[3:1]),
+            // as the 0x48000e status/command reads above already rely on. Byte count is
+            // regs 4/5 -> offsets 0x08/0x0a. (Was 0x04/0x06 = IREASON / reg 3, which read a
+            // constant 0x102 = 258 regardless of allocation.)
+            exp1_read(24'h480008, v); got_bc[7:0] = v[7:0];   // reg 4: byte count low
+            exp1_read(24'h48000a, v); got_bc[8]   = v[0];     // reg 5: byte count high, bit 0
             if (got_bc !== expect_len[8:0]) begin
                 $display("FAIL: %0s: byte count = %0d, expected %0d", what, got_bc, expect_len);
                 errors = errors + 1;
@@ -206,8 +210,8 @@ module tb_atapi_inquiry;
         expect_string(8,  "MATSHITACD-ROM CR-589   ", 24, "vendor+product as the game compares it");
         pad_bad = 0;
         for (i = 36; i < 96; i = i + 1)
-            if (buf[i] !== 8'h00 && !pad_bad) begin
-                $display("FAIL: byte %0d = %02h, expected 00 past the 36-byte page", i, buf[i]);
+            if (dbuf[i] !== 8'h00 && !pad_bad) begin
+                $display("FAIL: byte %0d = %02h, expected 00 past the 36-byte page", i, dbuf[i]);
                 errors = errors + 1;
                 pad_bad = 1;
             end

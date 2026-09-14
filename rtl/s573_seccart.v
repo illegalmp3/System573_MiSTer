@@ -143,21 +143,37 @@ module s573_seccart #(
         .load_we(load_eep_we), .load_addr(load_eep_addr[9:0]), .load_data(load_eep_data)
     );
 
-    // ZS01 SDA-in (host -> chip). MEASURED on hardware (ddrusa install, 2026-09-13,
-    // disasm of the game's ZS01 bit-bang at PSX.EXE 0x80323b40): the game clocks the
-    // command bits out on the DATA LATCH D0 -- `or v1, latch&0xfffe, data_bit; sw
-    // 0x1f6a0000` -- exactly like the X76 carts, and uses the CONTROL register bit 6
-    // (io0_dir, active-low) only to RELEASE the line before a read (PSX.EXE 0x80323cc4
-    // clears it). So SDA is the wired-AND of both open-drain drivers: D0 and the
-    // control bit. The first cut drove it from io0_dir ALONE (D0 ignored), which read
-    // MAME's k573cass write_line_zs01_sda too literally -- the ZI cassette really does
-    // leave D0 off the ZS01, but the 573 side ORs the latch D0 onto the same physical
-    // SDA net, so the chip sees it. With D0 ignored every command bit fell on the floor
-    // and the chip returned garbage: "Cassette does not match this game" (error 121-3).
-    // (The bench's synthetic gtrfrk5m master hid this by driving io0_dir directly, so
-    // RTL and bench shared the same wrong assumption -- tb_s573_seccart Part 3 now
-    // drives D0 like the game.) SCL/CS/RST stay on D1/D2/D3.
-    wire zs01_sda_i = d_q[0] & ~io0_dir;   // open-drain: low if EITHER driver pulls low
+    // ZS01 SDA-in (host -> chip). PROVEN from the game's own code (2026-09-14):
+    // PSX.EXE was extracted from the ddrusa disc (a44uaa02.chd, ISO9660 /PSX.EXE,
+    // LBA 8216) and disassembled. The 573 installer carries TWO separate cassette
+    // drivers:
+    //   * X76  driver, 0x80323800-0x80324300: bit-bangs the data bit on LATCH D0
+    //     (`andi latch,0xfffe; or data; sh 0x1f6a0000` -- 10 such sites) and uses
+    //     CONTROL bit 6 only as the IO0 output ENABLE (0x803208c8(1) to drive,
+    //     0x80323cd4 `andi 0xffbf` to release before a read).
+    //   * ZS01 driver, 0x80325000-0x80326200: contains detector A (0x803250b8) and
+    //     the packet transport. It NEVER writes latch D0 -- a scan of the whole
+    //     region finds zero D0 manipulations (the only two 0x0001 immediates are
+    //     detector A building the compare constant 0x5a530001 at 0x80325224 and a
+    //     stack-built command byte at 0x803253ac). It drives SDA EXCLUSIVELY through
+    //     CONTROL bit 6 via 0x803208f4, and SCL/CS/RST on latch D1/D2/D3. e.g. the
+    //     STOP generator at 0x80325f9c is bit6=1 (SDA low) -> SCL high -> bit6=0
+    //     (SDA high), and detector A calls 0x803208f4(0) to RELEASE SDA before the
+    //     response-to-reset.
+    // This matches MAME k573cass.cpp exactly: konami573_cassette_zi_device overrides
+    // write_line_d1/d2/d3/d4 and write_line_zs01_sda, but NOT write_line_d0 -- the
+    // base konami573_cassette_interface::write_line_d0 is an empty method, so D0 is
+    // physically unconnected to the ZS01. ksys573.cpp wires bit 0x40 of OUT2
+    // (control_w) IP_ACTIVE_LOW to write_line_zs01_sda, hence sda = ~io0_dir.
+    //
+    // The previous `d_q[0] & ~io0_dir` (960920a) came from disassembling 0x80323b40
+    // and taking it for the ZS01 bit-bang; it is the X76's. ANDing D0 in pinned SDA
+    // LOW forever (the ZS01 driver leaves D0 at 0), so the chip never saw SDA go high
+    // and NO START condition (SDA 1->0 while SCL high) could ever be detected: the
+    // fabric reported i2c_starts=0, pkts=0 while the response-to-reset still worked
+    // (cs_seen=1, rtr_probes=1, rtr_edges=33) -- the ZS01 verify therefore failed and
+    // the installer reported ERROR 121 (3). SCL/CS/RST stay on D1/D2/D3.
+    wire zs01_sda_i = ~io0_dir;   // CONTROL bit 6, active-low. D0 is NOT wired to the ZS01.
     zs01 eeprom_zs01 (
         .clk(clk), .rst(rst),
         .cs(sel_zs01 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),

@@ -258,10 +258,13 @@ module tb_zs01;
 
     initial begin
         z_present = 1'b0;
+        // Pre-zero: gen_secdata.sh emits the raw 140-byte MAME image; the board loads it
+        // zero-padded to 4116 B, so mirror that rather than reading X past byte 139.
+        for (k = 0; k < 4116; k = k + 1) z_u1[k] = 8'h00;
         fh2 = $fopen("secdata/gtrfrk5m_u1.hex", "r");
         if (fh2 != 0) begin
             $fclose(fh2);
-            $readmemh("secdata/gtrfrk5m_u1.hex", z_u1);
+            $readmemh("secdata/gtrfrk5m_u1.hex", z_u1, 0, 139);
             $readmemh("secdata/gtrfrk5m_u6.hex", z_u6);
             z_present = 1'b1;
         end
@@ -309,7 +312,10 @@ module tb_zs01;
         // decrypted bytes -- NOT the param/default ramp.
         // =====================================================================
         if (!z_present) begin
-            $display("NOTE: gtrfrk5m dump absent -- skipping zs01 Part 2 (run sim/gen_secdata.sh with dumps/)");
+            // A missing fixture is a FAILURE, not a pass -- this branch silently passed for
+            // weeks while its expectations were wrong. See docs/2026-09-14-ddrusa-zs01-sda-is-control-bit6.md.
+            $display("FAIL: gtrfrk5m fixture absent (secdata/gtrfrk5m_u1.hex) -- zs01 real-data Part 2 did NOT run");
+            errors = errors + 1;
         end else begin
             // stream the real image in through the chip's own load ports
             for (k = 0; k < 4116; k = k + 1) load_u1(k[12:0], z_u1[k]);
@@ -324,22 +330,27 @@ module tb_zs01;
                 $display("FAIL: dut2 rtr = %02h%02h%02h%02h (want 5a530001)", b0,b1,b2,b3); errors=errors+1; end
             sec_rst2 = 0; tk;
 
-            // ---- authenticated READ addr 0x00 = the REAL data 00004a410000f746 ----
+            // ---- authenticated READ addr 0x00 = the REAL data[0:8] of the image ----
+            // Expectations are DERIVED from the loaded image via MAME's nvram layout
+            // (zs01.cpp nvram_read: [0:4] RtR, [4:12] cmd key, [12:20] data key,
+            // [20:28] config, [28:140] data). The old hand-typed constants were shifted by
+            // one 8-byte slot and never caught because this Part had never run.
             do_command2(8'h01, 8'h00, 64'hA0A1_A2A3_A4A5_A6A7, 1'b0, 64'hA0A1_A2A3_A4A5_A6A7, st, rd);
             expect_status(st, 8'h00, "real-read0");
-            expect64(rd, 64'h0000_4a41_0000_f746, "real-read0 data");
+            expect64(rd, {z_u1[28],z_u1[29],z_u1[30],z_u1[31],z_u1[32],z_u1[33],z_u1[34],z_u1[35]}, "real-read0 data");
             if (rd === 64'h0001_0203_0405_0607) begin
                 $display("FAIL: dut2 read addr0 is the SIM-DEFAULT ramp -- load not applied"); errors=errors+1; end
 
             // ---- READ addr 0x01 = the REAL data 020000000000 00fd ----
             do_command2(8'h01, 8'h01, 64'hB0B1_B2B3_B4B5_B6B7, 1'b0, 64'hB0B1_B2B3_B4B5_B6B7, st, rd);
             expect_status(st, 8'h00, "real-read1");
-            expect64(rd, 64'h0200_0000_0000_00fd, "real-read1 data");
+            expect64(rd, {z_u1[36],z_u1[37],z_u1[38],z_u1[39],z_u1[40],z_u1[41],z_u1[42],z_u1[43]}, "real-read1 data");
 
-            // ---- READ config regs (0xFE) = the dump's 4745413236000000 ----
+            // ---- READ config regs (0xFE) = image[20:28], with CONFIG_RC (byte 5) = 0
+            //      because MAME zeroes it on every good-CRC command before the copy ----
             do_command2(8'h01, 8'hfe, 64'hC0C1_C2C3_C4C5_C6C7, 1'b0, 64'hC0C1_C2C3_C4C5_C6C7, st, rd);
             expect_status(st, 8'h00, "real-config");
-            expect64(rd, 64'h4745_4132_3600_0000, "real-config data");
+            expect64(rd, {z_u1[20],z_u1[21],z_u1[22],z_u1[23],z_u1[24],8'h00,z_u1[26],z_u1[27]}, "real-config data");
 
             // ---- READ internal DS2401 (0xFC) = the loaded .u6 (file bytes 7..0) ----
             do_command2(8'h01, 8'hfc, 64'hD0D1_D2D3_D4D5_D6D7, 1'b0, 64'hD0D1_D2D3_D4D5_D6D7, st, rd);
@@ -354,7 +365,7 @@ module tb_zs01;
         if (errors == 0) begin
             $display("RESULT: PASS (zs01)  rtr=%02h%02h%02h%02h", b0, b1, b2, b3);
             if (z_present)
-                $display("  gtrfrk5m loaded: authenticated READ addr0 = 00004a410000f746 (REAL, not default), neg-control OK");
+                $display("  gtrfrk5m loaded: authenticated READ addr0/addr1/config match the real image, neg-control OK");
             else
                 $display("  (zs01 real-data Part 2 skipped: gtrfrk5m dump absent)");
         end else

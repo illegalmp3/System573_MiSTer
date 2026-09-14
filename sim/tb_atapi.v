@@ -39,10 +39,19 @@ module tb_atapi;
             end
         end
     endtask
-    task send_packet(input [7:0] opcode);
-        integer w; begin
-            io_write(4'd0, {8'h00, opcode});       // word 0 (opcode in low byte)
-            for (w = 0; w < 5; w = w + 1) io_write(4'd0, 16'h0000);
+    // Build the 12-byte CDB. Words go out low-byte-first, so word w carries CDB[2w]
+    // in its low half. `alloc` lands in CDB[4] -- the ALLOCATION LENGTH, which atapi.v
+    // now honours (commit cd69aa0) instead of serving a hardcoded 36 bytes. A real
+    // initiator has to ask for the length it wants; the game's INQUIRY helper
+    // (PSX.EXE 0x8031fad0) asks for 96. Passing 0 means "no allocation".
+    task send_packet(input [7:0] opcode, input [7:0] alloc);
+        begin
+            io_write(4'd0, {8'h00, opcode});       // CDB[1:0]  (opcode in low byte)
+            io_write(4'd0, 16'h0000);              // CDB[3:2]
+            io_write(4'd0, {8'h00, alloc});        // CDB[5:4]  -> CDB[4] = alloc length
+            io_write(4'd0, 16'h0000);              // CDB[7:6]
+            io_write(4'd0, 16'h0000);              // CDB[9:8]
+            io_write(4'd0, 16'h0000);              // CDB[11:10]
         end
     endtask
     // bounded BSY-clear poll. The IDENTIFY fix holds BSY for IDENT_SETTLE clk1x before
@@ -75,7 +84,7 @@ module tb_atapi;
         io_write(4'd7, 16'h00A0);                 // PACKET
         io_read(4'd7, v); chk(v, 16'h0008, "TUR drq");      // DRQ set
         io_read(4'd2, v); chk(v, 16'h0001, "TUR ireason");  // C/D=1,I/O=0
-        send_packet(8'h00);                        // TEST UNIT READY
+        send_packet(8'h00, 8'h00);                 // TEST UNIT READY (no data phase)
         io_read(4'd7, v); chk(v, 16'h0050, "TUR status");   // DRDY|DSC
         io_read(4'd2, v); chk(v, 16'h0003, "TUR done ireason");
 
@@ -97,7 +106,7 @@ module tb_atapi;
 
         // ---- INQUIRY (PIO data-in PACKET command) ----
         io_write(4'd7, 16'h00A0);
-        send_packet(8'h12);                        // INQUIRY
+        send_packet(8'h12, 8'd36);                 // INQUIRY, allocation length 36
         io_read(4'd7, v); chk(v, 16'h0048, "INQ status");   // DRDY|DRQ
         io_read(4'd2, v); chk(v, 16'h0002, "INQ ireason");  // I/O=1
         io_read(4'd4, v); chk(v, 16'h0024, "INQ byte count"); // 36 bytes
@@ -147,7 +156,7 @@ module tb_atapi;
         // ---- INTRQ assert + clear-on-status-read ----
         // INTRQ is a registered, edge-guaranteed output (atapi.v irq_out): it asserts a
         // couple of clocks after the event that raises it, so settle before sampling.
-        io_write(4'd7, 16'h00A0); send_packet(8'h00); // TUR -> completion asserts INTRQ
+        io_write(4'd7, 16'h00A0); send_packet(8'h00, 8'h00); // TUR -> completion asserts INTRQ
         repeat (3) @(posedge clk);
         if (intrq !== 1'b1) begin $display("FAIL: intrq not asserted"); errors=errors+1; end
         io_read(4'd7, v);                              // status read clears it

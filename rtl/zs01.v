@@ -7,8 +7,7 @@
 // command/password handshake:
 //
 //   * RST 0->1 (CS low) streams a 4-byte response-to-reset (0x5A,0x53,0x00,0x01)
-//     MSB-first on FALLING SCL edges, LOOPING until a start/stop condition (MAME
-//     parks after one pass; see the note in the RTR block for why we do not).
+//     MSB-first on FALLING SCL edges, then PARKS idle-high in STOP, as MAME does.
 //   * A start condition moves STOP -> LOAD_COMMAND; the host clocks in a 12-byte
 //     packet MSB-first (device ACKs each byte on the 9th clock).
 //   * The 12 bytes are descrambled with the fixed 8-byte command key; if command
@@ -455,12 +454,22 @@ module zs01 #(
                     shift <= sbyte << 1;
                     if (bitc == 4'd7) begin
                         bitc  <= 0;
-                        // LOOP the four bytes until the host issues a START or STOP.
-                        // MAME's zs01 parks after one pass, but both cassette chips that
-                        // authenticate on this hardware (x76f100.v, x76f041.v) loop, and
-                        // the one-shot form left the ZS01 idle-high when PSX.EXE's detector
-                        // clocked it -- the CPU assembled 0xffffffff (docs 2026-09-14).
-                        bytec <= (bytec == 8'd3) ? 8'd0 : bytec + 8'd1;
+                        if (bytec == 8'd3) begin
+                            // PARK after the 4th byte, exactly as MAME zs01.cpp write_scl()
+                            // STATE_RESPONSE_TO_RESET does: `m_sdar = 1; m_state = STATE_STOP`.
+                            // The `sda_o <= 1` here overrides the bit-31 assignment above in
+                            // the same clock, as MAME's does -- and bit 31 of 5a530001 IS 1.
+                            // (This used to LOOP the four bytes to dodge a "CPU assembled
+                            // 0xffffffff" symptom; that was a misattribution -- see docs
+                            // 2026-09-14-ddrusa-zs01-sda-is-control-bit6.md. The real
+                            // detector, PSX.EXE 0x803250b8, primes one SCL cycle then reads
+                            // 32 bits while SCL is low: 33 falling edges, and the park on
+                            // edge 32 presents the same bit the loop would have.)
+                            sda_o <= 1'b1;
+                            state <= ST_STOP;
+                            bytec <= 8'd0;
+                        end else
+                            bytec <= bytec + 8'd1;
                     end else
                         bitc <= bitc + 4'd1;
                 end
