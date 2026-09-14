@@ -37,7 +37,7 @@ module tb_zs01_rtr;
         .io0_dir(io0_dir),
         .load_eep_we(L_we), .load_eep_addr(L_addr), .load_eep_data(L_data),
         .load_ser_we(Ls_we), .load_ser_addr(Ls_addr), .load_ser_data(Ls_data),
-        .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rtr_edges(sec_rtr_edges),
+        .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rst_line(), .sec_rtr_edges(sec_rtr_edges),
         .sec_in_rtr(sec_in_rtr), .sec_rtr_emit(sec_rtr_emit),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );

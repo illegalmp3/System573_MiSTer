@@ -261,6 +261,8 @@ module system573_top #(
     // --- security cartridge (EEPROM + board DS2401) via the D0-D7 latch ---
     wire        sec_io0, sec_drdy, sec_irdy;
     wire        sec_cs_n;          // live cassette CS (latch D2), for the read-back capture
+    wire        sec_rst_line;      // live cassette RST (latch D3), same
+    wire [15:0] asic_dout;         // s573_io read data (declared here: the capture below uses it)
     wire [7:0]  sec_rtr_edges;     // RTR falling edges the ZS01 serviced
     wire        sec_in_rtr;        // ZS01 currently shifting its response-to-reset
     wire [31:0] sec_rtr_emit;      // the bits it drove
@@ -272,33 +274,42 @@ module system573_top #(
         .io0_dir(sec_io0_dir),
         .load_eep_we(sec_eep_we), .load_eep_addr(sec_eep_addr), .load_eep_data(sec_eep_din),
         .load_ser_we(sec_ser_we), .load_ser_addr(sec_ser_addr), .load_ser_data(sec_ser_din),
-        .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rtr_edges(sec_rtr_edges),
+        .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rst_line(sec_rst_line), .sec_rtr_edges(sec_rtr_edges),
         .sec_in_rtr(sec_in_rtr), .sec_rtr_emit(sec_rtr_emit),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
 
     // ---- cassette read-back capture (ddrusa ERROR 121 (3), docs 2026-09-14) ----
-    // PSX.EXE's ZS01 detector (0x803250b8) identifies the cassette by reading
-    // 0x1f400006 bit 2 once per SCL clock with the cassette selected, assembling 32
-    // bits MSB-first and comparing to 0x5a530001. Nothing in the fabric could say what
-    // the CPU actually assembled -- the benches read the RTR the way the RTL emits it,
-    // so they cannot see a read-back-path error. This shifts sec_io0 in on every CPU
-    // read of the misc word while CS is asserted: after the probe it holds exactly the
-    // value the game compared. Together with the RTR edge count it separates "we never
-    // emitted", "we emitted the wrong bits" and "the read-back path is wrong".
+    // THE measurement that is still missing: the 32-bit id the CPU actually
+    // assembles. The previous two attempts were both unusable -- gating on CS, then
+    // on in_rtr, let the game's idle polling of this same register overwrite the
+    // probe (the RTR now loops, so in_rtr never falls). So: ARM on the RST rising
+    // edge that starts the response-to-reset, capture exactly 32 reads, then FREEZE
+    // until the next RST. That is precisely the window PSX.EXE's detector samples.
+    //
+    // And capture asic_dout[2] -- the bit s573_io HANDS THE CPU -- not sec_io0. Both
+    // benches prove sec_io0 carries the id (tb_zs01_rtr, tb_zs01_detect), so if this
+    // assembles the id too, the fabric is exonerated end to end and the fault is in
+    // the PSX core's exp1 read timing; if it does not, the divergence is between
+    // sec_io0 and the misc word, in a way simulation does not reproduce.
     wire        misc_rd = sel_asic & exp1_re & (asic_off == 4'h6);
     reg  [31:0] cap_bits = 32'd0;
     reg  [7:0]  cap_cnt  = 8'd0;
+    reg         cap_arm  = 1'b0;
+    reg         sec_rst_q = 1'b0;
     always @(posedge clk) begin
-        if (rst) begin cap_bits <= 32'd0; cap_cnt <= 8'd0; end
-        // Gate on the ZS01 actually being in its RTR state, not on CS: the game keeps
-        // CS asserted and polls this word for coins/service long after the probe, which
-        // overwrote the first capture with idle-high reads. If the CPU's 32 reads
-        // overlap our 32 edges this holds what it assembled; if it reads 0 times here,
-        // its probe and our emission happened at DIFFERENT times.
-        else if (misc_rd && sec_in_rtr) begin
-            cap_bits <= {cap_bits[30:0], sec_io0};
-            if (~&cap_cnt) cap_cnt <= cap_cnt + 8'd1;
+        if (rst) begin
+            cap_bits <= 32'd0; cap_cnt <= 8'd0; cap_arm <= 1'b0; sec_rst_q <= 1'b0;
+        end else begin
+            sec_rst_q <= ~sec_cs_n & sec_rst_line;
+            // RST 0->1 while selected: a fresh response-to-reset begins
+            if (~sec_rst_q && (~sec_cs_n & sec_rst_line)) begin
+                cap_arm <= 1'b1; cap_cnt <= 8'd0; cap_bits <= 32'd0;
+            end else if (cap_arm && misc_rd) begin
+                cap_bits <= {cap_bits[30:0], asic_dout[2]};
+                cap_cnt  <= cap_cnt + 8'd1;
+                if (cap_cnt == 8'd31) cap_arm <= 1'b0;   // exactly the probe window
+            end
         end
     end
     assign sec_rd_dbg   = {sec_rtr_edges, cap_cnt, cap_bits};
@@ -427,7 +438,6 @@ module system573_top #(
     assign nvram_written = sel_rtc & exp1_we;
 
     // --- Konami ASIC I/O ---
-    wire [15:0] asic_dout;
     // GN845-PWB(B) DDR stage multiplexors (standard cabinets). The game programs
     // them over lamp lines 4/7 (stage 0) and 12/15 (stage 1) and reads the reply on
     // the JAMMA direction bits; until the boot handshake is answered a standard-cab

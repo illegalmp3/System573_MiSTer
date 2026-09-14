@@ -780,12 +780,13 @@ static void heartbeat(void)
             unsigned long emit = ((unsigned long)last_sec_em1 << 16) | last_sec_em0;
             if (size_valid)
                 s573_log("s573mp3: zs01: RTR: we serviced %u falling edges and drove 0x%08lx; "
-                         "the CPU read SDA %u times DURING our RTR and assembled 0x%08lx "
+                         "the CPU read the misc word %u times in the probe window and assembled 0x%08lx "
                          "(ZS01 id = 0x5a530001)%s\n",
                          edges, emit, reads, bits,
                          (reads >= 32 && bits == 0x5a530001ul) ? "  <== id read CORRECTLY" :
-                         (edges >= 32 && reads == 0) ? "  <== we emitted but the CPU was NOT reading then: probe/emission are at different times" :
-                         (reads > 0 && edges > 0) ? "  <== overlapped, yet the bits differ: read-back path" :
+                         (edges >= 32 && reads == 0) ? "  <== we emitted but the CPU never read in this window" :
+                         (reads >= 32 && bits == 0xa5acfffeul) ? "  <== INVERTED id" :
+                         (reads > 0 && edges > 0) ? "  <== the CPU saw this, not the id -- compare against 5a530001 bit by bit" :
                          (edges == 0) ? "  <== we never emitted" : "");
         }
         s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
