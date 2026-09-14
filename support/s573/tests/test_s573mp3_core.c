@@ -290,6 +290,82 @@ int main(void)
     }
 
     /* ------------------------------------------------------------------ */
+    GROUP("the truncated final frame must not hold the song open");
+    {
+        /* THE 2026-09-14 dsfdr BUG. A window ends where the game says it ends,
+         * not on an MP3 frame boundary, so when `cur` lands on mp3_end the
+         * input buffer still holds a PARTIAL final frame. No more bytes can
+         * ever be pulled to complete it, so minimp3 refuses it forever and
+         * in_pos stays < in_len forever. The old gate required in_pos ==
+         * in_len, which made s573_core_should_stop() structurally unreachable:
+         * 32,811 lines of hardware log, 40+ stops, zero EXHAUSTION events, and
+         * attract music that ran on until the game happened to clear bit14.
+         *
+         * Drive it the honest way: pull the window dry for real, leave a
+         * residue the decoder cannot use, and require the song to end. The
+         * tests above pretend "in_pos = in_len" -- that fiction is exactly
+         * what hid this. */
+        uint8_t *dio = (uint8_t *)malloc(0x8000);
+        uint32_t guard = 0;
+        uint32_t i;
+        for (i = 0; i < 0x8000; i++) dio[i] = (uint8_t)(i * 7 + (i >> 3));
+        s573_core_init(&c);
+        mkcfg(&f, 0x0800, 0x1000, 0xdead, 0xbeef, 0xcafe, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+
+        /* pull until the window is dry, consuming all but a partial frame */
+        while (guard++ < 1000) {
+            if (c.in_len > 40) c.in_pos = c.in_len - 40;   /* 40 B tail left */
+            else               c.in_pos = 0;
+            if (!s573_core_refill(&c, dio)) break;
+        }
+        CHECK(guard < 1000, "terminated");
+        CHECK(s573_core_window_exhausted(&c), "window is exhausted");
+        CHECK(c.in_pos < c.in_len, "a truncated tail really is left over");
+
+        c.pcm_wr = c.pcm_rd;                       /* ring has played out */
+        CHECK(!s573_core_should_stop(&c),
+              "before the decoder has refused it, the tail still holds the stop");
+
+        /* the decoder is offered the tail and cannot make a frame of it */
+        s573_core_mark_tail_spent(&c);
+        CHECK(s573_core_should_stop(&c),
+              "refused tail + drained ring -> the song ENDS");
+
+        /* ...but PCM still queued must still hold it: the tail plays out */
+        c.pcm_wr = (uint16_t)(c.pcm_rd + 7);
+        CHECK(!s573_core_should_stop(&c), "queued PCM still holds the stop");
+        free(dio);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("a mid-song sync loss must NEVER end the song");
+    {
+        /* The guard that keeps the fix from becoming a worse bug. The same
+         * "no MPEG sync found" break fires mid-song when the game's loader has
+         * not written the bytes yet (hardware 2026-09-12: the BIOS POST fill
+         * read 48 KB in). Marking the tail spent there would cut the song off
+         * at the first loader hiccup. */
+        s573_core_init(&c);
+        mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        c.desc.cur = 0x1400;                       /* a quarter in -- mid-song */
+        c.in_len = 900; c.in_pos = 0;
+        c.pcm_wr = c.pcm_rd;
+        s573_core_mark_tail_spent(&c);
+        CHECKEQ(c.tail_spent, 0, "mid-song mark is a NO-OP");
+        CHECK(!s573_core_should_stop(&c), "and the song keeps playing");
+
+        /* and a re-arm must clear a verdict left from the previous window */
+        c.desc.cur = 0x2000;
+        s573_core_mark_tail_spent(&c);
+        CHECKEQ(c.tail_spent, 1, "at the end it does take");
+        mkcfg(&f, 0x3000, 0x4000, 4, 5, 6, FLAGS_PLAY, 2);
+        (void)s573_core_apply_cfg(&c, &f, 2, 1);
+        CHECKEQ(c.tail_spent, 0, "a new window starts with a fresh verdict");
+    }
+
+    /* ------------------------------------------------------------------ */
     GROUP("playback accounting follows the DRAIN, not the decoder");
     {
         /* The regression this exists for: crediting at decode time put the

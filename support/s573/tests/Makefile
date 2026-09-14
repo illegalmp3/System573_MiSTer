@@ -2,7 +2,8 @@
 CC      ?= gcc
 CFLAGS  ?= -std=gnu99 -Wall -Wextra -Wno-unused-parameter -O1 -g
 SRC      = test_s573mp3_core.c ../s573mp3_core.c ../s573_descramble.c
-MUTS     = S573_MUT_WROTE_MASK15 S573_MUT_FREE_MASK15 S573_MUT_APPLY_NOFLUSH
+MUTS     = S573_MUT_WROTE_MASK15 S573_MUT_FREE_MASK15 S573_MUT_APPLY_NOFLUSH \
+           S573_MUT_TAIL_STRICT
 
 all: test
 	./test

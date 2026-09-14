@@ -687,6 +687,13 @@ static void decode_some(void)
             /* no frame header in what we hold: need more input, or the tail is
              * short. Not progress -- do not spin on it. */
             core.frame_idle_cnt++;
+            /* If the window is ALREADY exhausted there will never be more
+             * input, so this is the truncated final frame and the song has
+             * really ended. Without this the residue holds should_stop()
+             * closed forever and only an explicit fpga_ctrl bit14 clear can
+             * ever stop the audio (hardware 2026-09-14, dsfdr: zero
+             * EXHAUSTION events in a 589 s session). No-op mid-song. */
+            s573_core_mark_tail_spent(&core);
             break;
         }
         if (!samples) {

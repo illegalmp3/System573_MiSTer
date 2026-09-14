@@ -169,6 +169,20 @@ typedef struct {
     uint8_t  frame_sync_cnt;  /* ++ per frame actually PLAYED                  */
     uint8_t  frame_idle_cnt;  /* ++ per decode attempt that yielded no frame   */
 
+    /* ---- the end-of-window input tail ----
+     * A window does not end on a frame boundary, so when `cur` lands on
+     * mp3_end the input buffer still holds a TRUNCATED final frame that
+     * minimp3 will never consume: no more bytes can ever be pulled to
+     * complete it. in_pos therefore stays < in_len forever, and gating the
+     * song end on in_pos == in_len makes s573_core_should_stop() structurally
+     * unreachable -- measured on hardware 2026-09-14 (dsfdr): 32,811 log lines,
+     * 40+ stops, and not ONE "DRAIN OFF via EXHAUSTION". The only thing that
+     * could stop audio was the game explicitly clearing fpga_ctrl bit14; any
+     * screen that does not clear it leaves the stream running on.
+     * The caller sets this when the decoder has been offered the tail with the
+     * window already exhausted and made no progress on it. */
+    uint8_t  tail_spent;
+
     /* ---- the option-(c) consumption credit ---- */
     uint32_t cons_bytes;      /* stream bytes whose audio has actually PLAYED  */
     uint32_t pulled_bytes;    /* stream bytes pulled since the re-arm          */
@@ -276,6 +290,10 @@ uint32_t s573_core_ring_collapse(s573_core_t *c, uint32_t gap);
  * (docs/2026-07-31-mp3-audio-WORKING.md). */
 int      s573_core_window_exhausted(const s573_core_t *c);
 int      s573_core_should_stop(const s573_core_t *c);
+/* "the decoder was offered what is left and could not use it". Only takes
+ * effect once the window is exhausted, so a mid-song sync loss (bytes not
+ * loaded yet) can never cut a song short. */
+void     s573_core_mark_tail_spent(s573_core_t *c);
 
 /* May we decode another frame? STRICTLY a free-space test - never a timer.
  * (transport-design prerequisite 4: the MP3_UNPACED flood relocated to C is

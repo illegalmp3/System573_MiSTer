@@ -90,6 +90,7 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
         s573_desc_reload(&c->desc);
         c->in_len     = 0;
         c->in_pos     = 0;
+        c->tail_spent = 0;
         /* decoded audio that never played is discarded with the ring, so its
          * queue entries must go too or they would credit the NEW song */
         s573_core_pq_reset(c);
@@ -122,6 +123,9 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
 
     if (stream_en && !(c->ctrl_flags & S573_CTRL_DRAIN_EN)) {
         c->ctrl_flags |= S573_CTRL_DRAIN_EN;
+        /* belt and braces: a resume without a re-arm gets a fresh tail verdict
+         * too, so a stale one can never end the song the moment it restarts */
+        c->tail_spent = 0;
         act |= S573_ACT_DRAIN_ON;
     } else if (!stream_en && (c->ctrl_flags & S573_CTRL_DRAIN_EN)) {
         c->ctrl_flags &= (uint16_t)~S573_CTRL_DRAIN_EN;
@@ -204,8 +208,26 @@ int s573_core_should_stop(const s573_core_t *c)
      * landing exactly on mp3_end is the clean-termination signature. */
     if (!(c->ctrl_flags & S573_CTRL_DRAIN_EN)) return 0;
     if (!s573_core_window_exhausted(c))        return 0;
-    if (c->in_pos < c->in_len)                 return 0;   /* undecoded bytes left */
+    /* Undecoded bytes hold the stop -- UNLESS they are the truncated final
+     * frame the decoder has already refused (see tail_spent). Requiring
+     * in_pos == in_len outright is what made this test unreachable on real
+     * windows, which do not end on a frame boundary. */
+#ifdef S573_MUT_TAIL_STRICT
+    /* the 2026-09-14 bug: a real window does not end on a frame boundary, so
+     * this can never come true and the song can never end by itself. */
+    if (c->in_pos < c->in_len)                   return 0;
+#else
+    if (c->in_pos < c->in_len && !c->tail_spent) return 0;
+#endif
     return s573_core_pcm_empty(c);
+}
+
+void s573_core_mark_tail_spent(s573_core_t *c)
+{
+    /* Guarded on exhaustion: mid-song the same "no sync" break means the bytes
+     * are not LOADED yet (the game streams a song in while it plays), and
+     * ending the song there would cut it off at the first loader hiccup. */
+    if (s573_core_window_exhausted(c)) c->tail_spent = 1;
 }
 
 int s573_core_may_decode(const s573_core_t *c)
