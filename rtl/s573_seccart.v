@@ -72,6 +72,8 @@ module s573_seccart #(
     output wire [63:0] sec_dbg,     // ZS01 engine observability -> HPS STATUS 6..9
     output wire        sec_cs_n,    // live cassette chip-select (latch D2), for the read-back capture
     output wire [7:0]  sec_rtr_edges, // RTR falling edges the ZS01 serviced
+    output wire        sec_in_rtr,    // ZS01 is shifting its response-to-reset right now
+    output wire [31:0] sec_rtr_emit,  // the 32 bits it drove on those edges
     output wire        sec_io0,     // IO0  = EEPROM SDA (device-driven)
     output wire [7:0]  sec_in,      // I0-I7 ; I0 = DS2401 line
     output reg         sec_drdy,
@@ -153,7 +155,7 @@ module s573_seccart #(
         .load_we(load_eep_we), .load_addr(load_eep_addr), .load_data(load_eep_data),
         // the same .u6 serial feeds the ZS01's internal DS2401 (0xFC/0xFD reads)
         .load_ds_we(load_ser_we), .load_ds_addr(load_ser_addr), .load_ds_data(load_ser_data),
-        .dbg(zs01_dbg), .rtr_edges(sec_rtr_edges)
+        .dbg(zs01_dbg), .rtr_edges(sec_rtr_edges), .in_rtr(sec_in_rtr), .rtr_emit(sec_rtr_emit)
     );
 
     wire eeprom_sda_o = sel_zs01 ? sda_zs01_o : (sel041 ? sda041_o : sda100_o);

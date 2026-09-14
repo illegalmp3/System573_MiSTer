@@ -209,7 +209,8 @@ module s573_hps_ext
     input      [47:0] stage_dbg,     // gn845pwbb stage-multiplexor state (words 3/4/5; see gn845pwbb.v)
     input      [63:0] sec_dbg,       // zs01 packet-engine state (words 6..9; see zs01.v)
     input      [15:0] sec_size_dbg,  // {1, cart_type[1:0], eep_max[12:0]} (word 10; see emu.sv)
-    input      [47:0] sec_rd_dbg,    // {rtr_edges[7:0], reads[7:0], bits[31:0]} (words 11..13; system573_top)
+    input      [47:0] sec_rd_dbg,    // {rtr_edges[7:0], reads-in-RTR[7:0], bits[31:0]} (words 11..13)
+    input      [31:0] sec_emit_dbg,  // the 32 bits the ZS01 drove on its RTR edges (words 14..15)
     // ---- CMD_573_STAGETRACE: gn845pwbb line-event trace read-out ----
     output reg [6:0]  stage_trace_addr,
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
@@ -258,7 +259,7 @@ localparam CMD_573_STAGETRACE = 'h6C;  // must stay the TOP of the range (dout_e
 reg gain_seen = 1'b0;
 always @(posedge clk_sys) if (rst) gain_seen <= 1'b0; else if (gain_stb) gain_seen <= 1'b1;
 
-reg [15:0] snap [1:14];
+reg [15:0] snap [1:16];
 
 integer si;
 initial begin
@@ -269,7 +270,7 @@ initial begin
     dec_frame_sync = 0;
     dec_frame_idle = 0;
     evt_ovf        = 0;
-    for (si = 1; si <= 14; si = si + 1) snap[si] = 16'd0;
+    for (si = 1; si <= 16; si = si + 1) snap[si] = 16'd0;
 end
 
 
@@ -361,6 +362,8 @@ always @(posedge clk_sys) begin
                     snap[11] <= sec_rd_dbg[15:0];
                     snap[12] <= sec_rd_dbg[31:16];
                     snap[13] <= sec_rd_dbg[47:32];
+                    snap[14] <= sec_emit_dbg[15:0];
+                    snap[15] <= sec_emit_dbg[31:16];
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -419,6 +422,8 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 11) io_dout <= snap[11];
                     else if(byte_cnt == 12) io_dout <= snap[12];
                     else if(byte_cnt == 13) io_dout <= snap[13];
+                    else if(byte_cnt == 14) io_dout <= snap[14];
+                    else if(byte_cnt == 15) io_dout <= snap[15];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin

@@ -167,6 +167,7 @@ module system573_top #(
     output wire [47:0] stage_dbg,       // gn845pwbb observability (HPS STATUS words 3/4/5)
     output wire [63:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6..9)
     output wire [47:0] sec_rd_dbg,      // what the CPU READ from the cassette SDA (HPS STATUS 11..13)
+    output wire [31:0] sec_emit_dbg,    // what the ZS01 DROVE on its 32 RTR edges (HPS STATUS 14..15)
     input  wire [6:0]  stage_trace_addr,
     output wire [15:0] stage_trace_data,
     output wire [7:0]  stage_trace_count,
@@ -261,6 +262,8 @@ module system573_top #(
     wire        sec_io0, sec_drdy, sec_irdy;
     wire        sec_cs_n;          // live cassette CS (latch D2), for the read-back capture
     wire [7:0]  sec_rtr_edges;     // RTR falling edges the ZS01 serviced
+    wire        sec_in_rtr;        // ZS01 currently shifting its response-to-reset
+    wire [31:0] sec_rtr_emit;      // the bits it drove
     wire [7:0]  sec_in;
     s573_seccart #(.DS_SERIAL(CART_SERIAL), .DS_CLK_HZ(CLK_FREQ_HZ)) u_seccart (
         .clk(clk), .rst(rst),
@@ -270,6 +273,7 @@ module system573_top #(
         .load_eep_we(sec_eep_we), .load_eep_addr(sec_eep_addr), .load_eep_data(sec_eep_din),
         .load_ser_we(sec_ser_we), .load_ser_addr(sec_ser_addr), .load_ser_data(sec_ser_din),
         .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rtr_edges(sec_rtr_edges),
+        .sec_in_rtr(sec_in_rtr), .sec_rtr_emit(sec_rtr_emit),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
 
@@ -287,12 +291,18 @@ module system573_top #(
     reg  [7:0]  cap_cnt  = 8'd0;
     always @(posedge clk) begin
         if (rst) begin cap_bits <= 32'd0; cap_cnt <= 8'd0; end
-        else if (misc_rd && ~sec_cs_n) begin
+        // Gate on the ZS01 actually being in its RTR state, not on CS: the game keeps
+        // CS asserted and polls this word for coins/service long after the probe, which
+        // overwrote the first capture with idle-high reads. If the CPU's 32 reads
+        // overlap our 32 edges this holds what it assembled; if it reads 0 times here,
+        // its probe and our emission happened at DIFFERENT times.
+        else if (misc_rd && sec_in_rtr) begin
             cap_bits <= {cap_bits[30:0], sec_io0};
             if (~&cap_cnt) cap_cnt <= cap_cnt + 8'd1;
         end
     end
-    assign sec_rd_dbg = {sec_rtr_edges, cap_cnt, cap_bits};
+    assign sec_rd_dbg   = {sec_rtr_edges, cap_cnt, cap_bits};
+    assign sec_emit_dbg = sec_rtr_emit;
 
     // --- ATAPI CD-ROM (IDE bank 0 = command block, bank 1 = control block) ---
     wire [15:0] atapi_dout;

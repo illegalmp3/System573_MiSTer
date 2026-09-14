@@ -7,7 +7,8 @@
 // command/password handshake:
 //
 //   * RST 0->1 (CS low) streams a 4-byte response-to-reset (0x5A,0x53,0x00,0x01)
-//     MSB-first on FALLING SCL edges, then stops on its own.
+//     MSB-first on FALLING SCL edges, LOOPING until a start/stop condition (MAME
+//     parks after one pass; see the note in the RTR block for why we do not).
 //   * A start condition moves STOP -> LOAD_COMMAND; the host clocks in a 12-byte
 //     packet MSB-first (device ACKs each byte on the 9th clock).
 //   * The 12 bytes are descrambled with the fixed 8-byte command key; if command
@@ -125,7 +126,9 @@ module zs01 #(
     //   [47:40] response bytes clocked out   [55:48] RTR probes answered
     //   [61:56] I2C STARTs seen   [63:62] filled in by s573_seccart (effective type)
     output wire [63:0] dbg,
-    output reg  [7:0]  rtr_edges   // falling SCL edges serviced in ST_RTR (saturating)
+    output reg  [7:0]  rtr_edges,  // falling SCL edges serviced in ST_RTR (saturating)
+    output wire        in_rtr,     // 1 while the response-to-reset is being shifted out
+    output reg  [31:0] rtr_emit    // the last 32 bits we drove on RTR falling edges (MSB = first)
 );
     localparam [2:0] ST_STOP = 3'd0, ST_RTR = 3'd1, ST_CMD = 3'd2, ST_PROC = 3'd3, ST_READ = 3'd4;
     // packet-engine sub-states (active while state == ST_PROC)
@@ -215,6 +218,7 @@ module zs01 #(
     reg [5:0]  dbg_starts;
     reg        dbg_crc_ok, dbg_cs_seen;
     // [63:62] are driven by s573_seccart (the effective cart type lives there).
+    assign in_rtr = (state == ST_RTR);
     assign dbg = {2'b00, dbg_starts, dbg_rtr,
                   dbg_rbytes, dbg_cs_seen, loaded, dbg_crc_ok, overrun, 1'b0, state,
                   dbg_status, dbg_addr, dbg_cmd, dbg_pkts};
@@ -318,7 +322,7 @@ module zs01 #(
             prevbyte <= 0; sda_o <= 1'b0;
             pstate <= P_DEC_CMD; pidx <= 0; pcnt <= 0; pprev <= 0; crcv <= 16'hffff; overrun <= 1'b0;
             dbg_pkts <= 0; dbg_cmd <= 0; dbg_addr <= 0; dbg_status <= 0; dbg_rbytes <= 0; dbg_crc_ok <= 0;
-            dbg_rtr <= 0; dbg_starts <= 0; dbg_cs_seen <= 1'b0; rtr_edges <= 0;
+            dbg_rtr <= 0; dbg_starts <= 0; dbg_cs_seen <= 1'b0; rtr_edges <= 0; rtr_emit <= 0;
         end else begin
             // ================= packet engine: one byte per clock =================
             if (state == ST_PROC) begin
@@ -430,22 +434,33 @@ module zs01 #(
                     state <= ST_RTR; bitc <= 0; bytec <= 0;
                     if (~&dbg_rtr) dbg_rtr <= dbg_rtr + 8'd1;
                 end
+                // ----- stop condition (SDA 0->1 while SCL high): back to idle, SDA released -----
+                // (as x76f100.v / x76f041.v; the game's own STOP generator, PSX.EXE
+                // 0x800ac77c, is exactly this edge, and it precedes every transaction)
+                if (scl != 1'b0 && psda == 1'b0 && sda_i != 1'b0) begin
+                    state <= ST_STOP; bitc <= 0; bytec <= 0; sda_o <= 1'b1;
+                end
                 // ----- start condition (SDA 1->0 while SCL high) -----
                 if (scl != 1'b0 && psda != 1'b0 && sda_i == 1'b0) begin
                     if (~&dbg_starts) dbg_starts <= dbg_starts + 6'd1;
-                    if (state == ST_STOP) state <= ST_CMD;
+                    if (state == ST_STOP || state == ST_RTR) state <= ST_CMD;   // RTR loops until this
                     bitc <= 0; bytec <= 0; shift <= 0; sda_o <= 1'b0;
                 end
                 // ----- response-to-reset: FALLING edge, MSB-first -----
                 if (state == ST_RTR && pscl != 1'b0 && scl == 1'b0) begin
                     if (~&rtr_edges) rtr_edges <= rtr_edges + 8'd1;   // observability
                     sbyte = (bitc == 4'd0) ? rtr_val(bytec) : shift;
+                    rtr_emit <= {rtr_emit[30:0], sbyte[7]};             // what we put on SDA
                     sda_o <= sbyte[7];
                     shift <= sbyte << 1;
                     if (bitc == 4'd7) begin
-                        bitc <= 0;
-                        if (bytec == 8'd3) begin sda_o <= 1'b1; state <= ST_STOP; bytec <= 0; end
-                        else bytec <= bytec + 8'd1;
+                        bitc  <= 0;
+                        // LOOP the four bytes until the host issues a START or STOP.
+                        // MAME's zs01 parks after one pass, but both cassette chips that
+                        // authenticate on this hardware (x76f100.v, x76f041.v) loop, and
+                        // the one-shot form left the ZS01 idle-high when PSX.EXE's detector
+                        // clocked it -- the CPU assembled 0xffffffff (docs 2026-09-14).
+                        bytec <= (bytec == 8'd3) ? 8'd0 : bytec + 8'd1;
                     end else
                         bitc <= bitc + 4'd1;
                 end

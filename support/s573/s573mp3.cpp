@@ -268,6 +268,7 @@ static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
 static uint16_t last_sec_dbg = 0, last_sec_dbg2 = 0, last_sec_dbg3 = 0;
 static uint16_t last_sec_dbg4 = 0, last_sec_size = 0;
 static uint16_t last_sec_rd0 = 0, last_sec_rd1 = 0, last_sec_rd2 = 0;
+static uint16_t last_sec_em0 = 0, last_sec_em1 = 0;
 #ifndef CMD_573_STAGETRACE
 #define CMD_573_STAGETRACE 0x6C
 #endif
@@ -323,7 +324,9 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     last_sec_size   = spi_w(0);   /* word10: {1, cart_type[1:0], eep_max[12:0]} */
     last_sec_rd0    = spi_w(0);   /* word11: captured SDA bits [15:0]  */
     last_sec_rd1    = spi_w(0);   /* word12: captured SDA bits [31:16] */
-    last_sec_rd2    = spi_w(0);   /* word13: {rtr_edges[7:0], reads[7:0]} */
+    last_sec_rd2    = spi_w(0);   /* word13: {rtr_edges[7:0], reads-in-RTR[7:0]} */
+    last_sec_em0    = spi_w(0);   /* word14: bits we drove [15:0]  */
+    last_sec_em1    = spi_w(0);   /* word15: bits we drove [31:16] */
     DisableIO();
 }
 
@@ -774,13 +777,16 @@ static void heartbeat(void)
             unsigned long bits = ((unsigned long)last_sec_rd1 << 16) | last_sec_rd0;
             /* PSX.EXE's detector reads 0x1f400006 bit 2 once per clock with CS low and
              * wants 0x5a530001. This is what it actually assembled. */
+            unsigned long emit = ((unsigned long)last_sec_em1 << 16) | last_sec_em0;
             if (size_valid)
-                s573_log("s573mp3: zs01: RTR: we serviced %u falling edges; the CPU read SDA %u times "
-                         "while selected and assembled 0x%08lx (ZS01 id = 0x5a530001)%s\n",
-                         edges, reads, bits,
+                s573_log("s573mp3: zs01: RTR: we serviced %u falling edges and drove 0x%08lx; "
+                         "the CPU read SDA %u times DURING our RTR and assembled 0x%08lx "
+                         "(ZS01 id = 0x5a530001)%s\n",
+                         edges, emit, reads, bits,
                          (reads >= 32 && bits == 0x5a530001ul) ? "  <== id read CORRECTLY" :
-                         (reads == 0) ? "  <== the game never read the line" :
-                         (edges == 0) ? "  <== the game read but we never emitted" : "");
+                         (edges >= 32 && reads == 0) ? "  <== we emitted but the CPU was NOT reading then: probe/emission are at different times" :
+                         (reads > 0 && edges > 0) ? "  <== overlapped, yet the bits differ: read-back path" :
+                         (edges == 0) ? "  <== we never emitted" : "");
         }
         s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
                  "resp_bytes_clocked=%u state=%u loaded=%u OVERRUN=%u%s (raw %04x %04x %04x)\n",
