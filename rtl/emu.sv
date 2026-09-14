@@ -1896,7 +1896,11 @@ wire [63:0] sec_dbg48;                              // zs01 engine -> HPS STATUS
 // The cassette TYPE is inferred from the loaded .u1 SIZE and nothing reports either.
 // A transfer truncated anywhere into 256..559 silently selects an X76F041 and the
 // game sees the wrong response-to-reset. Report both. (HPS STATUS word 10.)
-wire [15:0] sec_size_dbg = {1'b0, sec_cart_type, sec_eep_max};
+// Bit 15 is a PRESENCE SENTINEL: RTL older than this drives no word 10 for STATUS,
+// and the snapshot bank still holds a previous command's value. Without the
+// sentinel the service prints a confident, meaningless size -- the exact
+// stale-instrument failure this project keeps paying for.
+wire [15:0] sec_size_dbg = {1'b1, sec_cart_type, sec_eep_max};
 wire [6:0]  stage_trace_addr; wire [15:0] stage_trace_data; wire [7:0] stage_trace_count;
 wire solo_cab       = status[100];                 // "O[100],573 Cabinet;" 1 = DDR Solo: strap
                                                    // P2-START grounded (cab-type sense line)

@@ -748,14 +748,22 @@ static void heartbeat(void)
         unsigned rtr = last_sec_dbg4 & 0xff, starts = (last_sec_dbg4 >> 8) & 0x3f;
         unsigned etype = (last_sec_dbg4 >> 14) & 3;
         unsigned emax = last_sec_size & 0x1fff, ltype = (last_sec_size >> 13) & 3;
+        /* bit 15 = the RTL really drives word 10 (see emu.sv). Older bitstreams leave
+         * a previous command's value in the snapshot bank; printing it would be a
+         * fabricated measurement, so say the instrument is absent instead. */
+        unsigned size_valid = (last_sec_size >> 15) & 1;
         static const char *tn[4] = { "X76F100", "X76F041", "ZS01", "?" };
         /* The cassette type is inferred from the loaded .u1 SIZE alone. If the image
          * arrived short, the wrong model is selected, it answers the response-to-reset
          * with the wrong chip ID, and the game rejects the cassette without ever
          * sending a command packet -- which is exactly pkts=0. */
-        s573_log("s573mp3: zs01: .u1 max_byte=%u -> latched type %u (%s), selected %u (%s)%s\n",
-                 emax, ltype, tn[ltype], etype, tn[etype],
-                 (emax < 560) ? "   <== TOO SMALL FOR ZS01 (needs max_byte >= 560)" : "");
+        if (size_valid)
+            s573_log("s573mp3: zs01: .u1 max_byte=%u -> latched type %u (%s), selected %u (%s)%s\n",
+                     emax, ltype, tn[ltype], etype, tn[etype],
+                     (emax < 560) ? "   <== TOO SMALL FOR ZS01 (needs max_byte >= 560)" : "");
+        else
+            s573_log("s573mp3: zs01: .u1 size/type NOT REPORTED -- this bitstream predates "
+                     "STATUS word 10. Rebuild the core; ignore any size below.\n");
         s573_log("s573mp3: zs01: cs_seen=%u rtr_probes=%u i2c_starts=%u\n", cs, rtr, starts);
         s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
                  "resp_bytes_clocked=%u state=%u loaded=%u OVERRUN=%u%s (raw %04x %04x %04x)\n",
