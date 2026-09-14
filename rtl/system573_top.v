@@ -168,6 +168,7 @@ module system573_top #(
     output wire [63:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6..9)
     output wire [47:0] sec_rd_dbg,      // what the CPU READ from the cassette SDA (HPS STATUS 11..13)
     output wire [31:0] sec_emit_dbg,    // what the ZS01 DROVE on its 32 RTR edges (HPS STATUS 14..15)
+    output wire [15:0] sec_cnt_dbg,     // {0x1f400004 reads, latch writes} in the window (STATUS 16)
     input  wire [7:0]  sec_trace_addr,  // cassette stimulus recorder (CMD_573_SECTRACE)
     output wire [15:0] sec_trace_data,
     output wire [15:0] sec_trace_count,
@@ -291,6 +292,7 @@ module system573_top #(
     // window opens on the detector probe BEFORE a bitstream is spent on it -- which
     // is the part that failed three times, not the hypothesis. See that file.
     wire        misc_rd      = sel_asic & exp1_re & (asic_off == 4'h6);
+    wire        io4_rd       = sel_asic & exp1_re & (asic_off == 4'h4);
     reg         latch_we_q   = 1'b0;
     always @(posedge clk) latch_we_q <= sel_seclatch & exp1_we;
     wire        latch_wr_evt = sel_seclatch & exp1_we & ~latch_we_q;
@@ -303,10 +305,10 @@ module system573_top #(
         .scl(sec_scl_line), .sda(sec_sda_line), .ds(sec_ds_line),
         .io0_dir(sec_io0_dir), .io0(sec_io0), .cpu_bit(asic_dout[2]),
         .zs01_state(sec_zs01_state),
-        .latch_wr(latch_wr_evt), .misc_rd(misc_rd),
+        .latch_wr(latch_wr_evt), .misc_rd(misc_rd), .other_rd(io4_rd),
         .trace_addr(sec_trace_addr), .trace_data(sec_trace_data),
         .trace_count(sec_trace_count),
-        .cap_bits(sec_cap_bits), .cap_cnt(sec_cap_cnt)
+        .cap_bits(sec_cap_bits), .cap_cnt(sec_cap_cnt), .cnt_dbg(sec_cnt_dbg)
     );
 
     // unchanged 4023f19 layout, so the HPS service parses it the same way

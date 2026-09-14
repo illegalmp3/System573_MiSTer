@@ -269,6 +269,7 @@ static uint16_t last_sec_dbg = 0, last_sec_dbg2 = 0, last_sec_dbg3 = 0;
 static uint16_t last_sec_dbg4 = 0, last_sec_size = 0;
 static uint16_t last_sec_rd0 = 0, last_sec_rd1 = 0, last_sec_rd2 = 0;
 static uint16_t last_sec_em0 = 0, last_sec_em1 = 0;
+static uint16_t last_sec_cnt = 0;   /* word16: {0x1f400004 reads, latch writes} in the window */
 #ifndef CMD_573_SECTRACE
 #define CMD_573_SECTRACE 0x6D
 #endif
@@ -417,6 +418,7 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     last_sec_rd2    = spi_w(0);   /* word13: {rtr_edges[7:0], reads-in-RTR[7:0]} */
     last_sec_em0    = spi_w(0);   /* word14: bits we drove [15:0]  */
     last_sec_em1    = spi_w(0);   /* word15: bits we drove [31:16] */
+    last_sec_cnt    = spi_w(0);   /* word16: {0x1f400004 reads[7:0], cassette latch writes[7:0]} */
     DisableIO();
 }
 
@@ -880,6 +882,14 @@ static void heartbeat(void)
                          (reads >= 32 && bits == 0xb4a60002ul) ? "  <== the id, sampled one clock LATE" :
                          (reads > 0 && edges > 0) ? "  <== the CPU saw this, not the id -- compare against 5a530001 bit by bit" :
                          (edges == 0) ? "  <== we never emitted" : "");
+        }
+        {
+            unsigned io4 = (last_sec_cnt >> 8) & 0xff, lw = last_sec_cnt & 0xff;
+            /* Disambiguates "the detector never read" from "it read the OTHER input
+             * register" -- which would otherwise have cost a whole bitstream. */
+            s573_log("s573mp3: zs01: in the armed window: %u cassette latch writes, %u reads of 0x1f400004 (I0-I7)%s\n",
+                     lw, io4,
+                     (io4 > 0 && (last_sec_rd2 & 0xff) == 0) ? "  <== it read the OTHER register, not the misc word" : "");
         }
         s573_log("s573mp3: zs01: pkts=%u last cmd=%02x addr=%02x -> status=%02x crc_ok=%u | "
                  "resp_bytes_clocked=%u state=%u loaded=%u OVERRUN=%u%s (raw %04x %04x %04x)\n",

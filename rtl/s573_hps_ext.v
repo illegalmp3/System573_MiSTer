@@ -211,6 +211,7 @@ module s573_hps_ext
     input      [15:0] sec_size_dbg,  // {1, cart_type[1:0], eep_max[12:0]} (word 10; see emu.sv)
     input      [47:0] sec_rd_dbg,    // {rtr_edges[7:0], reads-in-RTR[7:0], bits[31:0]} (words 11..13)
     input      [31:0] sec_emit_dbg,  // the 32 bits the ZS01 drove on its RTR edges (words 14..15)
+    input      [15:0] sec_cnt_dbg,   // {0x1f400004 reads[7:0], latch writes[7:0]} in the window (word 16)
     // ---- CMD_573_SECTRACE: cassette event trace read-out (system573_top) ----
     output reg [7:0]  sec_trace_addr,
     input      [15:0] sec_trace_data,   // valid the cycle after sec_trace_addr
@@ -376,6 +377,7 @@ always @(posedge clk_sys) begin
                     snap[13] <= sec_rd_dbg[47:32];
                     snap[14] <= sec_emit_dbg[15:0];
                     snap[15] <= sec_emit_dbg[31:16];
+                    snap[16] <= sec_cnt_dbg;
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -436,6 +438,7 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 13) io_dout <= snap[13];
                     else if(byte_cnt == 14) io_dout <= snap[14];
                     else if(byte_cnt == 15) io_dout <= snap[15];
+                    else if(byte_cnt == 16) io_dout <= snap[16];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin

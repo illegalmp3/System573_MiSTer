@@ -46,14 +46,16 @@ module tb_sectrace_arm;
     wire [15:0] tcount;
     wire [31:0] cap_bits;
     wire [7:0]  cap_cnt;
+    wire [15:0] cnt_dbg;
+    reg  other_rd = 1'b0;
 
     s573_sectrace dut (
         .clk(clk), .rst(rst),
         .cs_n(cs_n), .rst_line(rst_line), .scl(scl), .sda(sda), .ds(ds),
         .io0_dir(io0_dir), .io0(io0), .cpu_bit(cpu_bit), .zs01_state(zs01_state),
-        .latch_wr(latch_wr), .misc_rd(misc_rd),
+        .latch_wr(latch_wr), .misc_rd(misc_rd), .other_rd(other_rd),
         .trace_addr(taddr), .trace_data(tdata), .trace_count(tcount),
-        .cap_bits(cap_bits), .cap_cnt(cap_cnt)
+        .cap_bits(cap_bits), .cap_cnt(cap_cnt), .cnt_dbg(cnt_dbg)
     );
 
     wire       armed   = tcount[9];
@@ -72,6 +74,13 @@ module tb_sectrace_arm;
     task rd; begin
         @(negedge clk); misc_rd = 1'b1;
         @(negedge clk); misc_rd = 1'b0;
+        repeat (20) @(negedge clk);
+    end endtask
+
+    // one CPU read of 0x1f400004 (the OTHER input register)
+    task rd4; begin
+        @(negedge clk); other_rd = 1'b1;
+        @(negedge clk); other_rd = 1'b0;
         repeat (20) @(negedge clk);
     end endtask
 
@@ -181,6 +190,18 @@ module tb_sectrace_arm;
         if (from_ring !== ZS01_ID) begin
             $display("tb_sectrace_arm: FAIL: the ring assembles 0x%08x, expected 0x%08x",
                      from_ring, ZS01_ID);
+            errors = errors + 1;
+        end
+
+        // the window's own counters: 3 preamble + 64 loop writes = 67, and the three
+        // 0x1f400004 reads the probe made along the way
+        rd4; rd4; rd4;
+        if (cnt_dbg[15:8] !== 8'd3) begin
+            $display("tb_sectrace_arm: FAIL: 0x1f400004 read count = %0d, expected 3", cnt_dbg[15:8]);
+            errors = errors + 1;
+        end
+        if (cnt_dbg[7:0] !== 8'd67) begin
+            $display("tb_sectrace_arm: FAIL: latch-write count = %0d, expected 67", cnt_dbg[7:0]);
             errors = errors + 1;
         end
 

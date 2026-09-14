@@ -68,13 +68,19 @@ module s573_sectrace (
     // the two stimulus events worth recording
     input  wire        latch_wr,    // 1-cycle: CPU wrote the 0x1f6a0000 latch
     input  wire        misc_rd,     // 1-cycle: CPU read 0x1f400006
+    input  wire        other_rd,    // 1-cycle: CPU read 0x1f400004 (I0-I7) instead
 
     // read-out
     input  wire [7:0]  trace_addr,
     output reg  [15:0] trace_data,
     output wire [15:0] trace_count, // {armed, entries[8:0]} -- see below
     output wire [31:0] cap_bits,
-    output wire [7:0]  cap_cnt
+    output wire [7:0]  cap_cnt,
+    // {reads of 0x1f400004, cassette latch writes} in the window, both saturating.
+    // Without the first of these, "zero R entries" would be ambiguous between "the
+    // detector never read" and "it read the OTHER input register", and telling those
+    // apart would have cost another bitstream.
+    output wire [15:0] cnt_dbg
 );
     reg [15:0] ring [0:255];
     reg [8:0]  wptr      = 9'd0;    // 0..256; bit 8 set == full (256 recorded)
@@ -87,13 +93,17 @@ module s573_sectrace (
     reg [31:0] capr      = 32'd0;
     reg [7:0]  capc      = 8'd0;
     reg        cap_live  = 1'b0;
+    reg [7:0]  ocnt      = 8'd0;    // reads of 0x1f400004 in the window
+    reg [7:0]  wcnt      = 8'd0;    // cassette latch writes in the window
 
     // RST 0->1 while selected == the start of a response-to-reset. Re-arming on it
     // means a spurious early arm is thrown away when the real probe arrives.
     wire sel_rst  = ~cs_n & rst_line;
     wire rst_rise = sel_rst & ~rst_q;
-    // ONLY the cassette protocol clocks SCL. The board DS2401 is on latch D4 and
-    // the boot traffic that swallowed the previous ring never touched D1.
+    // ONLY the cassette protocol clocks SCL. Re-decoding the 128 entries the
+    // fill-once ring captured (124 CPU reads, 4 latch writes, zs01 in ST_STOP) shows
+    // scl flat at 0 and rst flat at 0 across every one of them, so both triggers
+    // reject exactly that traffic.
     wire scl_edge = (scl != scl_q);
     wire arm_now  = rst_rise | (~armed & ~cs_n & scl_edge);
     wire logging  = (armed | arm_now) & ~full;
@@ -104,6 +114,8 @@ module s573_sectrace (
     wire [31:0] cacc = arm_now ? 32'd0 : capr;
     wire [7:0]  ccnt = arm_now ? 8'd0  : capc;
     wire        clive = arm_now ? 1'b1 : cap_live;
+    wire [7:0]  ocount = arm_now ? 8'd0 : ocnt;
+    wire [7:0]  wcount = arm_now ? 8'd0 : wcnt;
 
     // EXACTLY 16 bits: 9 single-bit lines + 3 state + 4 dt. The first version of
     // this concatenation had only EIGHT single bits, so it was 15 bits wide, got
@@ -120,6 +132,7 @@ module s573_sectrace (
             wptr <= 9'd0; armed <= 1'b0;
             dt <= 4'd0; tick <= 5'd0;
             capr <= 32'd0; capc <= 8'd0; cap_live <= 1'b0;
+            ocnt <= 8'd0; wcnt <= 8'd0;
         end else begin
             // (re)open the window: throw away anything recorded before this edge
             if (arm_now) begin
@@ -128,6 +141,8 @@ module s573_sectrace (
                 capr     <= 32'd0;
                 capc     <= 8'd0;
                 cap_live <= 1'b1;
+                ocnt     <= 8'd0;
+                wcnt     <= 8'd0;
                 dt       <= 4'd0;
                 tick     <= 5'd0;
             end
@@ -154,15 +169,22 @@ module s573_sectrace (
                 end
                 if (~&ccnt) capc <= ccnt + 8'd1;
             end
+            if ((armed | arm_now) & other_rd) begin
+                if (~&ocount) ocnt <= ocount + 8'd1;
+            end
+            if ((armed | arm_now) & latch_wr) begin
+                if (~&wcount) wcnt <= wcount + 8'd1;
+            end
         end
     end
 
     // bit 9 says the window ever opened; bits 8:0 are the entries recorded (0..256).
-    // The armed bit matters on its own: if it is 0, SCL never moved with the
-    // cassette selected -- the game never clocked the chip at all.
+    // The armed bit matters on its own: if it is 0, neither RST nor SCL ever moved
+    // with the cassette selected -- the game never clocked the chip at all.
     assign trace_count = {6'd0, armed, wptr};
     assign cap_bits    = capr;
     assign cap_cnt     = capc;
+    assign cnt_dbg     = {ocnt, wcnt};
 
     always @(posedge clk) trace_data <= ring[trace_addr];
 endmodule
