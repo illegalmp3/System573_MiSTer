@@ -470,6 +470,13 @@ parameter CONF_STR = {
 	// (=SYSTEM UNIT ERROR=). Default MUST stay Standard: a grounded P2-START would
 	// auto-start player 2 in every 2P game. Per-core OSD option -> flip per game session.
 	"O[100],573 Cabinet,Standard,DDR Solo;",
+	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
+	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
+	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
+	// when arrows feel EARLY -- e.g. analog audio path delay on a CRT/composite
+	// setup), -N ms earlier (e.g. HDMI/scaler video latency). The fabric itself is
+	// exact to one sample; this is a calibration knob, not a correction of the RTL.
+	"O[106:102],573 Chart Offset,0ms,+1ms,+2ms,+3ms,+4ms,+5ms,+6ms,+7ms,+8ms,+9ms,+10ms,+11ms,+12ms,+13ms,+14ms,+15ms,-16ms,-15ms,-14ms,-13ms,-12ms,-11ms,-10ms,-9ms,-8ms,-7ms,-6ms,-5ms,-4ms,-3ms,-2ms,-1ms;",
 	"-;",
 	// 573 SAVESTATES: REMOVED FROM THE OSD (see SS_ENABLE below). No 573 module has
 	// savestate hooks, and part of the machine state (MP3 cfg epoch, descrambler
@@ -2321,6 +2328,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    // knows the mounted game; ddrsbm needs 1). Zero until the forked-Main
    // half exists, so behavior is unchanged from the old 1'b0 tie.
    .cfg_ddrsbm     (status[101]),
+   .chart_ofs_ms   (status[106:102]),   // 573 Chart Offset (OSD)
    .flash_mem_req  (flash_mem_req),
    .flash_mem_addr (flash_mem_addr),
    .flash_mem_q    (flash_mem_q),

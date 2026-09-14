@@ -81,6 +81,7 @@ module system573_top #(
     output wire        dio_dbg_hi_write,  // game wrote above real-board DRAM (P4b ring guard)
     // MP3 descramble scheme (MAME set_ddrsbm_fpga); emu.sv ties 0 until P4
     input  wire        cfg_ddrsbm,
+    input  wire [4:0]  chart_ofs_ms,   // OSD 573 Chart Offset, signed ms -> k573dio
 
     // M48T58 NVRAM image load (e.g. hyperbbc 876ea.22h), streamed in at reset.
     input  wire        nvram_we,
@@ -399,7 +400,7 @@ module system573_top #(
         .sel(sel_digio), .off(exp1_addr[7:0]),
         .we(sel_digio & exp1_we), .re(sel_digio & exp1_re),
         .din(exp1_wdata), .dout(digio_dout), .lamp(lamp_out),
-        .dio_wait(dio_wait), .cfg_ddrsbm(cfg_ddrsbm),
+        .dio_wait(dio_wait), .cfg_ddrsbm(cfg_ddrsbm), .chart_ofs_ms(chart_ofs_ms),
         .mem_rd_req(dio_mem_rd_req), .mem_rd_addr(dio_mem_rd_addr),
         .mem_rd_q(dio_mem_rd_q), .mem_rd_ack(dio_mem_rd_ack),
         .mem_wr_req(dio_mem_wr_req), .mem_wr_addr(dio_mem_wr_addr),

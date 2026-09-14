@@ -62,7 +62,7 @@ module tb_zs01_detect;
         .dio_wait(), .dio_mem_rd_req(), .dio_mem_rd_addr(),
         .dio_mem_rd_q(64'd0), .dio_mem_rd_ack(1'b0),
         .dio_mem_wr_req(), .dio_mem_wr_addr(), .dio_mem_wr_data(),
-        .dio_mem_wr_ack(1'b0), .dio_dbg_ovf(), .cfg_ddrsbm(1'b0),
+        .dio_mem_wr_ack(1'b0), .dio_dbg_ovf(), .cfg_ddrsbm(1'b0), .chart_ofs_ms(5'd0),
         .nvram_we(1'b0), .nvram_addr(13'd0), .nvram_din(8'd0),
         .sec_cart_type(2'd2),          // ZS01
         .sec_eep_we(L_we), .sec_eep_addr(L_addr), .sec_eep_din(L_data),

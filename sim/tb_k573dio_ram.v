@@ -43,7 +43,7 @@ module tb_k573dio_ram;
     k573dio #(.BACKING_EXTERNAL(1), .DS_CLK_HZ(1_000_000)) dut (
         .clk(clk), .rst(rst), .sel(sel), .off(off), .we(we), .re(re),
         .din(din), .dout(dout), .lamp(),
-        .dio_wait(dio_wait), .cfg_ddrsbm(1'b0),
+        .dio_wait(dio_wait), .cfg_ddrsbm(1'b0), .chart_ofs_ms(5'd0),
         .mem_rd_req(mem_rd_req), .mem_rd_addr(mem_rd_addr),
         .mem_rd_q(rd_q_r), .mem_rd_ack(rd_ack_r),
         .mem_wr_req(mem_wr_req), .mem_wr_addr(mem_wr_addr),

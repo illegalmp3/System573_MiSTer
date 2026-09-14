@@ -28,7 +28,7 @@ module tb_dio_i2c;
     k573dio #(.RAM_WORDS(4096), .DS_CLK_HZ(1_000_000)) dut (
         .clk(clk), .rst(rst), .sel(sel), .off(off), .we(we), .re(re),
         .din(din), .dout(dout), .lamp(lamp),
-        .dio_wait(), .cfg_ddrsbm(1'b1),          // was parameter DDRSBM
+        .dio_wait(), .cfg_ddrsbm(1'b1), .chart_ofs_ms(5'd0),          // was parameter DDRSBM
         .mem_rd_req(), .mem_rd_addr(), .mem_rd_q(64'd0), .mem_rd_ack(1'b0),
         .mem_wr_req(), .mem_wr_addr(), .mem_wr_data(), .mem_wr_ack(1'b0),
         .dbg_wfifo_ovf(),

@@ -12,6 +12,7 @@ module tb_k573dio;
     reg [7:0]  off = 0;
     reg [15:0] din = 0;
     reg        dec_frame_sync = 0, dec_frame_idle = 0, pcm_sample_tick = 0;
+    reg [4:0]  chart_ofs_ms = 5'd0;      // OSD 573 Chart Offset (signed ms), 0 = default
     wire [15:0] dout;
     wire [31:0] lamp;
     wire [15:0] crypto_key1, crypto_key2, crypto_key3;
@@ -34,7 +35,8 @@ module tb_k573dio;
         .mp3_out_ready(1'b1),   // datapath test: always-ready sink (pacing is tb_k573_mp3stream)
         .mp3_out_byte(mp3_out_byte), .mp3_out_valid(mp3_out_valid),
         .dec_frame_sync(dec_frame_sync), .dec_frame_idle(dec_frame_idle),
-        .pcm_sample_tick(pcm_sample_tick)
+        .pcm_sample_tick(pcm_sample_tick),
+        .chart_ofs_ms(chart_ofs_ms)
     );
 
     // descramble reference (mirrors k573_mp3dec) for the streaming check
@@ -284,6 +286,34 @@ module tb_k573dio;
         bus_read(8'hce, v); chk(v, 16'h0000, "counter diff = 0 right after reset (diff ref cleared)");
         bus_read(8'hcc, v); chk(v, 16'h0000, "sample counter reset by mp3_reload");
         bus_read(8'ha8, v); chk(v, 16'h0000, "frame counter reset by mp3_reload");
+
+        // ===== 573 Chart Offset (OSD O[106:102]) -- the position the GAME sees =====
+        // The internal drain counter is never touched; only 0xca/0xcc/0xce shift.
+        // (The counter is 0 and disarmed after the mp3_reload above.)
+        frame_pulse;                          // re-arm
+        drain(200);                           // truthful counter = 200
+        chart_ofs_ms = 5'd0;
+        bus_read(8'hcc, v); chk(v, 16'd200, "chart ofs 0ms: reported == truthful (200)");
+        chart_ofs_ms = 5'd2;                  // +2 ms = 88 samples -> arrows 2 ms LATER
+        bus_read(8'hcc, v); chk(v, 16'd112, "chart ofs +2ms: reported = 200-88 = 112");
+        chart_ofs_ms = 5'd15;                 // +15 ms = 660 > 200 -> saturates at 0
+        bus_read(8'hcc, v); chk(v, 16'd0,   "chart ofs +15ms: saturates at 0, never wraps");
+        chart_ofs_ms = 5'b11110;              // -2 ms (signed) -> arrows 2 ms EARLIER
+        bus_read(8'hcc, v); chk(v, 16'd288, "chart ofs -2ms: reported = 200+88 = 288");
+        chart_ofs_ms = 5'b10000;              // -16 ms = 704 (the extreme)
+        bus_read(8'hcc, v); chk(v, 16'd904, "chart ofs -16ms: reported = 200+704 = 904");
+        // 0xca latches the SHIFTED high half coherently with the 0xcc read
+        chart_ofs_ms = 5'd0;
+        bus_read(8'hcc, v);                   // latch 200
+        bus_read(8'hca, v); chk(v, 16'h0000, "chart ofs: 0xca high half consistent (0)");
+        // the 0xce diff reference is taken from the shifted value too, so a constant
+        // offset cancels in the diff
+        chart_ofs_ms = 5'd3;                  // +3 ms = 132
+        bus_read(8'hcc, v);                   // diff ref = 200-132 = 68
+        drain(50);                            // truthful 250 -> reported 118
+        bus_read(8'hce, v); chk(v, 16'd50,  "chart ofs +3ms: 0xce diff = 50 (offset cancels)");
+        chart_ofs_ms = 5'd0;
+        bus_read(8'hcc, v); chk(v, 16'd250, "chart ofs back to 0: truthful 250 -- counter untouched");
 
         if (errors == 0) $display("RESULT: PASS (k573dio)  ds2401=%016h", rom);
         else             $display("RESULT: FAIL (k573dio, %0d errors)", errors);

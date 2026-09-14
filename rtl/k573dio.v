@@ -186,7 +186,17 @@ module k573dio #(
     // zero (exactly like mas3507d_i2c's frame_count) rather than a fabricated clock.
     input  wire        dec_frame_sync,  // 1-cyc: HPS decoded one MPEG frame (MAME mpeg_frame_sync(1))
     input  wire        dec_frame_idle,  // 1-cyc: an HPS decode produced no frame (MAME mpeg_frame_sync(0))
-    input  wire        pcm_sample_tick  // 1-cyc per PCM sample DRAINED @44100Hz -> sample counter++
+    input  wire        pcm_sample_tick, // 1-cyc per PCM sample DRAINED @44100Hz -> sample counter++
+    // ---- 573 Chart Offset (OSD emu.sv O[106:102]) ----
+    // Signed 5-bit MILLISECONDS, -16..+15. Shifts the sample position the GAME reads
+    // at 0xca/0xcc/0xce; the internal drain counter is never touched (no-mask
+    // doctrine). +N ms reports the counter N*44 samples BEHIND the truthful drain, so
+    // the game believes the music is N ms less far along and places arrows N ms
+    // LATER; -N ms advances them. This compensates latency OUTSIDE the fabric (the
+    // MiSTer audio output path, display) exactly the way the 512-sample elastic
+    // buffer lag (docs/2026-09-12-ddr-playable.md) compensates it inside. The tick
+    // itself already fires at the buffer's DRAIN, so the fabric is exact to 1 sample.
+    input  wire [4:0]  chart_ofs_ms
 );
     // `make DIO_RAM_STUB=1 k573dio_ram` red/green switch: force the pre-fix
     // aliasing inline array even when the TB asks for the external backing --
@@ -207,6 +217,18 @@ module k573dio #(
     reg        mp3_synced;          // counter armed (first frame sync seen since reset)
     reg [31:0] fpga_counter_lat;    // 0xca/cc 32-bit latch (k573dio fpga_counter)
     reg [31:0] mp3_diff_ref;        // 0xce reference (counter at last 0xcc/0xce read)
+
+    // ---- reported sample position = truthful counter shifted by the chart offset ----
+    // |ms| * 44 samples (44100/s; 44 is 0.2% low, irrelevant at ms scale). Subtracting
+    // SATURATES at 0 (never wraps: a fresh song reports 0 for the first N ms, which is
+    // exactly when its audio has not yet reached the speaker). Adding cannot overflow
+    // in 32 bits within any song.
+    wire        cofs_neg  = chart_ofs_ms[4];
+    wire [4:0]  cofs_mag  = cofs_neg ? (~chart_ofs_ms + 5'd1) : chart_ofs_ms;   // 0..16
+    wire [10:0] cofs_smp  = {6'd0, cofs_mag} * 11'd44;                          // 0..704
+    wire [31:0] mp3_pos_rep = cofs_neg ? (mp3_sample_counter + {21'd0, cofs_smp})
+                            : ((mp3_sample_counter >= {21'd0, cofs_smp})
+                                ? (mp3_sample_counter - {21'd0, cofs_smp}) : 32'd0);
     reg        mpeg_playing;        // mpeg_status bit14
     reg        mpeg_idle;           // mpeg_status bit13
 
@@ -415,13 +437,13 @@ module k573dio #(
             // mux both sample mp3_sample_counter on the same posedge, and the EXP1
             // slave captures dout after re drops -- so the 0xcc low word and the
             // later 0xca high word are coherent to the same instant.
-            if (rd_cc) fpga_counter_lat <= mp3_sample_counter;
+            if (rd_cc) fpga_counter_lat <= mp3_pos_rep;          // the GAME-visible position
 
             // ---- 0xce diff reference: reset re-references it to "now" (MAME
             // reset_counter sets counter_current=now -> 0xce reads ~0), else advance
             // after a 0xcc / 0xce read completes. Reset takes precedence.
             if (mp3_reload || cnt_rst_w) mp3_diff_ref <= 32'd0;
-            else if (cc_end || ce_end)   mp3_diff_ref <= mp3_sample_counter;
+            else if (cc_end || ce_end)   mp3_diff_ref <= mp3_pos_rep;
 
             // ---- mpeg_status PLAYING / IDLE (MAME mpeg_frame_sync 1 / 0) ----
             if (dec_frame_sync)      begin mpeg_playing <= 1'b1; mpeg_idle <= 1'b0; end
@@ -724,8 +746,8 @@ module k573dio #(
             8'hb4:   dout = b4_rdata;
 `ifndef MP3_COUNTER_STUB
             8'hca:   dout = fpga_counter_lat[31:16];    // mp3_counter_high_r (latched)
-            8'hcc:   dout = mp3_sample_counter[15:0];   // mp3_counter_low_r (latches on read)
-            8'hce:   dout = mp3_sample_counter[15:0] - mp3_diff_ref[15:0]; // mp3_counter_diff_r
+            8'hcc:   dout = mp3_pos_rep[15:0];          // mp3_counter_low_r (latches on read)
+            8'hce:   dout = mp3_pos_rep[15:0] - mp3_diff_ref[15:0]; // mp3_counter_diff_r
 `endif
             8'hee:   dout = {3'b000, ow_line, 12'b0};
             8'hf6:   dout = 16'hB000;        // FPGA status (0x8000|0x2000|0x1000)
