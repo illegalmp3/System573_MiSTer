@@ -49,6 +49,9 @@ module tb_zs01_rtr;
         repeat (20) @(negedge clk);   // >> the CPU's own inter-write delay
     end endtask
 
+    // latch bit positions (0x1f6a0000): declared BEFORE the tasks that use them
+    localparam D0=0, D1=1, D2=2, D3=3;
+
     task probe(input d0, output [31:0] idout);
         integer k; reg bb; reg [7:0] LL;
         begin
@@ -74,15 +77,13 @@ module tb_zs01_rtr;
         end
     endtask
 
-    integer cfg, errors_unused;
+    integer cfg;
+    reg cfg_io0, cfg_d0;
     reg [7:0] u1 [0:4115];
     reg [7:0] u6 [0:7];
     reg [31:0] id; integer i; reg present; integer fh;
     reg b; integer errors;
 
-    // bit positions
-    localparam D0=0, D1=1, D2=2, D3=3;
-    reg [7:0] L;
 
     initial begin
         errors = 0;
@@ -112,15 +113,16 @@ module tb_zs01_rtr;
         // ---- DEVICE drives, so all four must read back the id. If one fails, that
         // ---- is the board's condition and the bug.
         for (cfg = 0; cfg < 4; cfg = cfg + 1) begin
-            io0_dir = cfg[1];
-            probe(cfg[0], id);
+            cfg_io0 = (cfg / 2) % 2;
+            cfg_d0  = cfg % 2;
+            io0_dir = cfg_io0;
+            probe(cfg_d0, id);
             $display("tb_zs01_rtr: io0_dir=%0d D0=%0d -> assembled 0x%08x  edges=%0d  drove 0x%08x%s",
-                     cfg[1], cfg[0], id, sec_rtr_edges, sec_rtr_emit,
+                     cfg_io0, cfg_d0, id, sec_rtr_edges, sec_rtr_emit,
                      (id === 32'h5a53_0001) ? "  ok" : "   <== FAILS");
             if (id !== 32'h5a53_0001) errors = errors + 1;
         end
 
-        $display("tb_zs01_rtr: assembled 0x%08x  (want 0x5a530001; hw saw 0xb4a60002)", id);
         if (errors == 0) $display("RESULT: PASS");
         else             $display("RESULT: FAIL (%0d of 4 combinations fail)", errors);
         $finish;
