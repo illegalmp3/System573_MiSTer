@@ -1898,7 +1898,7 @@ wire [47:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS w
 wire [63:0] sec_dbg48;                              // zs01 engine -> HPS STATUS words 6..9
 wire [47:0] sec_rd_dbg48;                           // CPU cassette read-back capture -> words 11..13
 wire [31:0] sec_emit_dbg32;                         // ZS01 RTR bits driven -> words 14..15
-wire [6:0]  sec_trace_addr; wire [15:0] sec_trace_data; wire [7:0] sec_trace_count;
+wire [7:0]  sec_trace_addr; wire [15:0] sec_trace_data; wire [15:0] sec_trace_count;
 // The cassette TYPE is inferred from the loaded .u1 SIZE and nothing reports either.
 // A transfer truncated anywhere into 256..559 silently selects an X76F041 and the
 // game sees the wrong response-to-reset. Report both. (HPS STATUS word 10.)

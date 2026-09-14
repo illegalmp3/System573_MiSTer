@@ -168,9 +168,9 @@ module system573_top #(
     output wire [63:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6..9)
     output wire [47:0] sec_rd_dbg,      // what the CPU READ from the cassette SDA (HPS STATUS 11..13)
     output wire [31:0] sec_emit_dbg,    // what the ZS01 DROVE on its 32 RTR edges (HPS STATUS 14..15)
-    input  wire [6:0]  sec_trace_addr,  // cassette event trace read-out (CMD_573_SECTRACE)
-    output reg  [15:0] sec_trace_data,
-    output wire [7:0]  sec_trace_count,
+    input  wire [7:0]  sec_trace_addr,  // cassette stimulus recorder (CMD_573_SECTRACE)
+    output wire [15:0] sec_trace_data,
+    output wire [15:0] sec_trace_count,
     input  wire [6:0]  stage_trace_addr,
     output wire [15:0] stage_trace_data,
     output wire [7:0]  stage_trace_count,
@@ -285,55 +285,31 @@ module system573_top #(
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
 
-    // ---- cassette EVENT TRACE (ddrusa ERROR 121 (3), docs 2026-09-14) ----
-    // Four bitstreams were spent capturing ONE value at ONE gate, and each time a
-    // dead hypothesis left the instrument worthless (twice the gate itself was
-    // wrong). Meanwhile every simulation passes: tb_zs01_rtr sweeps io0_dir x D0
-    // and tb_zs01_detect drives the game's exact probe through the real exp1 bus,
-    // and both assemble 0x5a530001 from the real ddrusa image. So the LOGIC model
-    // is right and the STIMULUS model is wrong -- which no single captured value
-    // can fix.
-    //
-    // This records the stimulus itself: every cassette latch write and every read
-    // of the misc word, in order, with a coarse inter-event delta, plus what the
-    // fabric presented at each. Replaying these latch writes in tb_zs01_rtr
-    // reproduces the board exactly, so the remaining work happens in simulation.
-    //   entry = { evt, rst, cs_n, scl, sda, io0_dir, sec_io0, asic_dout[2],
-    //             zs01_state[2:0], dt[3:0] }   evt: 0 = latch write, 1 = misc read
-    // dt counts 256-clk ticks since the previous event, saturating at 15.
-    wire        misc_rd = sel_asic & exp1_re & (asic_off == 4'h6);
-    reg  [15:0] sectrace [0:127];
-    reg  [7:0]  sec_twr  = 8'd0;
-    reg  [3:0]  sec_tdt  = 4'd0;
-    reg  [7:0]  sec_ttick= 8'd0;
-    reg         latch_we_q = 1'b0;
+    // ---- cassette stimulus recorder (ddrusa ERROR 121 (3), docs 2026-09-14) ----
+    // The gate lives in s573_sectrace.v now, so sim/tb_sectrace_arm.v can prove the
+    // window opens on the detector probe BEFORE a bitstream is spent on it -- which
+    // is the part that failed three times, not the hypothesis. See that file.
+    wire        misc_rd      = sel_asic & exp1_re & (asic_off == 4'h6);
+    reg         latch_we_q   = 1'b0;
+    always @(posedge clk) latch_we_q <= sel_seclatch & exp1_we;
     wire        latch_wr_evt = sel_seclatch & exp1_we & ~latch_we_q;
-    wire [15:0] sec_tentry = { (misc_rd ? 1'b1 : 1'b0),
-                               sec_rst_line, sec_cs_n, sec_scl_line, sec_sda_line,
-                               sec_io0_dir, sec_io0, asic_dout[2],
-                               sec_zs01_state, sec_tdt };
-    always @(posedge clk) begin
-        latch_we_q <= sel_seclatch & exp1_we;
-        if (rst) begin
-            sec_twr <= 8'd0; sec_tdt <= 4'd0; sec_ttick <= 8'd0;
-        end else begin
-            if (sec_ttick == 8'd255) begin
-                sec_ttick <= 8'd0;
-                if (sec_tdt != 4'd15) sec_tdt <= sec_tdt + 4'd1;
-            end else
-                sec_ttick <= sec_ttick + 8'd1;
-            if ((latch_wr_evt || misc_rd) && sec_twr < 8'd128) begin
-                sectrace[sec_twr[6:0]] <= sec_tentry;
-                sec_twr  <= sec_twr + 8'd1;
-                sec_tdt  <= 4'd0;
-                sec_ttick<= 8'd0;
-            end
-        end
-    end
-    assign sec_trace_count = sec_twr;
-    always @(posedge clk) sec_trace_data <= sectrace[sec_trace_addr];
 
-    assign sec_rd_dbg   = {sec_rtr_edges, sec_twr, 32'd0};
+    wire [31:0] sec_cap_bits;
+    wire [7:0]  sec_cap_cnt;
+    s573_sectrace u_sectrace (
+        .clk(clk), .rst(rst),
+        .cs_n(sec_cs_n), .rst_line(sec_rst_line),
+        .scl(sec_scl_line), .sda(sec_sda_line),
+        .io0_dir(sec_io0_dir), .io0(sec_io0), .cpu_bit(asic_dout[2]),
+        .zs01_state(sec_zs01_state),
+        .latch_wr(latch_wr_evt), .misc_rd(misc_rd),
+        .trace_addr(sec_trace_addr), .trace_data(sec_trace_data),
+        .trace_count(sec_trace_count),
+        .cap_bits(sec_cap_bits), .cap_cnt(sec_cap_cnt)
+    );
+
+    // unchanged 4023f19 layout, so the HPS service parses it the same way
+    assign sec_rd_dbg   = {sec_rtr_edges, sec_cap_cnt, sec_cap_bits};
     assign sec_emit_dbg = sec_rtr_emit;
 
     // --- ATAPI CD-ROM (IDE bank 0 = command block, bank 1 = control block) ---

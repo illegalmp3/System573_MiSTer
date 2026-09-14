@@ -313,27 +313,60 @@ static void stagetrace_dump(void)
     trace_dumped = cnt;
     if (cnt >= 128) s573_log("s573mp3: stage trace: buffer full (128 events)\n");
 }
-/* Cassette event trace (CMD_573_SECTRACE). Every latch write and every read of the
- * misc word, in order, with the fabric's view at each -- i.e. the STIMULUS, not one
- * captured value. Replaying the latch writes in sim/tb_zs01_rtr reproduces the board,
- * which is what four single-value captures could not do. */
+/* Cassette stimulus recorder (CMD_573_SECTRACE). Every cassette latch write and
+ * every read of the misc word, in order, with the fabric's view at each -- i.e. the
+ * STIMULUS, not one captured value. 256 entries, ARMED (and RE-armed) by the RST
+ * rising edge that starts a response-to-reset, with a first-SCL-edge fallback, then
+ * frozen when full -- so the window is the detector probe and not the boot-time
+ * DS2401 bit-banging that swallowed the first 128-entry attempt. Word 0 bit 9 says
+ * the window ever opened; if it is 0, neither RST nor SCL ever moved with the
+ * cassette selected and the game never clocked the chip at all.
+ *
+ * The R entries carry the bit s573_io handed the CPU, so the value PSX.EXE
+ * assembled is RECONSTRUCTED here from the trace rather than captured by a
+ * register whose window length had to be guessed in advance (which is how three
+ * bitstreams were wasted). */
 static void sectrace_dump(void)
 {
     static uint64_t next = 0;
-    uint16_t cnt, base, w[10];
+    static uint64_t asm_bits = 0;       /* running MSB-first assembly of the R entries */
+    static unsigned asm_reads = 0;
+    uint16_t raw, cnt, base, w[10];
+    unsigned armed;
     int i;
     uint64_t t = now_us();
     if (t < next) return;
     next = t + 1000000ull;
-    cnt = spi_uio_cmd_cont(CMD_573_SECTRACE);
+    raw = spi_uio_cmd_cont(CMD_573_SECTRACE);
     DisableIO();
-    cnt &= 0xff;
+    armed = (raw >> 9) & 1;
+    cnt   = raw & 0x1ff;
+    /* Say the window never opened, ONCE, after the boot has had time to run. A
+     * silent zero-entry trace is exactly what the last three attempts produced and
+     * it must not look like "no data" again. */
+    if (!armed) {
+        static unsigned quiet = 0;
+        if (++quiet == 30)
+            s573_log("s573mp3: cassette trace: NOT ARMED after 30 s -- neither RST nor SCL has "
+                     "moved with the cassette selected, so the game has not clocked the chip\n");
+    }
+    /* The window RE-ARMS on the RST edge that starts a response-to-reset, so the
+     * count can go BACKWARDS. Without this the incremental dump would sit behind a
+     * stale high-water mark and print nothing at all for the real probe -- the same
+     * silent-no-data failure, moved into the service. */
+    if (cnt < sectrace_dumped) {
+        s573_log("s573mp3: cassette trace: window RE-ARMED (%u -> %u entries) -- restarting the dump\n",
+                 sectrace_dumped, cnt);
+        sectrace_dumped = 0;
+        asm_bits = 0;
+        asm_reads = 0;
+    }
     if (cnt <= sectrace_dumped) return;
     if (sectrace_dumped == 0)
-        s573_log("s573mp3: cassette trace: evt W=latch write R=misc read | rst cs scl sda = latch lines | "
-                 "dir=control bit6 | io0=what the chip drives | cpu=bit2 handed to the CPU | "
-                 "st=zs01 state (0 stop 1 rtr 2 cmd 3 proc 4 read) | dt=256-clk ticks since the "
-                 "previous event (15=saturated)\n");
+        s573_log("s573mp3: cassette trace: ARMED=%u | evt W=latch write R=misc read | rst cs scl sda = "
+                 "latch lines | dir=control bit6 | io0=what the chip drives | cpu=bit2 handed to the CPU | "
+                 "st=zs01 state (0 stop 1 rtr 2 cmd 3 proc 4 read) | dt=32-clk ticks since the "
+                 "previous event (15=saturated, i.e. >~14 us)\n", armed);
     for (base = sectrace_dumped & ~7; base < cnt; base += 8) {
         w[0] = spi_uio_cmd_cont(CMD_573_SECTRACE);
         w[1] = spi_w(base);
@@ -347,10 +380,23 @@ static void sectrace_dump(void)
                      (e >> 14) & 1, (e >> 13) & 1, (e >> 12) & 1, (e >> 11) & 1,
                      (e >> 10) & 1, (e >> 9) & 1, (e >> 8) & 1,
                      (e >> 4) & 7, e & 15);
+            if ((e >> 15) & 1) {        /* a CPU read: this is a bit of the id */
+                /* FIRST 32 reads only. The game keeps polling this word for coins
+                 * long after the probe, so a "last 32" window would be idle noise --
+                 * the same mistake, one layer up. */
+                if (asm_reads < 32) asm_bits = (asm_bits << 1) | ((e >> 8) & 1);
+                asm_reads++;
+            }
         }
     }
     sectrace_dumped = cnt;
-    if (cnt >= 128) s573_log("s573mp3: cassette trace: buffer full (128 events)\n");
+    if (asm_reads)
+        s573_log("s573mp3: cassette trace: %u CPU reads in the window; the FIRST 32 assemble "
+                 "0x%08lx (ZS01 id = 0x5a530001)%s\n",
+                 asm_reads, (unsigned long)(asm_bits & 0xfffffffful),
+                 (asm_reads < 32) ? "  <== fewer than 32 reads so far" :
+                 ((asm_bits & 0xfffffffful) == 0x5a530001ul) ? "  <== the CPU GOT THE ID" : "");
+    if (cnt >= 256) s573_log("s573mp3: cassette trace: buffer full (256 events)\n");
 }
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
@@ -829,6 +875,8 @@ static void heartbeat(void)
                          (reads >= 32 && bits == 0x5a530001ul) ? "  <== id read CORRECTLY" :
                          (edges >= 32 && reads == 0) ? "  <== we emitted but the CPU never read in this window" :
                          (reads >= 32 && bits == 0xa5acfffeul) ? "  <== INVERTED id" :
+                         (reads >= 32 && bits == 0x2d298000ul) ? "  <== the id, sampled one clock EARLY" :
+                         (reads >= 32 && bits == 0xb4a60002ul) ? "  <== the id, sampled one clock LATE" :
                          (reads > 0 && edges > 0) ? "  <== the CPU saw this, not the id -- compare against 5a530001 bit by bit" :
                          (edges == 0) ? "  <== we never emitted" : "");
         }

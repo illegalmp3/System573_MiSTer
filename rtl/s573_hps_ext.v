@@ -212,9 +212,9 @@ module s573_hps_ext
     input      [47:0] sec_rd_dbg,    // {rtr_edges[7:0], reads-in-RTR[7:0], bits[31:0]} (words 11..13)
     input      [31:0] sec_emit_dbg,  // the 32 bits the ZS01 drove on its RTR edges (words 14..15)
     // ---- CMD_573_SECTRACE: cassette event trace read-out (system573_top) ----
-    output reg [6:0]  sec_trace_addr,
+    output reg [7:0]  sec_trace_addr,
     input      [15:0] sec_trace_data,   // valid the cycle after sec_trace_addr
-    input      [7:0]  sec_trace_count,
+    input      [15:0] sec_trace_count,  // {armed, entries[8:0]} -- 256-deep
     // ---- CMD_573_STAGETRACE: gn845pwbb line-event trace read-out ----
     output reg [6:0]  stage_trace_addr,
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
@@ -249,8 +249,9 @@ localparam CMD_573_CTRL   = 'h6A;
 localparam CMD_573_MP3CFG = 'h6B;
 localparam CMD_573_STAGETRACE = 'h6C;
 localparam CMD_573_SECTRACE   = 'h6D;  // must stay the TOP of the range (dout_en)
-// CMD_573_SECTRACE (0x6D): word0 up = entries recorded (0..128); word1 dn = base
-// index, words 2..9 up = eight consecutive entries. Same shape as STAGETRACE.
+// CMD_573_SECTRACE (0x6D): word0 up = {armed, entries[8:0]} (0..256); word1 dn =
+// base index (8-bit), words 2..9 up = eight consecutive entries. Same shape as
+// STAGETRACE apart from the wider address and count.
 // entry = {evt, rst, cs_n, scl, sda, io0_dir, sec_io0, asic_dout2, state[2:0], dt[3:0]}
 // CMD_573_STAGETRACE (0x6C): word0 up = entries recorded (0..128); word1 dn = base
 // index (HPS), up = echo; words 2..9 up = trace[base+0..7]. Same-word semantics:
@@ -356,7 +357,7 @@ always @(posedge clk_sys) begin
                     io_dout <= {8'd0, stage_trace_count};
                 end
                 CMD_573_SECTRACE: begin
-                    io_dout <= {8'd0, sec_trace_count};
+                    io_dout <= sec_trace_count;
                 end
                 CMD_573_STATUS: begin
                     io_dout <= status_flags;
@@ -448,12 +449,12 @@ always @(posedge clk_sys) begin
                 end
                 CMD_573_SECTRACE: begin
                     if(byte_cnt == 1) begin
-                        sec_trace_addr <= io_din[6:0];
+                        sec_trace_addr <= io_din[7:0];
                         io_dout <= io_din;
                     end
                     else if(byte_cnt >= 2 && byte_cnt <= 9) begin
                         io_dout <= sec_trace_data;
-                        sec_trace_addr <= sec_trace_addr + 7'd1;
+                        sec_trace_addr <= sec_trace_addr + 8'd1;
                     end
                 end
                 CMD_573_MP3CFG: begin
