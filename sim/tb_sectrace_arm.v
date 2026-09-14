@@ -165,7 +165,7 @@ module tb_sectrace_arm;
             @(negedge clk); taddr = k[7:0];
             @(negedge clk);
             if (tdata[15]) begin                       // an R entry
-                if (reads_seen < 32) from_ring = {from_ring[30:0], tdata[8]};
+                if (reads_seen < 32) from_ring = {from_ring[30:0], tdata[7]};   // cpu_bit
                 reads_seen = reads_seen + 1;
             end
         end
@@ -175,8 +175,7 @@ module tb_sectrace_arm;
         // read was logged, but with bit 15 clear, so the HPS called all 124 of them
         // latch writes. Check the count, not just the value.
         if (reads_seen != 32) begin
-            $display("tb_sectrace_arm: FAIL: %0d R entries in the ring, expected 32 -- the evt bit "
-                     "or the entry width is wrong", reads_seen);
+            $display("tb_sectrace_arm: FAIL: %0d R entries in the ring, expected 32 -- the evt bit or the entry width is wrong", reads_seen);
             errors = errors + 1;
         end
         if (from_ring !== ZS01_ID) begin
