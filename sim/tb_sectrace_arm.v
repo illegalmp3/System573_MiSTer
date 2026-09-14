@@ -12,9 +12,9 @@
 // The bench replays the three phases the board actually presents, in order:
 //
 //   A  boot: 300 cassette latch writes and 300 misc reads with CS asserted, RST
-//      already high and SCL DEAD -- the measured shape of the traffic that
-//      swallowed the 128-entry ring (the board DS2401 lives on latch D4 and needs
-//      no clock). The window must stay SHUT.
+//      already high, latch D4 (1-Wire) moving and SCL DEAD -- the measured shape of
+//      the traffic that swallowed the 128-entry ring (re-decoded: 124 CPU reads and
+//      4 latch writes, scl and rst flat, zs01 in ST_STOP). The window must stay SHUT.
 //   A' one spurious SCL edge and 100 more events. This DOES arm (that is the
 //      fallback trigger doing its job), and phase B must then throw it away.
 //   B  the detector probe from PSX.EXE 0x803250b8: CS, RST pulse, one throwaway SCL
@@ -34,6 +34,7 @@ module tb_sectrace_arm;
     reg  rst_line = 1'b1;
     reg  scl = 1'b0;
     reg  sda = 1'b0;
+    reg  ds  = 1'b0;
     reg  io0_dir = 1'b0;
     reg  io0 = 1'b0;
     reg  cpu_bit = 1'b0;
@@ -48,7 +49,7 @@ module tb_sectrace_arm;
 
     s573_sectrace dut (
         .clk(clk), .rst(rst),
-        .cs_n(cs_n), .rst_line(rst_line), .scl(scl), .sda(sda),
+        .cs_n(cs_n), .rst_line(rst_line), .scl(scl), .sda(sda), .ds(ds),
         .io0_dir(io0_dir), .io0(io0), .cpu_bit(cpu_bit), .zs01_state(zs01_state),
         .latch_wr(latch_wr), .misc_rd(misc_rd),
         .trace_addr(taddr), .trace_data(tdata), .trace_count(tcount),
@@ -86,10 +87,12 @@ module tb_sectrace_arm;
 
         // ---------------- phase A: boot / DS2401 on D4, SCL dead ----------------
         for (k = 0; k < 300; k = k + 1) begin
-            sda = k[0];          // D0 moves, D1 never does
+            ds  = k[0];          // D4 (1-Wire) moves, D1 never does
+            sda = k[1];
             wr;
             rd;
         end
+        ds = 1'b0;
         if (armed !== 1'b0) begin
             $display("tb_sectrace_arm: FAIL: armed during the boot traffic (entries=%0d)", entries);
             errors = errors + 1;
@@ -168,6 +171,14 @@ module tb_sectrace_arm;
         end
         $display("tb_sectrace_arm: probe recorded %0d entries, %0d CPU reads -> ring assembles 0x%08x",
                  entries_after_probe, reads_seen, from_ring);
+        // The evt bit is the thing the 15-bit concatenation silently broke: every
+        // read was logged, but with bit 15 clear, so the HPS called all 124 of them
+        // latch writes. Check the count, not just the value.
+        if (reads_seen != 32) begin
+            $display("tb_sectrace_arm: FAIL: %0d R entries in the ring, expected 32 -- the evt bit "
+                     "or the entry width is wrong", reads_seen);
+            errors = errors + 1;
+        end
         if (from_ring !== ZS01_ID) begin
             $display("tb_sectrace_arm: FAIL: the ring assembles 0x%08x, expected 0x%08x",
                      from_ring, ZS01_ID);

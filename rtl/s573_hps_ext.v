@@ -252,7 +252,7 @@ localparam CMD_573_SECTRACE   = 'h6D;  // must stay the TOP of the range (dout_e
 // CMD_573_SECTRACE (0x6D): word0 up = {armed, entries[8:0]} (0..256); word1 dn =
 // base index (8-bit), words 2..9 up = eight consecutive entries. Same shape as
 // STAGETRACE apart from the wider address and count.
-// entry = {evt, rst, cs_n, scl, sda, io0_dir, sec_io0, asic_dout2, state[2:0], dt[3:0]}
+// entry = {evt, rst, cs_n, scl, sda, ds2401, io0_dir, sec_io0, asic_dout2, state[2:0], dt[3:0]}
 // CMD_573_STAGETRACE (0x6C): word0 up = entries recorded (0..128); word1 dn = base
 // index (HPS), up = echo; words 2..9 up = trace[base+0..7]. Same-word semantics:
 // the address for word k+1 is set at word k's strobe, the registered read is

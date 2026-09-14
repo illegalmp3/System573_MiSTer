@@ -36,7 +36,7 @@
 // the game assembled can be reconstructed exactly from the trace rather than
 // guessed at from a register whose window length I had to assume in advance.
 //
-//   entry = { evt, rst, cs_n, scl, sda, io0_dir, io0, cpu_bit, state[2:0], dt[3:0] }
+//   entry = { evt, rst, cs_n, scl, sda, ds, io0_dir, io0, cpu_bit, state[2:0], dt[3:0] }
 //   (256 entries; trace_count bit 9 = the window opened, bits 8:0 = entries).
 //   256 and not 128 because the probe alone is ~106 events: 32 iterations of
 //   {read, SCL high write, SCL low write} plus the RST/CS/SCL preamble. A 128-deep
@@ -59,6 +59,7 @@ module s573_sectrace (
     input  wire        rst_line,    // latch D3
     input  wire        scl,         // latch D1
     input  wire        sda,         // latch D0
+    input  wire        ds,          // latch D4 (board DS2401 drive) -- marks 1-Wire traffic
     input  wire        io0_dir,     // 0x1f500000 bit 6 (active low host drive)
     input  wire        io0,         // what the cassette mux presents to s573_io
     input  wire        cpu_bit,     // bit 2 of the misc word s573_io hands the CPU
@@ -104,7 +105,12 @@ module s573_sectrace (
     wire [7:0]  ccnt = arm_now ? 8'd0  : capc;
     wire        clive = arm_now ? 1'b1 : cap_live;
 
-    wire [15:0] entry = { misc_rd, rst_line, cs_n, scl, sda,
+    // EXACTLY 16 bits: 9 single-bit lines + 3 state + 4 dt. The first version of
+    // this concatenation had only EIGHT single bits, so it was 15 bits wide, got
+    // zero-extended, and every field in the HPS log was shifted by one -- which is
+    // why the last hardware trace printed 128 latch writes when it had in fact
+    // recorded 124 CPU reads. Count the fields if you touch this line.
+    wire [15:0] entry = { misc_rd, rst_line, cs_n, scl, sda, ds,
                           io0_dir, io0, cpu_bit, zs01_state, dt };
 
     always @(posedge clk) begin

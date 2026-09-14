@@ -265,7 +265,7 @@ module system573_top #(
     wire        sec_io0, sec_drdy, sec_irdy;
     wire        sec_cs_n;          // live cassette CS (latch D2), for the read-back capture
     wire        sec_rst_line;      // live cassette RST (latch D3), same
-    wire        sec_scl_line, sec_sda_line;   // live latch D1/D0
+    wire        sec_scl_line, sec_sda_line, sec_ds_line;   // live latch D1/D0/D4
     wire [2:0]  sec_zs01_state;                // ZS01 framing state
     wire [15:0] asic_dout;         // s573_io read data (declared here: the capture below uses it)
     wire [7:0]  sec_rtr_edges;     // RTR falling edges the ZS01 serviced
@@ -280,7 +280,8 @@ module system573_top #(
         .load_eep_we(sec_eep_we), .load_eep_addr(sec_eep_addr), .load_eep_data(sec_eep_din),
         .load_ser_we(sec_ser_we), .load_ser_addr(sec_ser_addr), .load_ser_data(sec_ser_din),
         .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rst_line(sec_rst_line), .sec_rtr_edges(sec_rtr_edges),
-        .sec_scl_line(sec_scl_line), .sec_sda_line(sec_sda_line), .sec_zs01_state(sec_zs01_state),
+        .sec_scl_line(sec_scl_line), .sec_sda_line(sec_sda_line), .sec_ds_line(sec_ds_line),
+        .sec_zs01_state(sec_zs01_state),
         .sec_in_rtr(sec_in_rtr), .sec_rtr_emit(sec_rtr_emit),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
@@ -299,7 +300,7 @@ module system573_top #(
     s573_sectrace u_sectrace (
         .clk(clk), .rst(rst),
         .cs_n(sec_cs_n), .rst_line(sec_rst_line),
-        .scl(sec_scl_line), .sda(sec_sda_line),
+        .scl(sec_scl_line), .sda(sec_sda_line), .ds(sec_ds_line),
         .io0_dir(sec_io0_dir), .io0(sec_io0), .cpu_bit(asic_dout[2]),
         .zs01_state(sec_zs01_state),
         .latch_wr(latch_wr_evt), .misc_rd(misc_rd),

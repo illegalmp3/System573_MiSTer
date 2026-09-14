@@ -74,6 +74,7 @@ module s573_seccart #(
     output wire        sec_rst_line,// live cassette RST (latch D3), for the read-back capture
     output wire        sec_scl_line,// live cassette SCL (latch D1)
     output wire        sec_sda_line,// live cassette SDA drive (latch D0)
+    output wire        sec_ds_line, // live board-DS2401 drive (latch D4), 1-Wire traffic marker
     output wire [2:0]  sec_zs01_state, // ZS01 framing state, for the event trace
     output wire [7:0]  sec_rtr_edges, // RTR falling edges the ZS01 serviced
     output wire        sec_in_rtr,    // ZS01 is shifting its response-to-reset right now
@@ -113,6 +114,7 @@ module s573_seccart #(
     assign sec_rst_line = d_q[3];  // live RST out (same)
     assign sec_scl_line = d_q[1];
     assign sec_sda_line = d_q[0];
+    assign sec_ds_line  = d_q[4];  // 1 = the host is pulling the 1-Wire line low
     assign sec_zs01_state = zs01_dbg[34:32];   // dbg[35:32] = state
     wire sel041    = (eff_type == 2'd1);
     wire sel_zs01  = (eff_type == 2'd2);

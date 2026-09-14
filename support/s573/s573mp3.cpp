@@ -364,7 +364,8 @@ static void sectrace_dump(void)
     if (cnt <= sectrace_dumped) return;
     if (sectrace_dumped == 0)
         s573_log("s573mp3: cassette trace: ARMED=%u | evt W=latch write R=misc read | rst cs scl sda = "
-                 "latch lines | dir=control bit6 | io0=what the chip drives | cpu=bit2 handed to the CPU | "
+                 "latch lines | ds=latch D4 (1-Wire) | dir=control bit6 | io0=what the chip drives | "
+                 "cpu=bit2 handed to the CPU | "
                  "st=zs01 state (0 stop 1 rtr 2 cmd 3 proc 4 read) | dt=32-clk ticks since the "
                  "previous event (15=saturated, i.e. >~14 us)\n", armed);
     for (base = sectrace_dumped & ~7; base < cnt; base += 8) {
@@ -375,16 +376,16 @@ static void sectrace_dump(void)
         for (i = 0; i < 8 && base + i < cnt; i++) {
             uint16_t e = w[2 + i];
             if (base + i < sectrace_dumped) continue;
-            s573_log("s573mp3:   [%3u] %c rst=%u cs=%u scl=%u sda=%u dir=%u io0=%u cpu=%u st=%u dt=%u\n",
+            s573_log("s573mp3:   [%3u] %c rst=%u cs=%u scl=%u sda=%u ds=%u dir=%u io0=%u cpu=%u st=%u dt=%u\n",
                      base + i, ((e >> 15) & 1) ? 'R' : 'W',
                      (e >> 14) & 1, (e >> 13) & 1, (e >> 12) & 1, (e >> 11) & 1,
-                     (e >> 10) & 1, (e >> 9) & 1, (e >> 8) & 1,
+                     (e >> 10) & 1, (e >> 9) & 1, (e >> 8) & 1, (e >> 7) & 1,
                      (e >> 4) & 7, e & 15);
             if ((e >> 15) & 1) {        /* a CPU read: this is a bit of the id */
                 /* FIRST 32 reads only. The game keeps polling this word for coins
                  * long after the probe, so a "last 32" window would be idle noise --
                  * the same mistake, one layer up. */
-                if (asm_reads < 32) asm_bits = (asm_bits << 1) | ((e >> 8) & 1);
+                if (asm_reads < 32) asm_bits = (asm_bits << 1) | ((e >> 7) & 1);
                 asm_reads++;
             }
         }
