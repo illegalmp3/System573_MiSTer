@@ -102,8 +102,8 @@ module s573_seccart #(
     // selected" is the question its dbg bus cannot answer alone. Stamp it here.
     wire [63:0] zs01_dbg;
     assign sec_dbg = {eff_type, zs01_dbg[61:0]};
-    assign sec_cs_n = eeprom_cs;
     wire eeprom_cs = d_q[2];
+    assign sec_cs_n = eeprom_cs;   // live CS out, for the read-back capture in system573_top
     wire sel041    = (eff_type == 2'd1);
     wire sel_zs01  = (eff_type == 2'd2);
 
