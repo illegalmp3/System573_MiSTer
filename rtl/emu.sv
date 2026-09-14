@@ -814,6 +814,7 @@ s573_hps_ext hps_ext
 	.sec_size_dbg(sec_size_dbg),
 	.sec_rd_dbg(sec_rd_dbg48),
 	.sec_emit_dbg(sec_emit_dbg32),
+	.sec_trace_addr(sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),
 	.stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
 
 	.ctrl_flags(mp3_ctrl_flags),
@@ -1897,6 +1898,7 @@ wire [47:0] stage_dbg16;                            // gn845pwbb -> HPS STATUS w
 wire [63:0] sec_dbg48;                              // zs01 engine -> HPS STATUS words 6..9
 wire [47:0] sec_rd_dbg48;                           // CPU cassette read-back capture -> words 11..13
 wire [31:0] sec_emit_dbg32;                         // ZS01 RTR bits driven -> words 14..15
+wire [6:0]  sec_trace_addr; wire [15:0] sec_trace_data; wire [7:0] sec_trace_count;
 // The cassette TYPE is inferred from the loaded .u1 SIZE and nothing reports either.
 // A transfer truncated anywhere into 256..559 silently selects an X76F041 and the
 // game sees the wrong response-to-reset. Report both. (HPS STATUS word 10.)
@@ -2432,6 +2434,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .sec_dbg        (sec_dbg48),
    .sec_rd_dbg     (sec_rd_dbg48),
    .sec_emit_dbg   (sec_emit_dbg32),
+   .sec_trace_addr (sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),
    .stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
    // MP3 sink back-pressure: STAYS 0 -- this is the fabric->HPS byte-ring leg,
    // gated on decision B (the descramble-on-HPS spike may delete it) and its

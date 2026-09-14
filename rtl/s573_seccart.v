@@ -72,6 +72,9 @@ module s573_seccart #(
     output wire [63:0] sec_dbg,     // ZS01 engine observability -> HPS STATUS 6..9
     output wire        sec_cs_n,    // live cassette chip-select (latch D2), for the read-back capture
     output wire        sec_rst_line,// live cassette RST (latch D3), for the read-back capture
+    output wire        sec_scl_line,// live cassette SCL (latch D1)
+    output wire        sec_sda_line,// live cassette SDA drive (latch D0)
+    output wire [2:0]  sec_zs01_state, // ZS01 framing state, for the event trace
     output wire [7:0]  sec_rtr_edges, // RTR falling edges the ZS01 serviced
     output wire        sec_in_rtr,    // ZS01 is shifting its response-to-reset right now
     output wire [31:0] sec_rtr_emit,  // the 32 bits it drove on those edges
@@ -108,6 +111,9 @@ module s573_seccart #(
     wire eeprom_cs = d_q[2];
     assign sec_cs_n = eeprom_cs;   // live CS out, for the read-back capture in system573_top
     assign sec_rst_line = d_q[3];  // live RST out (same)
+    assign sec_scl_line = d_q[1];
+    assign sec_sda_line = d_q[0];
+    assign sec_zs01_state = zs01_dbg[34:32];   // dbg[35:32] = state
     wire sel041    = (eff_type == 2'd1);
     wire sel_zs01  = (eff_type == 2'd2);
 

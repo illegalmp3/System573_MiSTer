@@ -67,7 +67,8 @@ module tb_zs01_detect;
         .sec_cart_type(2'd2),          // ZS01
         .sec_eep_we(L_we), .sec_eep_addr(L_addr), .sec_eep_din(L_data),
         .sec_ser_we(Ls_we), .sec_ser_addr(Ls_addr), .sec_ser_din(Ls_data),
-        .sec_dbg(), .sec_rd_dbg(sec_rd_dbg), .sec_emit_dbg(sec_emit_dbg)
+        .sec_dbg(), .sec_rd_dbg(sec_rd_dbg), .sec_emit_dbg(sec_emit_dbg),
+        .sec_trace_addr(7'd0), .sec_trace_data(), .sec_trace_count()
     );
 
     always #5 clk = ~clk;

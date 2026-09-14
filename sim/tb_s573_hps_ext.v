@@ -201,8 +201,8 @@ module tb_s573_hps_ext;
         chk(dut_en == 0,            "P2 boundary 0x67: not claimed");
         spi_end;
         spi_begin;
-        spi_word(16'h006D, r0);     // one above CMD_573_STAGETRACE (the new top)
-        chk(dut_en == 0,            "P2 boundary 0x6D: not claimed");
+        spi_word(16'h006E, r0);     // one above CMD_573_SECTRACE (the new top)
+        chk(dut_en == 0,            "P2 boundary 0x6E: not claimed");
         spi_end;
         spi_begin;
         spi_word(16'h0033, r0);     // one below CD_GET
@@ -601,8 +601,8 @@ module tb_s573_hps_ext;
         chk(r2 == 16'h0033,         "P11: cfg_epoch advertised on PTRS word2");
         spi_end;
 
-        // dout_en must cover 0x6B and STILL be low one past the range -- 0x6C
-        // would corrupt a framework read (hps_io muxes EXT_BUS whenever it is set)
+        // dout_en must cover the whole range and STILL be low one past it -- a stray
+        // assertion corrupts a framework read (hps_io muxes EXT_BUS whenever it is set)
         spi_begin;
         @(negedge clk); tb_din = 16'h006B; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
@@ -611,12 +611,17 @@ module tb_s573_hps_ext;
         spi_begin;
         @(negedge clk); tb_din = 16'h006C; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 1,            "P11: dout_en asserted for 0x6C (CMD_573_STAGETRACE, the new top)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6C (CMD_573_STAGETRACE)");
         spi_end;
         spi_begin;
         @(negedge clk); tb_din = 16'h006D; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6D (one past the range)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6D (CMD_573_SECTRACE, the new top)");
+        spi_end;
+        spi_begin;
+        @(negedge clk); tb_din = 16'h006E; tb_strobe = 1;
+        @(negedge clk); tb_strobe = 0; @(negedge clk);
+        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6E (one past the range)");
         spi_end;
 
         if (errors == 0) $display("RESULT: PASS (s573_hps_ext)");

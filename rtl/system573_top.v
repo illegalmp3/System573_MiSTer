@@ -168,6 +168,9 @@ module system573_top #(
     output wire [63:0] sec_dbg,         // ZS01 engine observability (HPS STATUS words 6..9)
     output wire [47:0] sec_rd_dbg,      // what the CPU READ from the cassette SDA (HPS STATUS 11..13)
     output wire [31:0] sec_emit_dbg,    // what the ZS01 DROVE on its 32 RTR edges (HPS STATUS 14..15)
+    input  wire [6:0]  sec_trace_addr,  // cassette event trace read-out (CMD_573_SECTRACE)
+    output reg  [15:0] sec_trace_data,
+    output wire [7:0]  sec_trace_count,
     input  wire [6:0]  stage_trace_addr,
     output wire [15:0] stage_trace_data,
     output wire [7:0]  stage_trace_count,
@@ -262,6 +265,8 @@ module system573_top #(
     wire        sec_io0, sec_drdy, sec_irdy;
     wire        sec_cs_n;          // live cassette CS (latch D2), for the read-back capture
     wire        sec_rst_line;      // live cassette RST (latch D3), same
+    wire        sec_scl_line, sec_sda_line;   // live latch D1/D0
+    wire [2:0]  sec_zs01_state;                // ZS01 framing state
     wire [15:0] asic_dout;         // s573_io read data (declared here: the capture below uses it)
     wire [7:0]  sec_rtr_edges;     // RTR falling edges the ZS01 serviced
     wire        sec_in_rtr;        // ZS01 currently shifting its response-to-reset
@@ -275,44 +280,60 @@ module system573_top #(
         .load_eep_we(sec_eep_we), .load_eep_addr(sec_eep_addr), .load_eep_data(sec_eep_din),
         .load_ser_we(sec_ser_we), .load_ser_addr(sec_ser_addr), .load_ser_data(sec_ser_din),
         .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rst_line(sec_rst_line), .sec_rtr_edges(sec_rtr_edges),
+        .sec_scl_line(sec_scl_line), .sec_sda_line(sec_sda_line), .sec_zs01_state(sec_zs01_state),
         .sec_in_rtr(sec_in_rtr), .sec_rtr_emit(sec_rtr_emit),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
 
-    // ---- cassette read-back capture (ddrusa ERROR 121 (3), docs 2026-09-14) ----
-    // THE measurement that is still missing: the 32-bit id the CPU actually
-    // assembles. The previous two attempts were both unusable -- gating on CS, then
-    // on in_rtr, let the game's idle polling of this same register overwrite the
-    // probe (the RTR now loops, so in_rtr never falls). So: ARM on the RST rising
-    // edge that starts the response-to-reset, capture exactly 32 reads, then FREEZE
-    // until the next RST. That is precisely the window PSX.EXE's detector samples.
+    // ---- cassette EVENT TRACE (ddrusa ERROR 121 (3), docs 2026-09-14) ----
+    // Four bitstreams were spent capturing ONE value at ONE gate, and each time a
+    // dead hypothesis left the instrument worthless (twice the gate itself was
+    // wrong). Meanwhile every simulation passes: tb_zs01_rtr sweeps io0_dir x D0
+    // and tb_zs01_detect drives the game's exact probe through the real exp1 bus,
+    // and both assemble 0x5a530001 from the real ddrusa image. So the LOGIC model
+    // is right and the STIMULUS model is wrong -- which no single captured value
+    // can fix.
     //
-    // And capture asic_dout[2] -- the bit s573_io HANDS THE CPU -- not sec_io0. Both
-    // benches prove sec_io0 carries the id (tb_zs01_rtr, tb_zs01_detect), so if this
-    // assembles the id too, the fabric is exonerated end to end and the fault is in
-    // the PSX core's exp1 read timing; if it does not, the divergence is between
-    // sec_io0 and the misc word, in a way simulation does not reproduce.
+    // This records the stimulus itself: every cassette latch write and every read
+    // of the misc word, in order, with a coarse inter-event delta, plus what the
+    // fabric presented at each. Replaying these latch writes in tb_zs01_rtr
+    // reproduces the board exactly, so the remaining work happens in simulation.
+    //   entry = { evt, rst, cs_n, scl, sda, io0_dir, sec_io0, asic_dout[2],
+    //             zs01_state[2:0], dt[3:0] }   evt: 0 = latch write, 1 = misc read
+    // dt counts 256-clk ticks since the previous event, saturating at 15.
     wire        misc_rd = sel_asic & exp1_re & (asic_off == 4'h6);
-    reg  [31:0] cap_bits = 32'd0;
-    reg  [7:0]  cap_cnt  = 8'd0;
-    reg         cap_arm  = 1'b0;
-    reg         sec_rst_q = 1'b0;
+    reg  [15:0] sectrace [0:127];
+    reg  [7:0]  sec_twr  = 8'd0;
+    reg  [3:0]  sec_tdt  = 4'd0;
+    reg  [7:0]  sec_ttick= 8'd0;
+    reg         latch_we_q = 1'b0;
+    wire        latch_wr_evt = sel_seclatch & exp1_we & ~latch_we_q;
+    wire [15:0] sec_tentry = { (misc_rd ? 1'b1 : 1'b0),
+                               sec_rst_line, sec_cs_n, sec_scl_line, sec_sda_line,
+                               sec_io0_dir, sec_io0, asic_dout[2],
+                               sec_zs01_state, sec_tdt };
     always @(posedge clk) begin
+        latch_we_q <= sel_seclatch & exp1_we;
         if (rst) begin
-            cap_bits <= 32'd0; cap_cnt <= 8'd0; cap_arm <= 1'b0; sec_rst_q <= 1'b0;
+            sec_twr <= 8'd0; sec_tdt <= 4'd0; sec_ttick <= 8'd0;
         end else begin
-            sec_rst_q <= ~sec_cs_n & sec_rst_line;
-            // RST 0->1 while selected: a fresh response-to-reset begins
-            if (~sec_rst_q && (~sec_cs_n & sec_rst_line)) begin
-                cap_arm <= 1'b1; cap_cnt <= 8'd0; cap_bits <= 32'd0;
-            end else if (cap_arm && misc_rd) begin
-                cap_bits <= {cap_bits[30:0], asic_dout[2]};
-                cap_cnt  <= cap_cnt + 8'd1;
-                if (cap_cnt == 8'd31) cap_arm <= 1'b0;   // exactly the probe window
+            if (sec_ttick == 8'd255) begin
+                sec_ttick <= 8'd0;
+                if (sec_tdt != 4'd15) sec_tdt <= sec_tdt + 4'd1;
+            end else
+                sec_ttick <= sec_ttick + 8'd1;
+            if ((latch_wr_evt || misc_rd) && sec_twr < 8'd128) begin
+                sectrace[sec_twr[6:0]] <= sec_tentry;
+                sec_twr  <= sec_twr + 8'd1;
+                sec_tdt  <= 4'd0;
+                sec_ttick<= 8'd0;
             end
         end
     end
-    assign sec_rd_dbg   = {sec_rtr_edges, cap_cnt, cap_bits};
+    assign sec_trace_count = sec_twr;
+    always @(posedge clk) sec_trace_data <= sectrace[sec_trace_addr];
+
+    assign sec_rd_dbg   = {sec_rtr_edges, sec_twr, 32'd0};
     assign sec_emit_dbg = sec_rtr_emit;
 
     // --- ATAPI CD-ROM (IDE bank 0 = command block, bank 1 = control block) ---

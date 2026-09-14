@@ -269,6 +269,9 @@ static uint16_t last_sec_dbg = 0, last_sec_dbg2 = 0, last_sec_dbg3 = 0;
 static uint16_t last_sec_dbg4 = 0, last_sec_size = 0;
 static uint16_t last_sec_rd0 = 0, last_sec_rd1 = 0, last_sec_rd2 = 0;
 static uint16_t last_sec_em0 = 0, last_sec_em1 = 0;
+#ifndef CMD_573_SECTRACE
+#define CMD_573_SECTRACE 0x6D
+#endif
 #ifndef CMD_573_STAGETRACE
 #define CMD_573_STAGETRACE 0x6C
 #endif
@@ -278,6 +281,7 @@ static uint16_t last_sec_em0 = 0, last_sec_em1 = 0;
  * boot) is over -- so a failed STAGE PCB INITIALIZE shows the exact waveform
  * the game put on the wire and what the multiplexor made of it. */
 static uint16_t trace_dumped = 0;
+static uint16_t sectrace_dumped = 0;
 static void stagetrace_dump(void)
 {
     /* Incremental: once a second, print every entry recorded since the last
@@ -308,6 +312,45 @@ static void stagetrace_dump(void)
     }
     trace_dumped = cnt;
     if (cnt >= 128) s573_log("s573mp3: stage trace: buffer full (128 events)\n");
+}
+/* Cassette event trace (CMD_573_SECTRACE). Every latch write and every read of the
+ * misc word, in order, with the fabric's view at each -- i.e. the STIMULUS, not one
+ * captured value. Replaying the latch writes in sim/tb_zs01_rtr reproduces the board,
+ * which is what four single-value captures could not do. */
+static void sectrace_dump(void)
+{
+    static uint64_t next = 0;
+    uint16_t cnt, base, w[10];
+    int i;
+    uint64_t t = now_us();
+    if (t < next) return;
+    next = t + 1000000ull;
+    cnt = spi_uio_cmd_cont(CMD_573_SECTRACE);
+    DisableIO();
+    cnt &= 0xff;
+    if (cnt <= sectrace_dumped) return;
+    if (sectrace_dumped == 0)
+        s573_log("s573mp3: cassette trace: evt W=latch write R=misc read | rst cs scl sda = latch lines | "
+                 "dir=control bit6 | io0=what the chip drives | cpu=bit2 handed to the CPU | "
+                 "st=zs01 state (0 stop 1 rtr 2 cmd 3 proc 4 read) | dt=256-clk ticks since the "
+                 "previous event (15=saturated)\n");
+    for (base = sectrace_dumped & ~7; base < cnt; base += 8) {
+        w[0] = spi_uio_cmd_cont(CMD_573_SECTRACE);
+        w[1] = spi_w(base);
+        for (i = 2; i <= 9; i++) w[i] = spi_w(0);
+        DisableIO();
+        for (i = 0; i < 8 && base + i < cnt; i++) {
+            uint16_t e = w[2 + i];
+            if (base + i < sectrace_dumped) continue;
+            s573_log("s573mp3:   [%3u] %c rst=%u cs=%u scl=%u sda=%u dir=%u io0=%u cpu=%u st=%u dt=%u\n",
+                     base + i, ((e >> 15) & 1) ? 'R' : 'W',
+                     (e >> 14) & 1, (e >> 13) & 1, (e >> 12) & 1, (e >> 11) & 1,
+                     (e >> 10) & 1, (e >> 9) & 1, (e >> 8) & 1,
+                     (e >> 4) & 7, e & 15);
+        }
+    }
+    sectrace_dumped = cnt;
+    if (cnt >= 128) s573_log("s573mp3: cassette trace: buffer full (128 events)\n");
 }
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
@@ -926,5 +969,5 @@ void s573mp3_poll(void)
     }
 
     ctrl_exchange();
-    if (opt_hb) { ring_watch(); heartbeat(); stagetrace_dump(); }
+    if (opt_hb) { ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump(); }
 }

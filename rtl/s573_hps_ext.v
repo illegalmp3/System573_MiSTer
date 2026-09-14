@@ -211,6 +211,10 @@ module s573_hps_ext
     input      [15:0] sec_size_dbg,  // {1, cart_type[1:0], eep_max[12:0]} (word 10; see emu.sv)
     input      [47:0] sec_rd_dbg,    // {rtr_edges[7:0], reads-in-RTR[7:0], bits[31:0]} (words 11..13)
     input      [31:0] sec_emit_dbg,  // the 32 bits the ZS01 drove on its RTR edges (words 14..15)
+    // ---- CMD_573_SECTRACE: cassette event trace read-out (system573_top) ----
+    output reg [6:0]  sec_trace_addr,
+    input      [15:0] sec_trace_data,   // valid the cycle after sec_trace_addr
+    input      [7:0]  sec_trace_count,
     // ---- CMD_573_STAGETRACE: gn845pwbb line-event trace read-out ----
     output reg [6:0]  stage_trace_addr,
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
@@ -243,7 +247,11 @@ localparam CMD_573_PTRS   = 'h68;
 localparam CMD_573_STATUS = 'h69;
 localparam CMD_573_CTRL   = 'h6A;
 localparam CMD_573_MP3CFG = 'h6B;
-localparam CMD_573_STAGETRACE = 'h6C;  // must stay the TOP of the range (dout_en)
+localparam CMD_573_STAGETRACE = 'h6C;
+localparam CMD_573_SECTRACE   = 'h6D;  // must stay the TOP of the range (dout_en)
+// CMD_573_SECTRACE (0x6D): word0 up = entries recorded (0..128); word1 dn = base
+// index, words 2..9 up = eight consecutive entries. Same shape as STAGETRACE.
+// entry = {evt, rst, cs_n, scl, sda, io0_dir, sec_io0, asic_dout2, state[2:0], dt[3:0]}
 // CMD_573_STAGETRACE (0x6C): word0 up = entries recorded (0..128); word1 dn = base
 // index (HPS), up = echo; words 2..9 up = trace[base+0..7]. Same-word semantics:
 // the address for word k+1 is set at word k's strobe, the registered read is
@@ -336,7 +344,7 @@ always @(posedge clk_sys) begin
         if(byte_cnt == 0) begin
             cmd <= io_din;
             dout_en <= (io_din >= CD_GET && io_din <= CD_SET) ||
-                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_STAGETRACE);
+                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_SECTRACE);
             case(io_din)
                 CMD_573_PTRS: begin
                     io_dout <= fab_pcm_rd;
@@ -346,6 +354,9 @@ always @(posedge clk_sys) begin
                 end
                 CMD_573_STAGETRACE: begin
                     io_dout <= {8'd0, stage_trace_count};
+                end
+                CMD_573_SECTRACE: begin
+                    io_dout <= {8'd0, sec_trace_count};
                 end
                 CMD_573_STATUS: begin
                     io_dout <= status_flags;
@@ -433,6 +444,16 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt >= 2 && byte_cnt <= 9) begin
                         io_dout <= stage_trace_data;
                         stage_trace_addr <= stage_trace_addr + 7'd1;
+                    end
+                end
+                CMD_573_SECTRACE: begin
+                    if(byte_cnt == 1) begin
+                        sec_trace_addr <= io_din[6:0];
+                        io_dout <= io_din;
+                    end
+                    else if(byte_cnt >= 2 && byte_cnt <= 9) begin
+                        io_dout <= sec_trace_data;
+                        sec_trace_addr <= sec_trace_addr + 7'd1;
                     end
                 end
                 CMD_573_MP3CFG: begin
