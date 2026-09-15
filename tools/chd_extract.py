@@ -65,6 +65,12 @@ class Chd:
             self.f.seek(off); data = self.f.read(self.hunkbytes)
         elif flags == 3:                                # MINI: 8-byte pattern
             data = (e[0:8] * ((self.hunkbytes // 8) + 1))[:self.hunkbytes]
+        elif flags == 4:                                # SELF_REF: a duplicate of
+            # another hunk in this same file; the offset field holds its NUMBER,
+            # not a file offset. Common on discs with long identical runs (the two
+            # MODE1/2048 dumps here, 936eaa and 910jca02, both use it). Without
+            # this the reader dies with "unhandled map type 4" partway in.
+            data = self.hunk(struct.unpack('>Q', e[0:8])[0])
         else:
             raise SystemExit("hunk %d: unhandled map type %d" % (n, flags))
         if len(data) != self.hunkbytes:
