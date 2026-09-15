@@ -42,10 +42,17 @@ module system573_top #(
     // for every non-flash EXP1 access and for flash ID reads / HITs.
     output wire        flash_wait,
 
+    // PCMCIA slot-2 card present (OSD "573 PCMCIA Card"). 0 = empty slot: banks
+    // 32-47 read 0xFFFF, matching MAME pccard_slot_device::read_memory with no card
+    // device attached. Tier 1/2 titles run with this at 0.
+    input  wire        card_en,
+
     // SDRAM flash line-fill port (used only when FLASH_SIM_BACKING=0; driven by
-    // emu.sv's SDRAM read client into the 16 MB onboard-flash image).
+    // emu.sv's SDRAM read client into the 16 MB onboard-flash image or, when
+    // flash_mem_card=1, the 32 MB PCMCIA card image).
     output wire        flash_mem_req,
     output wire [26:0] flash_mem_addr,
+    output wire        flash_mem_card,
     input  wire [127:0] flash_mem_q,
     input  wire        flash_mem_ready,
 
@@ -55,6 +62,7 @@ module system573_top #(
     output wire        flash_wr_req,
     output wire        flash_wr_busy,
     output wire [26:0] flash_wr_addr,
+    output wire        flash_wr_card,
     output wire [15:0] flash_wr_data,
     input  wire        flash_wr_ack,
 
@@ -250,10 +258,12 @@ module system573_top #(
         .win_sel(sel_flash), .win_addr(exp1_addr[21:1]),
         .win_we(sel_flash & exp1_we), .win_din(exp1_wdata), .win_dout(flash_dout),
         .flash_ready(flash_ready),
+        .card_en(card_en),
         .flash_mem_req(flash_mem_req), .flash_mem_addr(flash_mem_addr),
+        .flash_mem_card(flash_mem_card),
         .flash_mem_q(flash_mem_q), .flash_mem_ready(flash_mem_ready),
         .flash_wr_req(flash_wr_req), .flash_wr_busy(flash_wr_busy),
-        .flash_wr_addr(flash_wr_addr),
+        .flash_wr_addr(flash_wr_addr), .flash_wr_card(flash_wr_card),
         .flash_wr_data(flash_wr_data), .flash_wr_ack(flash_wr_ack),
         .dbg_flash(flash_dbg)
     );

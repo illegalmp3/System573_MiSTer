@@ -1,8 +1,19 @@
 // -----------------------------------------------------------------------------
-// s573_flash_saver.v - 16 MB onboard-flash <-> SD save-file block engine
+// s573_flash_saver.v - onboard-flash (+ PCMCIA card) <-> SD save-file block engine
 //
 // Persists the System 573 onboard flash (16 MB, backed in SDRAM @ FLASH_START)
 // to the user's SD card so a CD-installed game survives reboot / power-cycle.
+//
+// TIER 3 (2026-09-14): with `card_en` high the image continues past the onboard
+// 16 MB with the 32 MB PCMCIA slot-2 linear flash card (SDRAM @ CARD_START), so
+// ONE slot-4 file holds both: blocks 0..NUM_BLOCKS-1 = onboard, blocks
+// NUM_BLOCKS..NUM_BLOCKS+CARD_BLOCKS-1 = card (48 MB total). `mem_card`/`wr_card`
+// tell the parent which base to add. ONE file rather than a second mount slot
+// because MiSTer Main parses at most SIX file/reset items per .mgl
+// (mra_loader.h mgl_item_struct item[6]) and dsfdr_install.mgl already uses all
+// six -- a seventh item is silently dropped. `load_blocks` is how many blocks the
+// mounted file actually holds (the parent clamps it to img_size), so a legacy
+// 16 MB .sav still restores correctly with the card enabled.
 // This is the SAVE/LOAD half of the persistence feature designed in
 // docs/audits/2026-06-12-flash-persistence-gate0.md (plan A/D/E). We ship only
 // the core + a blank flash; the user's install lands in saves/System573/<n>.sav.
@@ -64,10 +75,14 @@
 // are absent (no synth-time debug to gate). Verilog-2005. GNU GPL v2.
 // -----------------------------------------------------------------------------
 module s573_flash_saver #(
-    // Total image size in 1 KB blocks. 16 MB / 1 KB = 16384 (HW). The TB scales
+    // Onboard-flash image size in 1 KB blocks. 16 MB / 1 KB = 16384 (HW). It is
+    // ALSO the block index at which the PCMCIA card image begins. The TB scales
     // this DOWN (e.g. 64 blocks) to fit iverilog memory; the 32-bit LBA + 1 KB
     // block + 64-burst logic is IDENTICAL at any size (header note in the TB).
     parameter integer NUM_BLOCKS = 16384,
+    // PCMCIA slot-2 card image size in 1 KB blocks. 32 MB / 1 KB = 32768
+    // (linflash.cpp fujitsu_32mb_flash_card_device = 8 x 29F016A pairs).
+    parameter integer CARD_BLOCKS = 32768,
     // AUTO-SAVE idle threshold in clk_1x cycles. The 573 flash is written ONLY
     // during a CD install (the game runs FROM flash, never programs it in play),
     // so we auto-save when the flash went DIRTY then QUIET for AUTOSAVE_THRESH
@@ -86,6 +101,14 @@ module s573_flash_saver #(
     input  wire        autosave_en,    // LEVEL: OSD "Auto Save Install" toggle (default On); 0 disables ONLY the self-fire (manual Save Flash + Erase still work)
     output reg         auto_saved = 1'b0,  // 1-cycle: an AUTO-SAVE just fired (clears emu flash_dirty)
     input  wire        load_arm,       // LEVEL: armed to LOAD (post-blank, mounted)
+    // LEVEL: a PCMCIA card is fitted -> a SAVE/ERASE spans NUM_BLOCKS+CARD_BLOCKS
+    // instead of NUM_BLOCKS. Held for the whole transfer (an OSD option set before
+    // launch); changing it mid-save is not supported and never happens.
+    input  wire        card_en,
+    // How many 1 KB blocks the MOUNTED save file actually holds, i.e. how many a
+    // LOAD reads. The parent clamps it to img_size so a legacy 16 MB .sav restores
+    // the onboard flash and simply leaves the card region alone.
+    input  wire [31:0] load_blocks,
     output reg         busy = 1'b0,    // LEVEL: a SAVE or LOAD is in progress
     output reg         saving = 1'b0,  // LEVEL: a SAVE or ERASE is in progress (OSD status)
     output reg         save_done = 1'b0,   // 1-cycle: a SAVE just completed (toast)
@@ -104,6 +127,7 @@ module s573_flash_saver #(
     // ---- SDRAM 128-bit burst READ port (save read-back; emu muxes onto ch4) ----
     output reg         mem_req = 1'b0,    // 1-cycle: request a 128-bit burst
     output reg  [26:0] mem_addr = 27'd0,  // flat 16-bit word index (parent adds base)
+    output reg         mem_card = 1'b0,   // 0 = onboard image base, 1 = PCMCIA card base
     input  wire [127:0] mem_q,           // the 8-word (16-byte) burst returned
     input  wire        mem_ready,        // 1-cycle: mem_q valid
 
@@ -111,12 +135,24 @@ module s573_flash_saver #(
     output reg         wr_req = 1'b0,     // 1-cycle: request a 16-bit word write
     output reg         wr_busy = 1'b0,    // LEVEL: held high pulse .. ack (mux select)
     output reg  [26:0] wr_addr = 27'd0,   // flat 16-bit word index (parent adds base)
+    output reg         wr_card = 1'b0,    // 0 = onboard image base, 1 = PCMCIA card base
     output reg  [15:0] wr_data = 16'd0,
     input  wire        wr_ack            // 1-cycle: the ch3 write completed
 );
     // 1 KB block geometry.
     localparam integer WORDS_PER_BLOCK  = 512;   // 1024 B / 2
     localparam integer BURSTS_PER_BLOCK = 64;    // 1024 B / 16 B (8 words/burst)
+
+    // ---- ONE file, TWO images -------------------------------------------------
+    // Blocks below NUM_BLOCKS address the onboard 16 MB flash; blocks at or above
+    // it address the PCMCIA card, re-based to that image's word 0 (see img_card /
+    // img_blk with the FSM regs below). save_total is how many blocks a SAVE or
+    // ERASE writes; load_blocks (an input) is how many a LOAD reads.
+    // (sized localparams rather than part-selects of the parameters -- part-selecting
+    // a parameter is not portable across tools)
+    localparam [31:0] FLASH_BLK32 = NUM_BLOCKS;
+    localparam [31:0] CARD_BLK32  = CARD_BLOCKS;
+    wire [31:0] save_total = card_en ? (FLASH_BLK32 + CARD_BLK32) : FLASH_BLK32;
 
     // Flat word index of block `lba`, word 0 = lba * 512. {lba, 9'b0}.
     // Burst `b` within a block covers words [b*8 .. b*8+7].
@@ -165,15 +201,54 @@ module s573_flash_saver #(
         LO_DRAIN_WAIT   = 4'd10;  // wait wr_ack, advance word / block
 
     reg [3:0]  state = S_IDLE;
-    reg [31:0] block_cnt = 32'd0;          // current LBA (0..NUM_BLOCKS-1)
+    reg [31:0] block_cnt = 32'd0;          // current LBA (0..save_total-1)
     reg [6:0]  burst_cnt = 7'd0;           // 0..63 within a block (save fill)
     reg [9:0]  word_cnt  = 10'd0;          // 0..511 within a block (load drain)
     reg        save_pending  = 1'b0;       // a SAVE was triggered while busy/idle
     reg        erase_pending = 1'b0;       // an ERASE was triggered while busy/idle
     reg        is_erase = 1'b0;            // the in-flight SAVE is an ERASE (stream zeros)
     reg        is_auto  = 1'b0;            // the in-flight SAVE was self-fired (auto-save)
+    // TERMINAL BLOCK COUNT, LATCHED AT START. It must NOT be a live wire.
+    //
+    // Regression fixed here (2026-09-14, HW: ddrusa + dsfdr stopped booting): the
+    // Tier-3 change compared block_cnt against `save_total` / `load_blocks`, both
+    // COMBINATIONAL. The pre-Tier-3 engine compared against the constant
+    // NUM_BLOCKS-1, which can never move. `load_blocks` is derived from
+    // flash_save_size, which emu.sv re-latches on EVERY img_mounted[4] pulse --
+    // and a second mount mid-load is the NORMAL case, not an edge case: Main
+    // mounts config/<core>.s4 at core init (user_io_init -> parse_config, before
+    // mgl_parse) and the .mgl then mounts the real .sav. If the terminal value
+    // moves below block_cnt while a LOAD is running, the `==` test is never
+    // satisfied: the FSM walks all 2^32 blocks, `busy` stays high, and emu ORs
+    // `busy` into the CPU reset hold -- so the core loads and the CPU never
+    // leaves reset. A black screen that looks exactly like a dead bitstream.
+    //
+    // Latched once at each start point, and compared with `>=` rather than `==`
+    // so that even a latch that is somehow wrong can only end the transfer early
+    // instead of hanging the machine forever.
+    reg [31:0] n_blocks = 32'd0;
+
+`ifdef SAVER_LIVE_NBLOCKS
+    // RED reference for the mid-transfer re-mount test ONLY (never synthesised --
+    // no .sdc/.qsf define): restores the live-wire `==` terminal comparison that
+    // stopped ddrusa and dsfdr booting on 2026-09-14. tb_s573_flash_saver_card
+    // test 6 is RED under this define (the LOAD never terminates and the bench
+    // times out, exactly as the CPU never left reset on silicon) and GREEN by
+    // default -- proof the bench exercises the fix without hand-reverting RTL.
+    wire save_last = (block_cnt == save_total  - 32'd1);
+    wire load_last = (block_cnt == load_blocks - 32'd1);
+`else
+    wire save_last = (block_cnt >= n_blocks - 32'd1);
+    wire load_last = (block_cnt >= n_blocks - 32'd1);
+`endif
     reg [127:0] fill_q;                     // latched 128-bit SDRAM burst (SAVE fill)
     reg [2:0]  fill_sub;                    // 0..7 word within the burst being drained
+
+    // Which image the CURRENT block lives in, and its block index within that
+    // image. With card_en=0 img_card is always 0 and img_blk == block_cnt, so the
+    // addressing is bit-identical to the pre-card engine.
+    wire        img_card = (block_cnt >= FLASH_BLK32);
+    wire [31:0] img_blk  = img_card ? (block_cnt - FLASH_BLK32) : block_cnt;
 
     // -------------------------------------------------------------------------
     // AUTO-SAVE on install-complete (no OSD action). The flash only changes during
@@ -265,6 +340,7 @@ module s573_flash_saver #(
             erase_pending <= 1'b0;
             is_erase      <= 1'b0;
             is_auto       <= 1'b0;
+            n_blocks      <= 32'd0;
             save_done     <= 1'b0;
             erase_done    <= 1'b0;
             auto_saved    <= 1'b0;
@@ -296,6 +372,7 @@ module s573_flash_saver #(
                         saving       <= 1'b1;
                         block_cnt    <= 32'd0;
                         burst_cnt    <= 7'd0;
+                        n_blocks     <= save_total;   // LATCH: see n_blocks above
                         state        <= SA_FILL_REQ;
                     end else if (erase_trigger || erase_pending) begin
                         // ERASE = a SAVE of zeros (mutually exclusive with save/
@@ -307,11 +384,19 @@ module s573_flash_saver #(
                         saving        <= 1'b1;
                         block_cnt     <= 32'd0;
                         burst_cnt     <= 7'd0;
+                        n_blocks      <= save_total;  // LATCH: see n_blocks above
                         state         <= SA_FILL_REQ;
-                    end else if (load_arm) begin
-                        // LOAD the saved image over the blank flash.
+                    end else if (load_arm && load_blocks != 32'd0) begin
+                        // LOAD the saved image over the blank flash. load_blocks
+                        // is LATCHED here (see n_blocks above): it is derived from
+                        // img_size, which emu re-latches on every img_mounted[4]
+                        // pulse, and a second mount while this load runs is the
+                        // normal case. A zero-length mount is refused rather than
+                        // started -- 0-1 underflows to 0xFFFFFFFF and would run
+                        // the FSM for 4 billion blocks with the CPU held in reset.
                         busy      <= 1'b1;
                         block_cnt <= 32'd0;
+                        n_blocks  <= load_blocks;
                         state     <= LO_RD_REQ;
                     end
                 end
@@ -325,7 +410,8 @@ module s573_flash_saver #(
                     end else begin
                         // burst `burst_cnt` covers words [burst_cnt*8 .. +7] of the
                         // block at word base {block_cnt, 9'b0}.
-                        mem_addr <= {block_cnt[17:0], 9'b0} + {burst_cnt, 3'b000};
+                        mem_addr <= {img_blk[17:0], 9'b0} + {burst_cnt, 3'b000};
+                        mem_card <= img_card;
                         mem_req  <= 1'b1;
                         state    <= SA_FILL_WAIT;
                     end
@@ -362,7 +448,7 @@ module s573_flash_saver #(
                 end
                 SA_WR_ACKDONE: begin
                     if (!sd_ack) begin
-                        if (block_cnt == NUM_BLOCKS-1) begin
+                        if (save_last) begin
                             state  <= S_IDLE;
                             busy   <= 1'b0;
                             saving <= 1'b0;
@@ -409,7 +495,8 @@ module s573_flash_saver #(
                 // ---------------- LOAD: drain the block into SDRAM ----------
                 LO_DRAIN_REQ: begin
                     // one 16-bit word write at {block_cnt, 9'b0} + word_cnt.
-                    wr_addr <= {block_cnt[17:0], 9'b0} + word_cnt[8:0];
+                    wr_addr <= {img_blk[17:0], 9'b0} + word_cnt[8:0];
+                    wr_card <= img_card;
                     wr_data <= buf_mem[word_cnt[8:0]];
                     wr_req  <= 1'b1;
                     wr_busy <= 1'b1;
@@ -418,7 +505,7 @@ module s573_flash_saver #(
                 LO_DRAIN_WAIT: begin
                     if (wr_ack) begin
                         if (word_cnt == WORDS_PER_BLOCK-1) begin
-                            if (block_cnt == NUM_BLOCKS-1) begin
+                            if (load_last) begin
                                 state <= S_IDLE;
                                 busy  <= 1'b0;
                             end else begin

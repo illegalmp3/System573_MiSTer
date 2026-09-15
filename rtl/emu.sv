@@ -470,6 +470,16 @@ parameter CONF_STR = {
 	// (=SYSTEM UNIT ERROR=). Default MUST stay Standard: a grounded P2-START would
 	// auto-start player 2 in every 2P game. Per-core OSD option -> flip per game session.
 	"O[100],573 Cabinet,Standard,DDR Solo;",
+	// 573 PCMCIA CARD (default Off): fits the Fujitsu 32 MB linear flash card in
+	// SLOT 2, which the Tier-3 DDR titles (3rd/4th/5th Mix, MAX, Extreme) install
+	// their game data onto -- MAME ksys573.cpp ddr3mp/ddr5m call pccard2_32mb().
+	// OFF is the pre-Tier-3 core exactly: banks 32-47 read 0xFFFF (an empty slot,
+	// per pccard_slot_device::read_memory with no card) and the slot-4 .sav stays
+	// 16 MB. ON backs the card with SDRAM at CARD_START and grows the .sav to
+	// 48 MB (16 MB onboard + 32 MB card) -- REQUIRES A 64 MB OR LARGER SDRAM
+	// MODULE. One file, not a second mount slot: Main parses at most six
+	// file/reset items per .mgl and the Tier-2 launchers already use all six.
+	"O[107],573 PCMCIA Card,Off,32MB (slot 2);",
 	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
 	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
 	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
@@ -878,6 +888,27 @@ localparam BIOS_START = 8388608;
 // no overlap with RAM (0..2 MB) or BIOS (0x00800000). Line buffer indexes by flat 16-bit
 // word; SDRAM byte address = FLASH_START + (word << 1).
 localparam [26:0] FLASH_START = 27'h0100_0000;
+
+// 573 PCMCIA SLOT-2 LINEAR FLASH CARD: 32 MB in SDRAM at 0x02000000..0x03FFFFFF
+// (Tier 3 -- DDR 3rd/4th/5th Mix, MAX, Extreme; docs/2026-09-14-tier3-pcmcia-design.md).
+// WHY HERE: the region above the 16 MB onboard flash is otherwise unused, and
+// 0x03FFFFFF is the LAST byte of SDRAM CHIP 0 -- psx/rtl/sdram.sv addresses a chip
+// with {BA[1:0], A[12:0], col[9:0]} = 25 word bits = 64 MB, with addr[26] selecting
+// the second chip (SDRAM_nCS). So this needs NO second-chip support, only a module
+// of 64 MB OR LARGER. On a 32 MB module it WOULD wrap (the same failure that moved
+// the onboard flash down to 0x01000000 -- see the comment above), so the card is an
+// OPT-IN OSD option, default Off, and the requirement is documented in the staging
+// script and the .mgl. (A `sdram_sz`-based hardware gate is deliberately NOT coded
+// yet: the encoding of that HPS word is not established anywhere in this tree, and
+// guessing it is exactly what this project does not do. sdram_sz[7:0] is already
+// exposed in the flash debug readback -- read the real value off the board first.)
+// WHY NOT DDR3: s573_ddram_arb gives the PSX master ABSOLUTE priority (a client op
+// starts only when the PSX side is fully quiescent), and a PCMCIA read STALLS THE
+// CPU through the EXP1 wait handshake -- starving it behind VRAM/GPU traffic is a
+// latency risk the onboard-flash SDRAM path does not have. Staying in SDRAM also
+// reuses ch3/ch4, s573_ch4_arb and s573_flash_saver unchanged, which matters at
+// ~83% ALM / 97% LAB.
+localparam [26:0] CARD_START = 27'h0200_0000;
 
 // S573 main RAM is 4 MB (8x KM48V514; MAME mame0288 ksys573.cpp L2600 ram "4M"), but the
 // vendored core natively decodes only 2 MB (ram8mb=0) or 8 MB linear (ram8mb=1) -- so on
@@ -1695,8 +1726,14 @@ wire        atapi_dma_rd;       // psx DMA_ATA_readEna -> atapi halfword consume
 wire [15:0] atapi_dma_dout;     // atapi prefetched sector halfword -> psx DMA_ATA_read
 
 // 573 onboard-flash SDRAM line-fill bridge (system573_top <-> sdram ch4).
+// 573 PCMCIA slot-2 card fitted (OSD). Drives s573_flash's bank 32-47 decode, the
+// SDRAM base select on the ch3/ch4 paths, the card-detect line the game reads, and
+// the combined 48 MB save geometry.
+wire        card_en = status[107];
 wire        flash_mem_req;
-wire [26:0] flash_mem_addr;     // flat 16-bit word index into the 16 MB image
+wire [26:0] flash_mem_addr;     // flat 16-bit word index into the selected image
+wire        flash_mem_card;     // 0 = onboard image (FLASH_START), 1 = card (CARD_START)
+wire        flash_wr_card;      // ditto for the program write-back
 wire [127:0] flash_mem_q;
 wire        flash_mem_ready;
 wire [23:0] flash_dbg;          // s573_flash trigger-state observers (HW bring-up)
@@ -1711,7 +1748,8 @@ wire [15:0] flash_wr_data;
 wire        flash_wr_ack;
 // ch3 byte address for a flash program write: FLASH_START + (word << 1) -- same
 // addressing as the ch4 read path so a programmed word reads back coherently.
-wire [26:0] flash_wr_ch3_addr = FLASH_START + {flash_wr_addr[25:0], 1'b0};
+wire [26:0] flash_wr_ch3_addr = (flash_wr_card ? CARD_START : FLASH_START)
+                                + {flash_wr_addr[25:0], 1'b0};
 // ch3 owner select: a HPS download (load time) always wins; otherwise a flash
 // program write-back drives ch3 (cheats engine is disabled, patch 0008).
 wire        ch3_dl    = exe_download | bios_download | flash_download;
@@ -1868,11 +1906,14 @@ wire        saver_sd_wr;
 // saver SDRAM ch4 read-back (128-bit burst, flat 16-bit word index)
 wire        saver_mem_req;
 wire [26:0] saver_mem_addr;
+wire        saver_mem_card;    // 0 = onboard image, 1 = PCMCIA card image
 // saver SDRAM ch3 write (single 16-bit word, flat word index)
 wire        saver_wr_req;
 wire        saver_wr_busy;
 wire [26:0] saver_wr_addr;
+wire        saver_wr_card;     // 0 = onboard image, 1 = PCMCIA card image
 wire [15:0] saver_wr_data;
+
 
 // flash-dirty: a CD installer programmed the onboard flash this session (any
 // flash_wr_ack while NOT a save load-write). Set sticky; cleared when a save
@@ -1889,6 +1930,16 @@ reg  flash_load_taken = 1'b0;
 wire flash_load_arm = flash_save_mounted && (flash_save_size > 0)
                       && ~flash_download && ~download_settle_hold
                       && ~flash_load_taken;
+
+// How many 1 KB blocks a SAVE writes and a LOAD reads. A SAVE spans whatever is
+// fitted (16 MB, or 48 MB with the card). A LOAD reads only what the MOUNTED file
+// actually holds, clamped to that -- so an existing Tier-1/2 16 MB .sav still
+// restores the onboard flash with the card enabled instead of running off the end
+// of the file, and it leaves the card region alone.
+wire [31:0] saver_save_blocks = card_en ? 32'd49152 : 32'd16384;
+wire [31:0] saver_file_blocks = flash_save_size[41:10];          // img_size / 1024
+wire [31:0] saver_load_blocks = (saver_file_blocks > saver_save_blocks)
+                                ? saver_save_blocks : saver_file_blocks;
 
 // SAVE trigger: explicit "Save Flash" R-bit OR the OSD-open auto-save when the
 // flash is dirty (an install happened). Edge-detected to a 1-cycle pulse. (The
@@ -2000,6 +2051,8 @@ s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .save_done    (saver_save_done),    // 1-cycle: a SAVE completed (toast)
    .erase_done   (saver_erase_done),   // 1-cycle: an ERASE completed (toast)
    .load_arm     (flash_load_arm),
+   .card_en      (card_en),
+   .load_blocks  (saver_load_blocks),
    .busy         (saver_busy),
    .saving       (saver_saving),
    .sd_rd        (saver_sd_rd),
@@ -2012,11 +2065,13 @@ s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .sd_buff_din  (sd_buff_din4),
    .mem_req      (saver_mem_req),
    .mem_addr     (saver_mem_addr),
+   .mem_card     (saver_mem_card),
    .mem_q        (flash_mem_q),       // shared ch4 data bus (latched on saver_mem_ready)
    .mem_ready    (saver_mem_ready),   // arbiter-routed (A); never the BIOS line-fill's
    .wr_req       (saver_wr_req),
    .wr_busy      (saver_wr_busy),
    .wr_addr      (saver_wr_addr),
+   .wr_card      (saver_wr_card),
    .wr_data      (saver_wr_data),
    .wr_ack       (saver_wr_ack)
 );
@@ -2028,7 +2083,8 @@ assign sd_wr[4] = saver_sd_wr;
 // ch3 only when saver_wr_busy and no HPS download is active).
 wire saver_wr_ack = sdramCh3_done & ~ch3_dl & saver_wr_busy;
 // saver ch3 byte address = FLASH_START + (word << 1) -- same form as flash_wr.
-wire [26:0] saver_wr_ch3_addr = FLASH_START + {saver_wr_addr[25:0], 1'b0};
+wire [26:0] saver_wr_ch3_addr = (saver_wr_card ? CARD_START : FLASH_START)
+                                + {saver_wr_addr[25:0], 1'b0};
 
 // ch4 byte address: FLASH_START + (word << 1). ch4 reads ch4_addr[25:1] as the
 // word address and ch4_addr[26] as the chip select (same form as ch1 cache reads).
@@ -2054,10 +2110,10 @@ s573_ch4_arb u_ch4_arb (
    .clk      (clk_1x),
    .rst      (RESET | status[0]),       // match the saver's reset
    .a_req    (saver_mem_req),
-   .a_addr   (FLASH_START + {saver_mem_addr[25:0], 1'b0}),
+   .a_addr   ((saver_mem_card ? CARD_START : FLASH_START) + {saver_mem_addr[25:0], 1'b0}),
    .a_ready  (saver_mem_ready),
    .b_req    (flash_mem_req),
-   .b_addr   (FLASH_START + {flash_mem_addr[25:0], 1'b0}),
+   .b_addr   ((flash_mem_card ? CARD_START : FLASH_START) + {flash_mem_addr[25:0], 1'b0}),
    .b_ready  (flash_mem_ready),
    .ch4_addr (flash_ch4_addr),
    .ch4_req  (flash_ch4_req),
@@ -2329,13 +2385,16 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    // half exists, so behavior is unchanged from the old 1'b0 tie.
    .cfg_ddrsbm     (status[101]),
    .chart_ofs_ms   (status[106:102]),   // 573 Chart Offset (OSD)
+   .card_en        (card_en),
    .flash_mem_req  (flash_mem_req),
    .flash_mem_addr (flash_mem_addr),
+   .flash_mem_card (flash_mem_card),
    .flash_mem_q    (flash_mem_q),
    .flash_mem_ready(flash_mem_ready),
    .flash_wr_req   (flash_wr_req),
    .flash_wr_busy  (flash_wr_busy),
    .flash_wr_addr  (flash_wr_addr),
+   .flash_wr_card  (flash_wr_card),
    .flash_wr_data  (flash_wr_data),
    .flash_wr_ack   (flash_wr_ack),
    .flash_dbg      (flash_dbg),
@@ -2398,7 +2457,17 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .test_btn       (~(joy[11] | key_test)),// test button, active-low (idle = boot game). key_test =
                                            // headless install TEST via keyboard 'T' (PS/2 0x2C), since
                                            // joy[11] is a P1-only gamepad input (see key_test above).
-   .pcmcia_present (2'b00),
+   // PCMCIA card-detect, as the game reads it at 0x1f400006[11:10] (= IN1 bits
+   // 26/27). MAME ksys573.cpp:3197-3198 declares these IP_ACTIVE_HIGH IPT_CUSTOM
+   // reading pccard_cd_r<0>/<1>; m_pccard_cd[] inits to {1,1} (L549) and a fitted
+   // linear_flash_pccard_device calls m_cd1_cb(0) in device_start. So on the wire
+   // 0 = CARD INSERTED and 1 = EMPTY SLOT. [0] is slot 1 (never fitted here), [1]
+   // is slot 2. (CORRECTION 2026-09-14: this was hard-tied 2'b00, i.e. "both cards
+   // inserted", while docs/MEMORY_MAP.md:81 and PLATFORM.md:88 both claimed it
+   // reported them ABSENT. Harmless for Tier 1/2 -- no title read it -- but wrong
+   // against the oracle. If a working Tier-2 title regresses, this line is the
+   // first suspect.)
+   .pcmcia_present ({~card_en, 1'b1}),
    .cd_present     (1'b1),                 // CD drive present (empty). A real 573 -- even for flash/no_cdrom
                                            // games -- has a CR-589 on the IDE bus, and the GX700 POST "DRIVE
                                            // CHECK" probes it unconditionally (independent of the boot-device

@@ -110,13 +110,17 @@ module tb_s573_flash_saver;
         .save_trigger(save_trigger), .erase_trigger(erase_trigger),
         .flash_wr_ack(flash_wr_ack), .autosave_en(1'b1), .auto_saved(auto_saved),
         .load_arm(load_arm),
+        // Tier 3: the card half of the combined slot-4 image is exercised by
+        // tb_s573_flash_saver_card. Here the card is absent, which must be
+        // bit-identical to the pre-card engine.
+        .card_en(1'b0), .load_blocks(NUM_BLOCKS),
         .busy(busy), .saving(saving),
         .save_done(save_done), .erase_done(erase_done),
         .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_lba(sd_lba), .sd_ack(sd_ack),
         .sd_buff_wr(sd_buff_wr), .sd_buff_addr(sd_buff_addr),
         .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din),
-        .mem_req(mem_req), .mem_addr(mem_addr), .mem_q(mem_q), .mem_ready(mem_ready),
-        .wr_req(wr_req), .wr_busy(wr_busy), .wr_addr(wr_addr), .wr_data(wr_data),
+        .mem_req(mem_req), .mem_addr(mem_addr), .mem_card(), .mem_q(mem_q), .mem_ready(mem_ready),
+        .wr_req(wr_req), .wr_busy(wr_busy), .wr_addr(wr_addr), .wr_card(), .wr_data(wr_data),
         .wr_ack(wr_ack)
     );
 

@@ -78,7 +78,7 @@ accesses require the PS1 `EXP1` config register `0x1f801008 = 0x24173f47` and us
 | 6    | Security cart IO0 direction (0 = input)             |
 | 7    | CPLD signal (unknown)                              |
 
-> PCMCIA card **presence** is reported via the read register `0x1f400006[11:10]` (driven absent in `emu.sv`), NOT via this bank field.
+> PCMCIA card **presence** is reported via the read register `0x1f400006[11:10]` (= `IN1` bits 26/27), NOT via this bank field. **Polarity: 0 = card INSERTED, 1 = EMPTY SLOT.** MAME `ksys573.cpp:3197-3198` declares those bits `IP_ACTIVE_HIGH IPT_CUSTOM` reading `pccard_cd_r<0>/<1>`; `m_pccard_cd[]` initialises to `{1,1}` and a fitted `linear_flash_pccard_device` calls `m_cd1_cb(0)` in `device_start`. (Corrected 2026-09-14: this line previously said the core drove them *absent*, but `emu.sv` hard-tied `pcmcia_present` to `2'b00` — which in MAME's semantics says BOTH CARDS ARE INSERTED. Harmless for Tier 1/2 since no title read it. Now driven `{~card_en, 1'b1}`: slot 1 always empty, slot 2 inserted iff the OSD `573 PCMCIA Card` option is on.)
 
 ## Security cartridge latch (`0x1f6a0000`, write)
 | Bits | Meaning                                  |
