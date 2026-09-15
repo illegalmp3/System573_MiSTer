@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# stage_dsfdr.sh - stage Dancing Stage Fever (dsfdr) onto the games volume.
+# stage_dsfdr.sh - stage Dancing Stage Featuring Disney's Rave (dsfdr) onto the games volume.
 #
 #   tools/stage_dsfdr.sh "/Volumes/Samsung T7/games/System573"
 #
