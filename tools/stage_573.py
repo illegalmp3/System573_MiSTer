@@ -293,9 +293,19 @@ def main():
             else:
                 print(f"   {a.romset}.sav already present at {sav_mb} MiB -- left alone (may hold an install)")
         else:
+            # WRITE the zeroes -- never f.truncate(). All 16 saves this script made
+            # on 2026-09-15 with truncate() were NEVER written by the MiSTer (Mac
+            # mtimes, 0 non-zero bytes after installs), while every save created with
+            # real zero bytes (tools/stage_ddr4m.sh uses dd) holds its install. A
+            # truncate-extended file on the exFAT T7 is allocated but its data was
+            # never written; writing the bytes is what the working saves have in common.
+            blk = bytes(1 << 20)
             with open(sav, "wb") as f:
-                f.truncate(sav_mb << 20)
-            print(f"   {a.romset}.sav created, {sav_mb} MiB of zeroes")
+                for _ in range(sav_mb):
+                    f.write(blk)
+                f.flush()
+                os.fsync(f.fileno())
+            print(f"   {a.romset}.sav created, {sav_mb} MiB of zeroes (written, not truncated)")
     print(f"\n   OSD: 573 PCMCIA Card = {'32MB (slot 2)' if t['slot']=='2' else 'Off'}"
           f" | Cabinet = {'DDR Solo' if 'Solo' in t['desc'] else 'STANDARD'}"
           f" | Boot Device = CD-ROM to install, Flash ROM after")
