@@ -31,6 +31,14 @@ module tb_zs01_cmd;
     reg       io0 = 1'b0;              // control bit6: 0 -> SDA released HIGH
     reg        L_we = 0; reg [12:0] L_addr = 0; reg [7:0] L_data = 0;
     reg        S_we = 0; reg [2:0]  S_addr = 0; reg [7:0] S_data = 0;
+    // cassette-persistence observability (2026-09-16): the NVRAM dump port and the
+    // "a WRITE changed persisted state" strobe, checked against the MAME-model NVRAM
+    // after the same vectors (tools/zs01_ref.py --nvout).
+    reg  [7:0] dump_addr = 8'd0;
+    wire [7:0] dump_data;
+    wire       nv_wr;
+    integer    nv_wr_cnt = 0;
+    always @(posedge clk) if (nv_wr) nv_wr_cnt = nv_wr_cnt + 1;
     wire [63:0] sec_dbg;  wire sec_io0;  wire [7:0] sec_in;
     wire sec_drdy, sec_irdy;
 
@@ -42,8 +50,10 @@ module tb_zs01_cmd;
         .sec_dbg(sec_dbg), .sec_cs_n(), .sec_rst_line(), .sec_scl_line(),
         .sec_sda_line(), .sec_ds_line(), .sec_zs01_state(), .sec_rtr_edges(),
         .sec_in_rtr(), .sec_rtr_emit(),
-        .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
+        .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy),
+        .zs01_dump_addr(dump_addr), .zs01_dump_data(dump_data), .zs01_nv_wr(nv_wr)
     );
+
 
     always #5 clk = ~clk;
     task tk; begin repeat (3) @(posedge clk); end endtask
@@ -73,6 +83,7 @@ module tb_zs01_cmd;
     reg [7:0] u6 [0:7];
     reg [7:0] vec [0:1023];
     reg [7:0] resp [0:11];
+    reg [7:0] nvgold [0:139];
     integer k, v, nvec, bad, errors, fh;
     reg ack;
     reg [5:0] starts; reg [7:0] pkts;
@@ -123,6 +134,35 @@ module tb_zs01_cmd;
                 $write("       expected:"); for (k=0;k<12;k=k+1) $write(" %02h", vec[1+24*v+12+k]); $write("\n");
                 $write("       got     :"); for (k=0;k<12;k=k+1) $write(" %02h", resp[k]);         $write("\n");
             end
+        end
+
+        // ---- NVRAM dump == the MAME model's NVRAM after the same 13 vectors ----
+        // The vectors contain exactly three state-changing WRITEs (0x0d, 0x0c cmd|4,
+        // 0xff data key); READs and the bad-CRC packet must not strobe nv_wr.
+        fh = $fopen("secdata/ddrusa_zs01_nv_after.hex", "r");
+        if (fh == 0) begin
+            $display("FAIL: secdata/ddrusa_zs01_nv_after.hex missing -- rerun sim/gen_secdata.sh");
+            errors = errors + 1;
+        end else begin
+            $fclose(fh);
+            $readmemh("secdata/ddrusa_zs01_nv_after.hex", nvgold);
+            bad = 0;
+            for (k = 0; k < 140; k = k + 1) begin
+                @(negedge clk); dump_addr = k[7:0];
+                repeat (3) @(posedge clk); #1;
+                if (dump_data !== nvgold[k]) begin
+                    if (bad < 6) $display("FAIL: NVRAM dump byte %0d = %02h, MAME model %02h", k, dump_data, nvgold[k]);
+                    bad = bad + 1;
+                end
+            end
+            if (bad != 0) begin
+                $display("FAIL: %0d of 140 NVRAM dump bytes differ from the MAME model", bad);
+                errors = errors + 1;
+            end
+        end
+        if (nv_wr_cnt != 3) begin
+            $display("FAIL: nv_wr pulsed %0d times over the vectors (expected 3 state-changing WRITEs)", nv_wr_cnt);
+            errors = errors + 1;
         end
 
         starts = sec_dbg[61:56];

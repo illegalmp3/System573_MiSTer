@@ -109,6 +109,21 @@ module s573_flash_saver #(
     // LOAD reads. The parent clamps it to img_size so a legacy 16 MB .sav restores
     // the onboard flash and simply leaves the card region alone.
     input  wire [31:0] load_blocks,
+    // ONE EXTRA BLOCK after the flash image(s) (2026-09-16: the ZS01 cassette NVRAM,
+    // see s573_cass_nv.v). With xtra_en high a SAVE/ERASE writes one more 1 KB block at
+    // LBA = (card_en ? NUM_BLOCKS+CARD_BLOCKS : NUM_BLOCKS), and a LOAD that reaches that
+    // block (load_blocks includes it) hands its 512 words out instead of writing SDRAM.
+    // Both directions are word-at-a-time req/ack handshakes, so the source/sink sets its
+    // own latency. A SAVE fills the block from xtra_rd_*; an ERASE writes it as zeros.
+    input  wire        xtra_en,
+    output reg         xtra_rd_req = 1'b0,   // 1-cycle: present xtra_rd_word for xtra_rd_addr
+    output reg  [8:0]  xtra_rd_addr = 9'd0,
+    input  wire [15:0] xtra_rd_word,
+    input  wire        xtra_rd_ack,          // 1-cycle: xtra_rd_word is valid
+    output reg         xtra_wr_req = 1'b0,   // 1-cycle: take xtra_wr_word for xtra_wr_addr
+    output reg  [8:0]  xtra_wr_addr = 9'd0,
+    output reg  [15:0] xtra_wr_word = 16'd0,
+    input  wire        xtra_wr_ack,          // 1-cycle: the word was consumed
     output reg         busy = 1'b0,    // LEVEL: a SAVE or LOAD is in progress
     output reg         saving = 1'b0,  // LEVEL: a SAVE or ERASE is in progress (OSD status)
     output reg         save_done = 1'b0,   // 1-cycle: a SAVE just completed (toast)
@@ -152,7 +167,8 @@ module s573_flash_saver #(
     // a parameter is not portable across tools)
     localparam [31:0] FLASH_BLK32 = NUM_BLOCKS;
     localparam [31:0] CARD_BLK32  = CARD_BLOCKS;
-    wire [31:0] save_total = card_en ? (FLASH_BLK32 + CARD_BLK32) : FLASH_BLK32;
+    wire [31:0] base_total = card_en ? (FLASH_BLK32 + CARD_BLK32) : FLASH_BLK32;
+    wire [31:0] save_total = base_total + (xtra_en ? 32'd1 : 32'd0);
 
     // Flat word index of block `lba`, word 0 = lba * 512. {lba, 9'b0}.
     // Burst `b` within a block covers words [b*8 .. b*8+7].
@@ -198,7 +214,12 @@ module s573_flash_saver #(
         LO_RD_ACKSTART  = 4'd7,   // wait sd_ack rising (Main read sector from disk)
         LO_RD_ACKDONE   = 4'd8,   // wait sd_ack falling (block fully streamed in)
         LO_DRAIN_REQ    = 4'd9,   // request a 16-bit SDRAM write of buffer word
-        LO_DRAIN_WAIT   = 4'd10;  // wait wr_ack, advance word / block
+        LO_DRAIN_WAIT   = 4'd10,  // wait wr_ack, advance word / block
+        // ---- the extra block (xtra_*) ----
+        SA_X_REQ        = 4'd12,  // ask the extra-block source for word `word_cnt`
+        SA_X_WAIT       = 4'd13,  // wait xtra_rd_ack, stage it into buf_mem
+        LO_X_REQ        = 4'd14,  // hand word `word_cnt` of the read block to the sink
+        LO_X_WAIT       = 4'd15;  // wait xtra_wr_ack, advance
 
     reg [3:0]  state = S_IDLE;
     reg [31:0] block_cnt = 32'd0;          // current LBA (0..save_total-1)
@@ -227,6 +248,11 @@ module s573_flash_saver #(
     // so that even a latch that is somehow wrong can only end the transfer early
     // instead of hanging the machine forever.
     reg [31:0] n_blocks = 32'd0;
+    // LBA of the extra block for the transfer in flight (latched with n_blocks), and
+    // whether this transfer carries one at all.
+    reg [31:0] n_base  = 32'd0;
+    reg        x_on    = 1'b0;
+    wire       at_xtra = x_on && (block_cnt == n_base);
 
 `ifdef SAVER_LIVE_NBLOCKS
     // RED reference for the mid-transfer re-mount test ONLY (never synthesised --
@@ -287,6 +313,8 @@ module s573_flash_saver #(
         if (state == SA_FILL_DRAIN)
             buf_mem[{burst_cnt[5:0], 3'b000} + fill_sub] <=
                 is_erase ? 16'h0000 : fill_q[fill_sub*16 +: 16];
+        else if (state == SA_X_WAIT && xtra_rd_ack)
+            buf_mem[word_cnt[8:0]] <= xtra_rd_word;
         else if (sd_buff_wr)
             buf_mem[sd_buff_addr] <= sd_buff_dout;
     end
@@ -298,6 +326,8 @@ module s573_flash_saver #(
         save_done  <= 1'b0;
         erase_done <= 1'b0;
         auto_saved <= 1'b0;
+        xtra_rd_req <= 1'b0;
+        xtra_wr_req <= 1'b0;
 
         // ---- AUTO-SAVE idle tracker (independent of the FSM clock-domain math) --
         // dirty on the first install write; the idle counter resets on EVERY write
@@ -341,6 +371,8 @@ module s573_flash_saver #(
             is_erase      <= 1'b0;
             is_auto       <= 1'b0;
             n_blocks      <= 32'd0;
+            n_base        <= 32'd0;
+            x_on          <= 1'b0;
             save_done     <= 1'b0;
             erase_done    <= 1'b0;
             auto_saved    <= 1'b0;
@@ -373,6 +405,8 @@ module s573_flash_saver #(
                         block_cnt    <= 32'd0;
                         burst_cnt    <= 7'd0;
                         n_blocks     <= save_total;   // LATCH: see n_blocks above
+                        n_base       <= base_total;
+                        x_on         <= xtra_en;
                         state        <= SA_FILL_REQ;
                     end else if (erase_trigger || erase_pending) begin
                         // ERASE = a SAVE of zeros (mutually exclusive with save/
@@ -385,6 +419,8 @@ module s573_flash_saver #(
                         block_cnt     <= 32'd0;
                         burst_cnt     <= 7'd0;
                         n_blocks      <= save_total;  // LATCH: see n_blocks above
+                        n_base        <= base_total;
+                        x_on          <= xtra_en;
                         state         <= SA_FILL_REQ;
                     end else if (load_arm && load_blocks != 32'd0) begin
                         // LOAD the saved image over the blank flash. load_blocks
@@ -397,13 +433,19 @@ module s573_flash_saver #(
                         busy      <= 1'b1;
                         block_cnt <= 32'd0;
                         n_blocks  <= load_blocks;
+                        n_base    <= base_total;
+                        x_on      <= xtra_en;
                         state     <= LO_RD_REQ;
                     end
                 end
 
                 // ---------------- SAVE: fill the block from SDRAM ------------
                 SA_FILL_REQ: begin
-                    if (is_erase) begin
+                    if (at_xtra && !is_erase && burst_cnt == 7'd0) begin
+                        // the extra block: its 512 words come from the xtra source
+                        word_cnt <= 10'd0;
+                        state    <= SA_X_REQ;
+                    end else if (is_erase) begin
                         // ERASE: no ch4 read -- drain 8 zero words straight in.
                         fill_sub <= 3'd0;
                         state    <= SA_FILL_DRAIN;
@@ -436,6 +478,18 @@ module s573_flash_saver #(
                         end
                     end else begin
                         fill_sub <= fill_sub + 3'd1;
+                    end
+                end
+                SA_X_REQ: begin
+                    xtra_rd_addr <= word_cnt[8:0];
+                    xtra_rd_req  <= 1'b1;
+                    state        <= SA_X_WAIT;
+                end
+                SA_X_WAIT: begin
+                    // the buf_mem write of this word is in the write-port block above
+                    if (xtra_rd_ack) begin
+                        if (word_cnt == WORDS_PER_BLOCK-1) state <= SA_WR_REQ;
+                        else begin word_cnt <= word_cnt + 10'd1; state <= SA_X_REQ; end
                     end
                 end
                 SA_WR_REQ: begin
@@ -489,7 +543,7 @@ module s573_flash_saver #(
                     // 512-word block is fully staged.
                     if (!sd_ack) begin
                         word_cnt <= 10'd0;
-                        state    <= LO_DRAIN_REQ;
+                        state    <= at_xtra ? LO_X_REQ : LO_DRAIN_REQ;
                     end
                 end
                 // ---------------- LOAD: drain the block into SDRAM ----------
@@ -515,6 +569,30 @@ module s573_flash_saver #(
                         end else begin
                             word_cnt <= word_cnt + 10'd1;
                             state    <= LO_DRAIN_REQ;
+                        end
+                    end
+                end
+
+                // ---------------- LOAD: the extra block goes to its sink -------
+                LO_X_REQ: begin
+                    xtra_wr_addr <= word_cnt[8:0];
+                    xtra_wr_word <= buf_mem[word_cnt[8:0]];
+                    xtra_wr_req  <= 1'b1;
+                    state        <= LO_X_WAIT;
+                end
+                LO_X_WAIT: begin
+                    if (xtra_wr_ack) begin
+                        if (word_cnt == WORDS_PER_BLOCK-1) begin
+                            if (load_last) begin
+                                state <= S_IDLE;
+                                busy  <= 1'b0;
+                            end else begin
+                                block_cnt <= block_cnt + 32'd1;
+                                state     <= LO_RD_REQ;
+                            end
+                        end else begin
+                            word_cnt <= word_cnt + 10'd1;
+                            state    <= LO_X_REQ;
                         end
                     end
                 end

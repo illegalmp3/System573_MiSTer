@@ -114,6 +114,10 @@ module system573_top #(
     input  wire        sec_ser_we,    // DS2401 (.u6, 8-byte serial image) byte write
     input  wire [2:0]  sec_ser_addr,
     input  wire [7:0]  sec_ser_din,
+    // ZS01 cassette NVRAM persistence (s573_cass_nv in emu.sv): dump port + change strobe
+    input  wire [7:0]  sec_dump_addr,
+    output wire [7:0]  sec_dump_data,  // 2-clock latency
+    output wire        sec_nv_wr,      // 1-clock: a cassette WRITE changed persisted state
 
     // Board inputs (JAMMA / coins / DIP) from the MiSTer host
     input  wire [3:0]  dip_sw,
@@ -295,7 +299,8 @@ module system573_top #(
         .sec_scl_line(sec_scl_line), .sec_sda_line(sec_sda_line), .sec_ds_line(sec_ds_line),
         .sec_zs01_state(sec_zs01_state),
         .sec_in_rtr(sec_in_rtr), .sec_rtr_emit(sec_rtr_emit),
-        .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
+        .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy),
+        .zs01_dump_addr(sec_dump_addr), .zs01_dump_data(sec_dump_data), .zs01_nv_wr(sec_nv_wr)
     );
 
     // ---- cassette stimulus recorder (ddrusa ERROR 121 (3), docs 2026-09-14) ----

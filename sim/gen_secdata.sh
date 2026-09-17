@@ -53,5 +53,5 @@ extract "$ROOT/dumps/mame573/ddrusa.zip"   gka44ua.u1 gka44ua.u6 ddrusa   "ddrus
 # Golden ciphertext vectors for tb_zs01_golden.v from the INDEPENDENT reference model.
 if [ -f "$OUT/ddrusa_u1.hex" ]; then
   python3 "$ROOT/tools/zs01_ref.py" --u1hex "$OUT/ddrusa_u1.hex" --u6hex "$OUT/ddrusa_u6.hex" \
-          --out "$OUT/ddrusa_zs01_vectors.hex"
+          --out "$OUT/ddrusa_zs01_vectors.hex" --nvout "$OUT/ddrusa_zs01_nv_after.hex"
 fi

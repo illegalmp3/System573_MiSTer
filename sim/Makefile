@@ -10,7 +10,7 @@ IVFLAGS := -g2005-sv -Wall
 RTL     := ../rtl
 BUILD   := build
 
-TESTS := gn845pwbb watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdtoc atapi_cdread cdboot
+TESTS := gn845pwbb s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdtoc atapi_cdread cdboot
 
 # `make` with no target must run the whole suite: the secdata/cddata helper
 # targets were added ABOVE `all`, silently turning `make -C sim` into a no-op
@@ -26,6 +26,7 @@ SRC_s573_nvram_loader := $(RTL)/s573_nvram_loader.v $(RTL)/m48t58.v
 SRC_s573_nvram_saver  := $(RTL)/s573_nvram_saver.v $(RTL)/s573_nvram_loader.v $(RTL)/m48t58.v
 SRC_s573_flash_saver  := $(RTL)/s573_flash_saver.v
 SRC_s573_flash_saver_card := $(RTL)/s573_flash_saver.v
+SRC_s573_cass_nv  := $(RTL)/s573_flash_saver.v $(RTL)/s573_cass_nv.v $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v $(RTL)/ds2401.v
 SRC_s573_ch4_arb      := $(RTL)/s573_ch4_arb.v
 SRC_s573_seccart_loader := $(RTL)/s573_seccart_loader.v
 SRC_ds2401        := $(RTL)/ds2401.v
@@ -91,6 +92,7 @@ SRC_atapi_inquiry  := $(SRC_system573_top)
 secdata:
 	@sh gen_secdata.sh >/dev/null 2>&1 || true
 s573_seccart: secdata
+s573_cass_nv: secdata
 zs01: secdata
 zs01_golden: secdata
 zs01_rtr: secdata
@@ -256,6 +258,12 @@ PCM_FAKE_UNDERRUN ?=
 # the next one: ddrextrm song-select pops). tb_s573_mp3_pcm phase G is RED under the
 # define and GREEN by default. MAME reference: mas3507d.cpp reset_playback().
 PCM_NO_STOP_FLUSH ?=
+# Optional `make CASS_NV_NO_RESTORE=1 s573_cass_nv` compiles s573_cass_nv.v with
+# -DCASS_NV_NO_RESTORE: a LOAD never applies the saved ZS01 cassette block, i.e. the
+# pre-2026-09-16 core in which the .mgl's pristine .u1 always wins and an installed
+# ddrextrm stops with ERROR 175 after a power cycle. tb_s573_cass_nv test 3 is RED
+# under the define and GREEN by default. MAME reference: zs01.cpp nvram_read/nvram_write.
+CASS_NV_NO_RESTORE ?=
 HPS_EXT_WIDE_DELTA ?=
 DEFS :=
 ifeq ($(HPS_EXT_WIDE_DELTA),1)
@@ -272,6 +280,9 @@ DEFS += -DMP3_CREDIT_FREERUN
 endif
 ifeq ($(PCM_FAKE_UNDERRUN),1)
 DEFS += -DPCM_FAKE_UNDERRUN
+endif
+ifeq ($(CASS_NV_NO_RESTORE),1)
+DEFS += -DCASS_NV_NO_RESTORE
 endif
 ifeq ($(PCM_NO_STOP_FLUSH),1)
 DEFS += -DPCM_NO_STOP_FLUSH

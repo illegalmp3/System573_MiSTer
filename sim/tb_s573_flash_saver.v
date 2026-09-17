@@ -121,7 +121,9 @@ module tb_s573_flash_saver;
         .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din),
         .mem_req(mem_req), .mem_addr(mem_addr), .mem_card(), .mem_q(mem_q), .mem_ready(mem_ready),
         .wr_req(wr_req), .wr_busy(wr_busy), .wr_addr(wr_addr), .wr_card(), .wr_data(wr_data),
-        .wr_ack(wr_ack)
+        .wr_ack(wr_ack),
+        .xtra_en(1'b0), .xtra_rd_req(), .xtra_rd_addr(), .xtra_rd_word(16'd0), .xtra_rd_ack(1'b0),
+        .xtra_wr_req(), .xtra_wr_addr(), .xtra_wr_word(), .xtra_wr_ack(1'b0)
     );
 
     // -------------------------------------------------------------------------

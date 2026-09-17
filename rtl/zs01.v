@@ -127,7 +127,16 @@ module zs01 #(
     output wire [63:0] dbg,
     output reg  [7:0]  rtr_edges,  // falling SCL edges serviced in ST_RTR (saturating)
     output wire        in_rtr,     // 1 while the response-to-reset is being shifted out
-    output reg  [31:0] rtr_emit    // the last 32 bits we drove on RTR falling edges (MSB = first)
+    output reg  [31:0] rtr_emit,   // the last 32 bits we drove on RTR falling edges (MSB = first)
+    // ---- NVRAM dump + change strobe (cassette persistence, 2026-09-16) ----
+    // MAME treats the ZS01 as NVRAM (zs01.cpp nvram_read/nvram_write: RTR, command key,
+    // data key, config registers, 112 data bytes -- the .u1 layout). dump_addr is a .u1
+    // byte index 0..139; dump_data is that byte TWO clocks later. nv_wr pulses for one
+    // clock when a WRITE command changes persisted state (data sector, 0xFD erase, 0xFE
+    // config, 0xFF data key), so the host can arm a save.
+    input  wire [7:0]  dump_addr,
+    output reg  [7:0]  dump_data,
+    output reg         nv_wr
 );
     localparam [2:0] ST_STOP = 3'd0, ST_RTR = 3'd1, ST_CMD = 3'd2, ST_PROC = 3'd3, ST_READ = 3'd4;
     // packet-engine sub-states (active while state == ST_PROC)
@@ -202,6 +211,29 @@ module zs01 #(
     always @(posedge clk) begin
         data_rdata <= data[rd_addr];            // registered read port
         if (ram_we) data[ram_waddr] <= ram_wdata;
+    end
+
+    // ---- dump port: a SHADOW of data[] (same single write port, its own registered
+    // read) so a save can read the NVRAM while the packet engine owns data[]'s read
+    // port. 112 bytes -> a second small M10K. Latency: stage 1 = RAM read + small-register
+    // select, stage 2 = output mux.
+    reg [7:0] datash [0:111];
+    // synthesis translate_off
+    integer kk2;
+    initial for (kk2 = 0; kk2 < 112; kk2 = kk2 + 1) datash[kk2] = kk2[7:0];   // mirrors data[]'s sim ramp
+    // synthesis translate_on
+    reg [7:0] dsh_q, dsm_q;
+    reg       dsel_q;
+    wire [7:0] d_off = dump_addr - 8'd28;
+    always @(posedge clk) begin
+        if (ram_we) datash[ram_waddr] <= ram_wdata;
+        dsh_q  <= datash[d_off[6:0]];
+        dsel_q <= (dump_addr >= 8'd28);
+        if      (dump_addr < 8'd4)  dsm_q <= rtr_val(dump_addr);
+        else if (dump_addr < 8'd12) dsm_q <= cmdkey[dump_addr - 8'd4];
+        else if (dump_addr < 8'd20) dsm_q <= dkey[dump_addr - 8'd12];
+        else                        dsm_q <= creg[dump_addr - 8'd20];
+        dump_data <= dsel_q ? dsh_q : dsm_q;
     end
 
     // ---- volatile framing state ----
@@ -295,6 +327,7 @@ module zs01 #(
         // the single data[] write port (ram_we/ram_waddr/ram_wdata). The 4-byte RTR
         // header and any padding past byte 139 are accepted and dropped.
         ram_we <= 1'b0;                          // one-shot default
+        nv_wr  <= 1'b0;                          // one-shot default
         if (load_we) begin
             loaded <= 1'b1;
             if (load_addr >= LD_DATA[12:0] && load_addr < LD_DATA_END[12:0]) begin
@@ -364,6 +397,8 @@ module zs01 #(
                             else if (wbuf[1] == 8'hfe) for (i = 0; i < 8; i = i + 1) creg[i] <= wbuf[2+i];
                             else if (wbuf[1] == 8'hff) for (i = 0; i < 8; i = i + 1) dkey[i] <= wbuf[2+i];
                             else if (off_ok)           pstate <= P_WR_DATA;
+                            // every one of those changes NVRAM that MAME would persist
+                            if (wbuf[1] >= 8'hfd || off_ok) nv_wr <= 1'b1;
                         end else begin
                             // ---- READ: only byte 0 is set; bytes 1 and 10..11 stay stale ----
                             for (i = 0; i < 8; i = i + 1) rkey[i] <= wbuf[2+i];
@@ -379,7 +414,7 @@ module zs01 #(
                         // ---- bad CRC: STATUS_ERROR, retry counter, wipe at the limit ----
                         rbuf[0] <= STATUS_ERROR;
                         creg[CONFIG_RC] <= rc_next;
-                        if (rc_next >= creg[CONFIG_RR]) pstate <= P_ERASE;
+                        if (rc_next >= creg[CONFIG_RR]) begin pstate <= P_ERASE; nv_wr <= 1'b1; end
                     end
                 end
                 P_WR_DATA: begin                 // memcpy(&m_data[off], &wbuf[2], 8)

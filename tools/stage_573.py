@@ -144,7 +144,7 @@ MGL_HEAD = """<!--
 
   The .sav MUST exist before launch -- an .mgl type="s" item mounts with pre=0 and
   a missing file EJECTS the slot (docs/2026-09-12-flash-persistence-fixed.md).
-  tools/stage_573.py creates it at {savmb} MiB.
+  tools/stage_573.py creates it at {savmb} MiB (+1 KB for a ZS01 cassette).
 
   After an install, WAIT for the "Flash saved" toast before cutting power. The game
   tells you to switch off at exactly the moment the auto-save has not fired yet
@@ -205,6 +205,13 @@ def main():
     t = title_info(a.romset)
     card = f"slot {t['slot']} / {t['card_mb']} MB" if t["slot"] else "none"
     sav_mb = 16 + (t["card_mb"] if t["slot"] == "2" and t["card_mb"] == 32 else 0)
+    # A ZS01 cassette is NVRAM (zs01.cpp nvram_read/nvram_write) and an install writes
+    # it, so its state rides in ONE extra 1 KB block after the flash image(s)
+    # (rtl/s573_cass_nv.v). Main never grows a type="s" image (pre=0 -> cangrow=0:
+    # user_io.cpp clamps a write past EOF to zero bytes), so the block must already
+    # be in the file.
+    zs01 = any(chip_of(t, r) == "ZS01" for r in t["cassettes"])
+    sav_bytes = (sav_mb << 20) + (1024 if zs01 else 0)
 
     print(f"== {t['romset']}: {t['desc']}")
     print(f"   machine config : {t['cfg']}   board: {'digital (k573dio)' if t['dio'] else 'analog'}")
@@ -224,7 +231,8 @@ def main():
         else:
             conv = "" if tr[0] == "MODE1_RAW" else "   <== MODE1/2048: needs cue+raw2352 conversion (see dsem)"
             print(f"   disc {d:<10}: TYPE:{tr[0]} SUBTYPE:{tr[1]} FRAMES:{tr[2]}{conv}")
-    print(f"   save file      : {sav_mb} MiB  ({'16 MB onboard flash + 32 MB card' if sav_mb == 48 else '16 MB onboard flash'})")
+    print(f"   save file      : {sav_bytes} B  ({'16 MB onboard flash + 32 MB card' if sav_mb == 48 else '16 MB onboard flash'}"
+          f"{' + 1 KB ZS01 cassette state' if zs01 else ''})")
 
     if t["slot"] == "1":
         print("\n   *** SLOT 1 IS NOT MODELLED. rtl/s573_flash.v decodes slot 2 (banks 32-47)")
@@ -288,10 +296,18 @@ def main():
         sav = os.path.join(a.dest, a.romset + ".sav")
         if os.path.exists(sav):
             have = os.path.getsize(sav)
-            if have != sav_mb << 20:
-                print(f"   WARNING {a.romset}.sav is {have} B, expected {sav_mb << 20}")
+            if zs01 and have == sav_mb << 20:
+                # a save from before the cassette block existed: APPEND the zero block
+                # (written bytes, see below). The flash image in front is untouched.
+                with open(sav, "ab") as f:
+                    f.write(bytes(1024))
+                    f.flush()
+                    os.fsync(f.fileno())
+                print(f"   {a.romset}.sav extended by the 1 KB cassette block -> {sav_bytes} B (install kept)")
+            elif have != sav_bytes:
+                print(f"   WARNING {a.romset}.sav is {have} B, expected {sav_bytes}")
             else:
-                print(f"   {a.romset}.sav already present at {sav_mb} MiB -- left alone (may hold an install)")
+                print(f"   {a.romset}.sav already present at {sav_bytes} B -- left alone (may hold an install)")
         else:
             # WRITE the zeroes -- never f.truncate(). All 16 saves this script made
             # on 2026-09-15 with truncate() were NEVER written by the MiSTer (Mac
@@ -303,9 +319,11 @@ def main():
             with open(sav, "wb") as f:
                 for _ in range(sav_mb):
                     f.write(blk)
+                if zs01:
+                    f.write(bytes(1024))
                 f.flush()
                 os.fsync(f.fileno())
-            print(f"   {a.romset}.sav created, {sav_mb} MiB of zeroes (written, not truncated)")
+            print(f"   {a.romset}.sav created, {sav_bytes} B of zeroes (written, not truncated)")
     print(f"\n   OSD: 573 PCMCIA Card = {'32MB (slot 2)' if t['slot']=='2' else 'Off'}"
           f" | Cabinet = {'DDR Solo' if 'Solo' in t['desc'] else 'STANDARD'}"
           f" | Boot Device = CD-ROM to install, Flash ROM after")

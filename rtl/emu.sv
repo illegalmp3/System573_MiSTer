@@ -1903,6 +1903,55 @@ always @(posedge clk_1x) begin
 end
 
 // -----------------------------------------------------------------------------
+// ZS01 security-cassette persistence (s573_cass_nv, 2026-09-16, ddrextrm ERROR 175).
+// MAME's zs01 device is NVRAM (zs01.cpp nvram_read/nvram_write: RTR, command key, data
+// key, config, 112 data bytes). An install WRITES the cassette and records the match in
+// flash; re-loading the pristine .u1 every launch made the two disagree after a power
+// cycle. The cassette state rides as one extra 1 KB block after the flash image(s) in
+// the slot-4 .sav: the saver pulls it from the ZS01 dump port on SAVE and hands it back
+// on LOAD, where it is written through the same ZS01 load port the .u1 download uses.
+// -----------------------------------------------------------------------------
+wire        cass_xtra_en;
+wire        cass_rd_req, cass_rd_ack, cass_wr_req, cass_wr_ack;
+wire [8:0]  cass_rd_addr, cass_wr_addr;
+wire [15:0] cass_rd_word, cass_wr_word;
+wire [7:0]  sec_dump_addr;
+wire [7:0]  sec_dump_data;
+wire        sec_nv_wr;          // 1-cycle: a cassette WRITE changed persisted state
+wire        cass_load_we;
+wire [12:0] cass_load_addr;
+wire [7:0]  cass_load_data;
+wire        cass_restored;
+s573_cass_nv u_cass_nv (
+   .clk          (clk_1x),
+   .rst          (RESET | status[0] | flash_download | seceep_download),
+   .cart_type    (sec_cart_type),
+   .xtra_en      (cass_xtra_en),
+   .xtra_rd_req  (cass_rd_req),
+   .xtra_rd_addr (cass_rd_addr),
+   .xtra_rd_word (cass_rd_word),
+   .xtra_rd_ack  (cass_rd_ack),
+   .xtra_wr_req  (cass_wr_req),
+   .xtra_wr_addr (cass_wr_addr),
+   .xtra_wr_word (cass_wr_word),
+   .xtra_wr_ack  (cass_wr_ack),
+   .dump_addr    (sec_dump_addr),
+   .dump_data    (sec_dump_data),
+   .load_we      (cass_load_we),
+   .load_addr    (cass_load_addr),
+   .load_data    (cass_load_data),
+   .restored     (cass_restored)
+);
+// ZS01 load port: the .u1 download and the saved-cassette restore never overlap (the
+// saver and u_cass_nv are held in reset for the whole seceep download).
+wire        sec_eep_we_m   = sec_eep_we | cass_load_we;
+wire [12:0] sec_eep_addr_m = cass_load_we ? cass_load_addr : sec_eep_addr;
+wire [7:0]  sec_eep_din_m  = cass_load_we ? cass_load_data : sec_eep_din;
+// Install activity for the auto-save: flash programming OR an accepted cassette WRITE,
+// so a cassette write that lands after the last flash word still re-arms the save.
+wire        saver_activity = flash_wr_ack | sec_nv_wr;
+
+// -----------------------------------------------------------------------------
 // 573 onboard-flash PERSISTENCE (s573_flash_saver): SAVE the 16 MB SDRAM flash to
 // saves/System573/<name>.sav (slot 4) and LOAD it back over the .mgl blank so a
 // CD-installed game survives reboot. Designed in docs/audits/2026-06-12-flash-
@@ -1955,7 +2004,7 @@ assign card_en = status[107] | card_from_save;
 // actually holds, clamped to that -- so an existing Tier-1/2 16 MB .sav still
 // restores the onboard flash with the card enabled instead of running off the end
 // of the file, and it leaves the card region alone.
-wire [31:0] saver_save_blocks = card_en ? 32'd49152 : 32'd16384;
+wire [31:0] saver_save_blocks = (card_en ? 32'd49152 : 32'd16384) + (cass_xtra_en ? 32'd1 : 32'd0);
 wire [31:0] saver_file_blocks = flash_save_size[41:10];          // img_size / 1024
 wire [31:0] saver_load_blocks = (saver_file_blocks > saver_save_blocks)
                                 ? saver_save_blocks : saver_file_blocks;
@@ -1997,7 +2046,7 @@ always @(posedge clk_1x) begin
    flash_erase_trigger <= 1'b0;
 
    // a programming write-back to flash during this session marks it dirty.
-   if (flash_wr_ack) flash_dirty <= 1'b1;
+   if (saver_activity) flash_dirty <= 1'b1;
    // the module self-fired an install-complete auto-save: clear emu's dirty flag
    // so the OSD-open path doesn't redundantly re-save the same episode.
    if (saver_auto_saved) flash_dirty <= 1'b0;
@@ -2034,7 +2083,9 @@ always @(posedge clk_1x) begin
    // (hypbbc2p/konam80s escaped it only because their .mgl also carries an explicit s4 item
    // within Main's six-item cap, whose second img_mounted[4] pulse re-armed the load.)
    // This makes the RISK-R1 guard hold for BOTH orderings instead of just one.
-   if (flash_download) flash_load_taken <= 1'b0;
+   // Same for the cassette .u1 (index 4): it overwrites any cassette state a LOAD
+   // already restored, so the LOAD must run (again) after it.
+   if (flash_download | seceep_download) flash_load_taken <= 1'b0;
 
    // edge -> 1-cycle save pulse. Saving clears dirty so a single OSD open does
    // not re-save unchanged flash on the next open.
@@ -2061,16 +2112,25 @@ end
 // core load, never during gameplay, so this can never interrupt a SAVE.
 s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .clk          (clk_1x),
-   .reset        (RESET | status[0] | flash_download),
+   .reset        (RESET | status[0] | flash_download | seceep_download),
    .save_trigger (flash_save_trigger),
    .erase_trigger(flash_erase_trigger),
-   .flash_wr_ack (flash_wr_ack),       // install-activity strobe -> arms the auto-save
+   .flash_wr_ack (saver_activity),     // install-activity strobe (flash OR cassette write) -> arms the auto-save
    .autosave_en  (~status[99]),        // OSD "Auto Save Install" (default On; status[99]=0)
    .auto_saved   (saver_auto_saved),   // 1-cycle: self-fired auto-save completed
    .save_done    (saver_save_done),    // 1-cycle: a SAVE completed (toast)
    .erase_done   (saver_erase_done),   // 1-cycle: an ERASE completed (toast)
    .load_arm     (flash_load_arm),
    .card_en      (card_en),
+   .xtra_en      (cass_xtra_en),
+   .xtra_rd_req  (cass_rd_req),
+   .xtra_rd_addr (cass_rd_addr),
+   .xtra_rd_word (cass_rd_word),
+   .xtra_rd_ack  (cass_rd_ack),
+   .xtra_wr_req  (cass_wr_req),
+   .xtra_wr_addr (cass_wr_addr),
+   .xtra_wr_word (cass_wr_word),
+   .xtra_wr_ack  (cass_wr_ack),
    .load_blocks  (saver_load_blocks),
    .busy         (saver_busy),
    .saving       (saver_saving),
@@ -2426,9 +2486,12 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .nvram_sav_rd_ok(nvram_sav_rd_ok),
    .nvram_written  (nvram_written),
    .sec_cart_type  (sec_cart_type),
-   .sec_eep_we     (sec_eep_we),
-   .sec_eep_addr   (sec_eep_addr),
-   .sec_eep_din    (sec_eep_din),
+   .sec_eep_we     (sec_eep_we_m),
+   .sec_eep_addr   (sec_eep_addr_m),
+   .sec_eep_din    (sec_eep_din_m),
+   .sec_dump_addr  (sec_dump_addr),
+   .sec_dump_data  (sec_dump_data),
+   .sec_nv_wr      (sec_nv_wr),
    .sec_ser_we     (sec_ser_we),
    .sec_ser_addr   (sec_ser_addr),
    .sec_ser_din    (sec_ser_din),

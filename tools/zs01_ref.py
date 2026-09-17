@@ -170,6 +170,9 @@ def main():
     ap.add_argument('--u1hex', required=True, help='140-byte (or padded) .u1 as one hex byte per line')
     ap.add_argument('--u6hex', required=True, help='8-byte .u6 as one hex byte per line')
     ap.add_argument('--out', required=True, help='golden vectors for sim/tb_zs01_golden.v')
+    ap.add_argument('--nvout', help='the device NVRAM after the last vector, in MAME zs01.cpp '
+                    'nvram_write order (RtR, cmd key, data key, config, 112 data) -- the '
+                    'golden for the cassette-persistence dump port (sim/tb_zs01_cmd.v)')
     a = ap.parse_args()
     _selfcheck()
     img = read_hex_bytes(a.u1hex); ds = read_hex_bytes(a.u6hex)
@@ -237,6 +240,13 @@ def main():
         f.write('// zero padding to 1024 entries so $readmemh fills the bench array without a range warning\n')
         for _ in range(used, 1024): f.write('00\n')
     print('wrote %s: %d vectors, model self-checks pass' % (a.out, len(vectors)))
+    if a.nvout:
+        nv = list(img[0:4]) + dev.cmdkey + dev.dkey + dev.creg + dev.data   # nvram_write order
+        assert len(nv) == 140
+        with open(a.nvout, 'w') as f:
+            f.write('// ZS01 NVRAM after the %d golden vectors (tools/zs01_ref.py --nvout), 140 bytes\n' % len(vectors))
+            for b in nv: f.write('%02x\n' % b)
+        print('wrote %s: post-vector NVRAM (%d bytes)' % (a.nvout, len(nv)))
 
 if __name__ == '__main__':
     main()

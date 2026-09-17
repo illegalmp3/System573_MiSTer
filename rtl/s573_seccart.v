@@ -82,7 +82,12 @@ module s573_seccart #(
     output wire        sec_io0,     // IO0  = EEPROM SDA (device-driven)
     output wire [7:0]  sec_in,      // I0-I7 ; I0 = DS2401 line
     output reg         sec_drdy,
-    output wire        sec_irdy
+    output wire        sec_irdy,
+    // ZS01 NVRAM persistence (see zs01.v): .u1-layout dump port (2-clock latency) and
+    // the one-clock "a WRITE changed persisted state" strobe.
+    input  wire [7:0]  zs01_dump_addr,
+    output wire [7:0]  zs01_dump_data,
+    output wire        zs01_nv_wr
 );
     // Effective cart type: the runtime cart_type input wins; if it is left at 0 and
     // CART_TYPE param is non-zero (sim-configured), fall back to the param.
@@ -174,6 +179,7 @@ module s573_seccart #(
     // (cs_seen=1, rtr_probes=1, rtr_edges=33) -- the ZS01 verify therefore failed and
     // the installer reported ERROR 121 (3). SCL/CS/RST stay on D1/D2/D3.
     wire zs01_sda_i = ~io0_dir;   // CONTROL bit 6, active-low. D0 is NOT wired to the ZS01.
+    wire zs01_nv_wr_raw;   // declared before the instance that drives it
     zs01 eeprom_zs01 (
         .clk(clk), .rst(rst),
         .cs(sel_zs01 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
@@ -181,8 +187,10 @@ module s573_seccart #(
         .load_we(load_eep_we), .load_addr(load_eep_addr), .load_data(load_eep_data),
         // the same .u6 serial feeds the ZS01's internal DS2401 (0xFC/0xFD reads)
         .load_ds_we(load_ser_we), .load_ds_addr(load_ser_addr), .load_ds_data(load_ser_data),
-        .dbg(zs01_dbg), .rtr_edges(sec_rtr_edges), .in_rtr(sec_in_rtr), .rtr_emit(sec_rtr_emit)
+        .dbg(zs01_dbg), .rtr_edges(sec_rtr_edges), .in_rtr(sec_in_rtr), .rtr_emit(sec_rtr_emit),
+        .dump_addr(zs01_dump_addr), .dump_data(zs01_dump_data), .nv_wr(zs01_nv_wr_raw)
     );
+    assign zs01_nv_wr = sel_zs01 & zs01_nv_wr_raw;
 
     wire eeprom_sda_o = sel_zs01 ? sda_zs01_o : (sel041 ? sda041_o : sda100_o);
 
