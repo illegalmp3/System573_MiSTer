@@ -107,7 +107,7 @@ module tb_s573_mp3_path;
 
     s573_pcm_ring #(.RING_OFF_BEAT(22'd0), .BEATS_LOG2(BL)) u_pcm_ring (
         .clk(clk), .rst(rst),
-        .hps_wr_ptr(mp3_hps_pcm_wr[BL:0]), .fab_rd_ptr(ring_fab_rd_ptr),
+        .rd_en(mp3_ctrl_flags[1]), .hps_wr_ptr(mp3_hps_pcm_wr[BL:0]), .fab_rd_ptr(ring_fab_rd_ptr),
         .rd_req(ring_rd_req), .rd_addr(ring_rd_addr),
         .rd_data(dio_mem_rd_q), .rd_ack(ring_rd_ack),
         .wr_en(mp3_buf_wr_en), .wr_l(mp3_buf_wr_l), .wr_r(mp3_buf_wr_r),
@@ -340,10 +340,14 @@ module tb_s573_mp3_path;
         chk(mp3_ctrl_flags == 16'h0001, "init: cfg_ddrsbm set, drain off");
         chk(mp3_pcm_sample_tick == 0,   "init: no ticks with drain off");
 
-        // ---------- prefill, then enable the drain ----------
+        // ---------- prefill the RING, then enable the drain ----------
+        // The reader is gated on the drain enable (stop flush, 2026-09-16: MAME
+        // k573fpga update_stream feeds nothing while streaming is disabled), so
+        // with the drain off the beats wait in the ring and nothing moves.
         produce_beats(32);              // 64 samples in the ring
-        repeat (400) @(posedge clk);    // let the reader pull some into the buffer
-        chk(mp3_buf_level != 0,         "prefill: reader filled the elastic buffer");
+        repeat (400) @(posedge clk);
+        chk(mp3_buf_level == 0,         "prefill: reader stays off the ring while the drain is off");
+        chk(ring_rd_req == 0,           "prefill: no ring read issued while the drain is off");
         chk(nsamp == 0,                 "prefill: still no ticks before drain_en");
         hps_sync_cnt = hps_sync_cnt + 1;   // pretend one frame decoded
         ctrl_poll(16'h0003);            // drain ON

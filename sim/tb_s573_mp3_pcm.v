@@ -13,6 +13,8 @@
 // C backpressure+overflow honesty; D idle-mute + clean-restart phase; E steady-state
 // concurrent push+pop across >2 ring laps with EXACT 768-cycle inter-tick spacing;
 // F slow producer (underrun-interleaved) integrity. E/F close the review's test gaps.
+// G stop flush: a stop discards buffered audio (MAME reset_playback); RED under
+// `make PCM_NO_STOP_FLUSH=1 s573_mp3_pcm`.
 //
 // Event-driven (wait-for-N-ticks), so checks do not depend on sub-cycle phase.
 // Verilog-2005 / iverilog -g2005-sv.
@@ -250,6 +252,46 @@ module tb_s573_mp3_pcm;
                 $display("FAIL: phaseF data wrong at %0d (L=%04h R=%04h)", i, got_l[i], got_r[i]);
                 errors = errors + 1;
             end
+
+        // =====================================================================
+        // Phase G: STOP FLUSH (ddrextrm song-select pops, 2026-09-16). MAME
+        // mas3507d.cpp reset_playback() -- called by k573fpga set_fpga_ctrl() on
+        // every streaming-enable change -- zeroes the decoded `samples` array, so
+        // audio decoded but not yet played never survives a stop. Here: a stop
+        // must empty the buffer, pushes while stopped must be discarded (without
+        // counting as overflow), and the first samples after the restart must be
+        // the NEW stream, never the old one. RED under PCM_NO_STOP_FLUSH.
+        // =====================================================================
+        do_reset;
+        tick_count = 0;
+        for (i = 0; i < 100; i = i + 1)                 // idle prefill: still stored
+            push(16'hA000 + i[15:0], 16'hA800 + i[15:0]);
+        if (wr_level !== 11'd100) begin $display("FAIL: phaseG idle prefill before the first enable was not stored (level=%0d)", wr_level); errors=errors+1; end
+        drain_en = 1;
+        wait_ticks(10, 12*PERIOD);
+        @(negedge clk); drain_en = 0;                   // STOP with 90 old samples buffered
+        run_cyc(3);
+        if (wr_level !== 11'd0) begin $display("FAIL: phaseG stop did not flush the buffer (level=%0d, exp 0) -- old song survives the stop", wr_level); errors=errors+1; end
+        for (i = 0; i < 5; i = i + 1)                   // a late (in-flight) push while stopped
+            push(16'hA100 + i[15:0], 16'hA900 + i[15:0]);
+        if (wr_level !== 11'd0) begin $display("FAIL: phaseG pushes while stopped were stored (level=%0d, exp 0)", wr_level); errors=errors+1; end
+        if (overflow_cnt !== 32'd0) begin $display("FAIL: phaseG discarded stop pushes counted as overflow (cnt=%0d)", overflow_cnt); errors=errors+1; end
+        run_cyc(2*PERIOD);
+        if (tick_count !== 10) begin $display("FAIL: phaseG ticked while stopped (tick_count=%0d, exp 10)", tick_count); errors=errors+1; end
+        drain_en = 1;                                   // RESTART: new stream arrives after the enable
+        for (i = 0; i < 20; i = i + 1)
+            push(16'hB000 + i[15:0], 16'hB800 + i[15:0]);
+        wait_ticks(30, 24*PERIOD);
+        @(negedge clk); drain_en = 0;
+        bad = 0;
+        for (i = 10; i < 30 && i < tick_count; i = i + 1)
+            if (got_l[i] !== (16'hB000 + i[15:0] - 16'd10) || got_r[i] !== (16'hB800 + i[15:0] - 16'd10)) begin
+                if (bad < 4) $display("FAIL: phaseG after restart tick %0d = (%04h,%04h), exp (%04h,%04h)%s", i, got_l[i], got_r[i],
+                                      16'hB000 + i[15:0] - 16'd10, 16'hB800 + i[15:0] - 16'd10,
+                                      (got_l[i][15:8] == 8'hA0) ? "  <== the OLD song played into the new one" : "");
+                bad = bad + 1;
+            end
+        if (bad !== 0) begin $display("FAIL: phaseG %0d post-restart samples were not the new stream", bad); errors=errors+1; end
 
         if (errors == 0) $display("RESULT: PASS (s573_mp3_pcm)");
         else             $display("RESULT: FAIL (s573_mp3_pcm, %0d errors)", errors);

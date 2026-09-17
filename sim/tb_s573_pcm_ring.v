@@ -19,6 +19,7 @@ module tb_s573_pcm_ring;
     reg [BL:0] outstanding;
 
     reg  clk = 0, rst = 1;
+    reg  drain_en = 0;   // declared before the reader, which is gated on it (rd_en)
 
     // reader <-> arb (4-phase read)
     wire        rd_req;
@@ -35,7 +36,7 @@ module tb_s573_pcm_ring;
 
     s573_pcm_ring #(.RING_OFF_BEAT(22'd0), .BEATS_LOG2(BL)) rdr (
         .clk(clk), .rst(rst),
-        .hps_wr_ptr(hps_wr_ptr), .fab_rd_ptr(fab_rd_ptr),
+        .rd_en(drain_en), .hps_wr_ptr(hps_wr_ptr), .fab_rd_ptr(fab_rd_ptr),
         .rd_req(rd_req), .rd_addr(rd_addr), .rd_data(rd_data), .rd_ack(rd_ack),
         .wr_en(wr_en), .wr_l(wr_l), .wr_r(wr_r), .wr_full(wr_full)
     );
@@ -45,7 +46,6 @@ module tb_s573_pcm_ring;
     wire        pcm_tick;
     wire [31:0] uflow, oflow;
     wire [9:0]  lvl;
-    reg         drain_en = 0;
     s573_mp3_pcm #(.AW(9)) snk (
         .clk(clk), .rst(rst),
         .wr_en(wr_en), .wr_l(wr_l), .wr_r(wr_r), .wr_full(wr_full), .wr_level(lvl),

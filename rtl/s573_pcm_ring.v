@@ -51,6 +51,15 @@ module s573_pcm_ring #(
     input  wire        rst,
 
     // ---- HPS write pointer (beats), from the SPI mailbox; drain-enable gate ----
+    // rd_en = the drain enable (HPS ctrl_flags bit1). No beat is fetched while it is
+    // low: MAME k573fpga.cpp update_stream() feeds the MAS3507D nothing unless
+    // FPGA_STREAMING_ENABLE is set, and a stopped stream's decoded audio is thrown
+    // away (mas3507d.cpp reset_playback). Reading on while stopped refilled the
+    // elastic buffer with the OLD song, which s573_mp3_pcm now flushes on stop --
+    // and it also advanced fab_rd_ptr, i.e. told the HPS that audio nobody heard
+    // had played. An in-flight beat still completes (its push is discarded by the
+    // sink's stop flush).
+    input  wire                rd_en,
     input  wire [BEATS_LOG2:0] hps_wr_ptr,   // extra MSB vs fab_rd_ptr (full/empty)
     output reg  [BEATS_LOG2:0] fab_rd_ptr,   // published back to the HPS via the mailbox
 
@@ -107,7 +116,7 @@ module s573_pcm_ring #(
                 S_IDLE: begin
                     // read the next beat only if the HPS has data AND the elastic
                     // buffer has room (honest back-pressure; never over-read).
-                    if (have_data && !wr_full) begin
+                    if (rd_en && have_data && !wr_full) begin
                         rd_addr <= RING_OFF_BEAT + {{(22-BEATS_LOG2){1'b0}}, fab_rd_ptr[BEATS_LOG2-1:0]};
                         rd_req  <= 1'b1;
                         state   <= S_REQ;

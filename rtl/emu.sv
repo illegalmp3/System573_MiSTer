@@ -585,7 +585,12 @@ parameter CONF_STR = {
 	// middle silently re-points every .map file already on an SD card. Any genuinely
 	// new control goes at position 17+ (and would need a `jn` default, which only
 	// supplies 8 names).
-	"J1,Button 1/Pad UpLeft,Button 2/Pad UpRight,Button 3/Select L,Button 4/Select R,Coin,Start,Service,Test,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock;",
+	// 2026-09-16: positions 2-4 re-roled so "Select L/R" mean the same thing on BOTH
+	// cabinet types, per the games' own TEST MODE -> I/O CHECK code (dsem GAME.DAT
+	// 0x80034f14, ddrextrm GAME.DAT 0x8003c940): the label "SELECT L" is drawn from
+	// input bit 0x20 = JAMMA B2 (0x1f400008 bit 13) and "SELECT R" from 0x40 = JAMMA
+	// B3 (bit 14). Standard-cab Select L therefore IS Button 2 and Select R IS Button 3.
+	"J1,Button 1/Pad UpLeft,Button 2/Select L,Button 3/Select R,Button 4/Pad UpRight,Coin,Start,Service,Test,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock;",
 	"jn,X,A,B,Y,Select,Start,L,R;",
 	"I,",
 	"Load=DPAD Up|Save=Down|Slot=L+R,",
@@ -2340,13 +2345,14 @@ wire pad_r  = joy[0];   // D-pad Right  -> Right panel
 wire pad_u  = joy[3];   // D-pad Up     -> Up    panel
 wire pad_d  = joy[2];   // D-pad Down   -> Down  panel
 wire pad_ul = joy[4];   // Button 1 (X) -> Up-Left  panel (Solo's 5th panel)
-wire pad_ur = joy[5];   // Button 2 (A) -> Up-Right panel (Solo's 6th panel; both of
-                        //   its lines used to sit on joy2, so it was unreachable
-                        //   from a single controller)
-wire sel_l  = joy[6];   // Button 3 (B) -> "P1 Select L" (IN3 0x00000200)
-wire sel_r  = joy[7];   // Button 4 (Y) -> "P1 Select R" (IN3 0x02000000). joy[7] is
+wire sel_l  = joy[5];   // Button 2 (A) -> "P1 Select L" (IN3 0x00000200)
+wire sel_r  = joy[6];   // Button 3 (B) -> "P1 Select R" (IN3 0x02000000)
+wire pad_ur = joy[7];   // Button 4 (Y) -> Up-Right panel (Solo's 6th panel). joy[7] is
                         //   free on the 573 side: its only sink was the PSX pad,
                         //   which psx_patches/0026 strips.
+// 2026-09-16: Select L/R moved from Button 3/4 to Button 2/3 (and Up-Right from
+// Button 2 to Button 4) so the J1 positions name the same role on both cabinets --
+// on a standard cab Select L/R are JAMMA B2/B3 (see the J1 comment in CONF_STR).
 
 // P1 byte: {START1, Down2, Left2, UpLeft2, Down1, Up1, Right1, Left1} (active-low)
 wire [7:0] p1_solo = ~{joy[9], pad_d, pad_l, pad_ul, pad_d, pad_u, pad_r, pad_l};
@@ -2426,30 +2432,33 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
                                            // boots onboard flash, no CD needed), 1=CD-ROM. 0x1f400004 bit3,
                                            // MAME ksys573 DIP SW:4. SW1-3 left off (active-low).
    // Standard branch is the audit IO-003 mapping (the old ~joy[7:0] had L/R + U/D
-   // transposed and START missing -- do not "tidy" it). Its ONE later change is
-   // joy[7] OR'd into the B2 position for the song wheel -- see the note at p1_ctrl.
+   // transposed and START missing -- do not "tidy" it). The 2026-09-13 joy[7]->B2 OR
+   // was reverted 2026-09-16 -- see the note at p1_ctrl.
    // Solo branch: see the ddrsolo bit map at the p1_solo/p2_solo decode above. The
    // Solo-cab strap that used to be OR'd into P2 bit[7] here now lives inside
    // p2_solo, so the standard expression can never see it (solo_cab is 0 there
    // anyway, so dropping the OR is behaviour-preserving for a standard cab).
    .stage_mux_en   (~solo_cab),            // standard cab -> GN845-PWB(B) stage PCBs (gn845pwbb.v)
    .p1_ctrl        (solo_cab ? p1_solo
-                             : ~{joy[9],  joy[6],  joy[5] | joy[7],  joy[4],  joy[2],  joy[3],  joy[0],  joy[1] }),
+                             : ~{joy[9],  joy[6],  joy[5],  joy[4],  joy[2],  joy[3],  joy[0],  joy[1] }),
                                            // P1 JAMMA: START,B3,B2,B1,DOWN,UP,RIGHT,LEFT (active-low)
-                                           // Standard-cab song wheel (dsem, 2026-09-13): the game's menu
-                                           // code (0x80021e00) polls B3 (0x40) as Select L and B2 (0x20)
-                                           // as Select R. The OSD's "Button 4/Select R" is joy[7], which
-                                           // had no JAMMA sink on a standard cab, so only Left worked.
-                                           // OR it into B2; Button 2 itself (joy[5]) stays a B2 too.
+                                           // Standard-cab song wheel, corrected 2026-09-16 (ddrextrm: L/R
+                                           // reversed). The games' TEST MODE I/O CHECK draws "SELECT L"
+                                           // from bit 0x20 (B2) and "SELECT R" from 0x40 (B3) of the word
+                                           // read at 0x1f400008 (dsem GAME.DAT 0x80034f14, ddrextrm
+                                           // 0x8003c940; raw read 0x800bbfe0 = ~IN2 >> 8). The 2026-09-13
+                                           // change OR'd "Select R" (joy[7]) into B2 on a menu-code reading
+                                           // that had the two bits swapped; reverted, and the OSD now
+                                           // labels Button 2 = Select L and Button 3 = Select R.
    .p2_ctrl        (solo_cab ? p2_solo
-                             : ~{joy2[9], joy2[6], joy2[5] | joy2[7], joy2[4], joy2[2], joy2[3], joy2[0], joy2[1]}),
+                             : ~{joy2[9], joy2[6], joy2[5], joy2[4], joy2[2], joy2[3], joy2[0], joy2[1]}),
                                            // [7] P2-START on a Solo cab is the cab-type strap, hardwired to
                                            // ground (reads LOW = active); it is forced inside p2_solo.
    .coin_sw        (~{joy2[8], joy[8]}),   // P2/P1 coin = Select (active-low); Start is JAMMA START
    // JAMMA "player button 5" lines -> IN3 0x1f40000c / 0x0e bit 9. Nothing on a
    // standard cab uses button 5, so keep them idle there; on a Solo cab they ARE the
-   // song wheel. Gated on solo_cab because joy[6] doubles as JAMMA Button 3 in
-   // standard mode and must not leak into IN3.
+   // song wheel. Gated on solo_cab because joy[5]/joy[6] double as JAMMA Buttons 2/3
+   // in standard mode and must not leak into IN3.
    .btn5_p1        (~(solo_cab & sel_l)),  // "P1 Select L"
    .btn5_p2        (~(solo_cab & sel_r)),  // "P1 Select R" -- rides the P2 button-5
                                            //   line, re-sourced to player 1 by ddrsolo
@@ -2861,6 +2870,7 @@ s573_mp3_pcm u_mp3_pcm (
 s573_pcm_ring u_pcm_ring (      // RING_OFF_BEAT/BEATS_LOG2 defaults (provisional, must-fix #2)
    .clk        (clk_1x),
    .rst        (reset),
+   .rd_en      (mp3_ctrl_flags[1]),   // drain enable: no ring reads while stopped (stop flush)
    .hps_wr_ptr (mp3_hps_pcm_wr),
    .fab_rd_ptr (mp3_fab_pcm_rd),
    .rd_req     (ring_rd_req),

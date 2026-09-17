@@ -35,6 +35,21 @@
 // accumulator (acc += 44100; wrap at 33_868_800) produces one sample-clock every
 // 768 cycles with ZERO drift. Parameterized for reuse/verification.
 //
+// STOP FLUSH (2026-09-16, ddrextrm song-select pops). MAME k573fpga.cpp
+// set_fpga_ctrl() calls mas3507d->reset_playback() whenever the streaming enable
+// changes, and mas3507d.cpp reset_playback() zeroes BOTH the decoder's input
+// buffer and its decoded `samples` array: audio that was decoded but not yet
+// played is thrown away the instant the stream stops. This buffer used to keep
+// its <=512 samples across a stop, and s573_pcm_ring kept topping it up from the
+// old song's ring data while idle, so the NEXT song began with up to 11.6 ms of
+// the PREVIOUS one -- a click on every song-select scroll (the game stops the
+// preview, re-arms the window, restarts). So: on drain_en 1->0 the buffer is
+// emptied, and until drain_en rises again pushes are DISCARDED (the ring reader
+// is also gated on drain_en; this catches its one in-flight beat). A push while
+// idle BEFORE the first enable after reset is still stored (prefill semantics
+// unchanged). `PCM_NO_STOP_FLUSH` compiles the old keep-the-residue behaviour so
+// tb_s573_mp3_pcm phase G is RED under it.
+//
 // Verilog-2005. Released under the GNU GPL v2.
 // -----------------------------------------------------------------------------
 module s573_mp3_pcm #(
@@ -79,8 +94,15 @@ module s573_mp3_pcm #(
     assign wr_full  = full;
     assign wr_level = wptr - rptr;
 
-    wire do_push = wr_en && !full;
-    wire ovf     = wr_en &&  full;   // upstream ignored wr_full -> drop + count (never corrupt)
+    // stop flush: `stopped` is set by a drain_en 1->0 edge and cleared by 0->1.
+    reg  drain_q, stopped;
+`ifdef PCM_NO_STOP_FLUSH
+    wire flush   = 1'b0;             // WRONG (compiled only to make phase G RED)
+`else
+    wire flush   = ~drain_en & (stopped | drain_q);   // only ever while drain_en is LOW
+`endif
+    wire do_push = wr_en && !full && !flush;
+    wire ovf     = wr_en &&  full && !flush;   // upstream ignored wr_full -> drop + count (never corrupt)
 
     // ---------------- 44100 Hz drain via fractional accumulator ----------------
     // acc in [0, CLK_HZ); each clk adds SR_HZ; the cycle it would reach/exceed
@@ -94,6 +116,8 @@ module s573_mp3_pcm #(
         if (rst) begin
             wptr <= 0;
             rptr <= 0;
+            drain_q <= 1'b0;
+            stopped <= 1'b0;
             acc  <= 32'd0;
             pcm_l <= 16'd0;
             pcm_r <= 16'd0;
@@ -103,11 +127,21 @@ module s573_mp3_pcm #(
         end else begin
             pcm_sample_tick <= 1'b0;              // default: a 1-cycle pulse
 
+            // ---- stop tracking ----
+            drain_q <= drain_en;
+            if (drain_q & ~drain_en) stopped <= 1'b1;
+            else if (drain_en)       stopped <= 1'b0;
+
             // ---- fill ----
             if (do_push) begin
                 mem[wptr[AW-1:0]] <= {wr_l, wr_r};
                 wptr <= wptr + 1'b1;
             end
+            // ---- stop flush: drop everything decoded but not yet played ----
+            // (wptr only moves on do_push, which flush blocks, so rptr <= wptr is
+            // exact.) The drain below is idle in the same cycle: pcm_ce needs
+            // drain_en, and flush is only ever high while drain_en is low.
+            if (flush) rptr <= wptr;
             if (ovf && overflow_cnt != 32'hFFFF_FFFF)
                 overflow_cnt <= overflow_cnt + 1'b1;
 

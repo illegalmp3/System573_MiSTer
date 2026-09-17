@@ -250,6 +250,12 @@ MP3_CREDIT_FREERUN ?=
 MP3_COUNTER_STUB ?=
 MP3_RELOAD_RACE ?=
 PCM_FAKE_UNDERRUN ?=
+# Optional `make PCM_NO_STOP_FLUSH=1 s573_mp3_pcm` compiles s573_mp3_pcm.v with
+# -DPCM_NO_STOP_FLUSH, restoring the pre-2026-09-16 elastic buffer that keeps its
+# decoded samples across a stream stop (the old song's tail played at the start of
+# the next one: ddrextrm song-select pops). tb_s573_mp3_pcm phase G is RED under the
+# define and GREEN by default. MAME reference: mas3507d.cpp reset_playback().
+PCM_NO_STOP_FLUSH ?=
 HPS_EXT_WIDE_DELTA ?=
 DEFS :=
 ifeq ($(HPS_EXT_WIDE_DELTA),1)
@@ -266,6 +272,9 @@ DEFS += -DMP3_CREDIT_FREERUN
 endif
 ifeq ($(PCM_FAKE_UNDERRUN),1)
 DEFS += -DPCM_FAKE_UNDERRUN
+endif
+ifeq ($(PCM_NO_STOP_FLUSH),1)
+DEFS += -DPCM_NO_STOP_FLUSH
 endif
 ifeq ($(MP3_COUNTER_STUB),1)
 DEFS += -DMP3_COUNTER_STUB
