@@ -479,7 +479,9 @@ parameter CONF_STR = {
 	// 48 MB (16 MB onboard + 32 MB card) -- REQUIRES A 64 MB OR LARGER SDRAM
 	// MODULE. One file, not a second mount slot: Main parses at most six
 	// file/reset items per .mgl and the Tier-2 launchers already use all six.
-	"O[107],573 PCMCIA Card,Off,32MB (slot 2);",
+	// Rename only (2026-09-16): the card is now also fitted automatically whenever the
+	// mounted .sav is 48 MB, so "Auto" is what the old "Off" position does.
+	"O[107],573 PCMCIA Card,Auto,32MB (slot 2);",
 	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
 	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
 	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
@@ -1731,10 +1733,16 @@ wire        atapi_dma_rd;       // psx DMA_ATA_readEna -> atapi halfword consume
 wire [15:0] atapi_dma_dout;     // atapi prefetched sector halfword -> psx DMA_ATA_read
 
 // 573 onboard-flash SDRAM line-fill bridge (system573_top <-> sdram ch4).
-// 573 PCMCIA slot-2 card fitted (OSD). Drives s573_flash's bank 32-47 decode, the
+// 573 PCMCIA slot-2 card fitted. Drives s573_flash's bank 32-47 decode, the
 // SDRAM base select on the ch3/ch4 paths, the card-detect line the game reads, and
-// the combined 48 MB save geometry.
-wire        card_en = status[107];
+// the combined 48 MB save geometry. Assigned below the slot-4 mount latch: the card
+// is fitted when the OSD says so OR when the mounted save file is 48 MB (it holds a
+// card image). 2026-09-16: MiSTer Main persists OSD status ONLY through the explicit
+// "Save settings" item (Main_MiSTer 20260907 menu.cpp MENU_COMMON case 14 ->
+// user_io_status_save; no other caller saves status), and no System573.CFG exists on
+// the card -- so every cold boot came up with the card Off, the LOAD restored only
+// the first 16 MB, and a Tier-3 game found no card and asked to install again.
+wire        card_en;
 wire        flash_mem_req;
 wire [26:0] flash_mem_addr;     // flat 16-bit word index into the selected image
 wire        flash_mem_card;     // 0 = onboard image (FLASH_START), 1 = card (CARD_START)
@@ -1935,6 +1943,12 @@ reg  flash_load_taken = 1'b0;
 wire flash_load_arm = flash_save_mounted && (flash_save_size > 0)
                       && ~flash_download && ~download_settle_hold
                       && ~flash_load_taken;
+
+// Card presence from the save itself (see the card_en declaration). tools/stage_573.py
+// sizes a card title's .sav at exactly 48 MiB and every other title's at 16 MiB, so the
+// mounted file is the per-title record of whether the card is fitted.
+wire card_from_save = flash_save_mounted && (flash_save_size >= 64'd50331648);
+assign card_en = status[107] | card_from_save;
 
 // How many 1 KB blocks a SAVE writes and a LOAD reads. A SAVE spans whatever is
 // fitted (16 MB, or 48 MB with the card). A LOAD reads only what the MOUNTED file
