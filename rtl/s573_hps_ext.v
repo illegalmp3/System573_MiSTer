@@ -92,6 +92,31 @@
 //   word2        up: snapshotted buf_level
 //   word3/4/5    up: snapshotted stage_dbg[15:0] / [31:16] / [47:32] (gn845pwbb.v)
 //   word6..9     up: snapshotted sec_dbg[15:0]/[31:16]/[47:32]/[63:48] (zs01.v)
+//   word17..23   up: snapshotted frame-time profile (s573_prof.v), free-running
+//                    CUMULATIVE counters the HPS diffs per poll:
+//                    17 flash_wait cycles>>10, 18 dio_wait cycles>>10,
+//                    19 CD-fetch-outstanding cycles>>10, 20 sectors delivered,
+//                    21 watchdog kicks (= main-loop iterations = frames),
+//                    22 ATAPI register accesses>>4, 23 EXP1 accesses>>6.
+//   word24..29   up: the PSX half of the same profile (s573_prof_gpu.v, taps from
+//                    psx_patches 0029): 24 buffer flips (= RENDERED FRAMES PER
+//                    SECOND), 25 GPU VBLANK irqs (~60/s reference), 26 CPU-paused-
+//                    for-DMA cycles>>10, 27 CPU memory-stall cycles>>10, 28 GPU
+//                    drawing-busy cycles>>10, 29 MDEC-busy cycles>>10, 30 MACRO-
+//                    BLOCKS DECODED (a rate: busy% alone cannot say whether the
+//                    MDEC is at its modelled ceiling or just idling between feeds).
+//
+// CMD_573_PCPROF (0x6E) -- the PC-sampling profile read-out (s573_prof_pc.v):
+//   word0 (cmd)  up: cnt_samples (cumulative samples taken) + SNAPSHOT of the
+//                    three class counters below
+//   word1        dn: base bin index (9-bit, 512 bins of 2 KB)   up: echo
+//   word2..17    up: bins[base+0 .. base+15] (cumulative 16-bit, HPS diffs them)
+//   word18       up: snapshotted cnt_ram_hi (PC in RAM above 1 MB)
+//   word19       up: snapshotted cnt_bios
+//   word20       up: snapshotted cnt_other
+// Same trace convention as SECTRACE: the bin address for word k+1 is set at word
+// k's strobe and the registered read is ready long before the next SPI word. The
+// HPS reads all 512 bins as 32 transactions once a second.
 //   word10       up: {0, cart_type[1:0], eep_max[12:0]} -- the MEASURED .u1 size and
 //                    the type inferred from it (emu.sv). A transfer truncated into
 //                    256..559 silently selects an X76F041 and the game sees the
@@ -212,6 +237,15 @@ module s573_hps_ext
     input      [47:0] sec_rd_dbg,    // {rtr_edges[7:0], reads-in-RTR[7:0], bits[31:0]} (words 11..13)
     input      [31:0] sec_emit_dbg,  // the 32 bits the ZS01 drove on its RTR edges (words 14..15)
     input      [15:0] sec_cnt_dbg,   // {0x1f400004 reads[7:0], latch writes[7:0]} in the window (word 16)
+    // ---- CMD_573_PCPROF: PC-sampling profile read-out (s573_prof_pc) ----
+    output reg [8:0]  pcprof_addr,
+    input      [15:0] pcprof_data,      // bins[pcprof_addr], valid the cycle after pcprof_addr
+    input      [15:0] pcprof_samples,   // cumulative samples
+    input      [15:0] pcprof_ram_hi,
+    input      [15:0] pcprof_bios,
+    input      [15:0] pcprof_other,
+    input     [111:0] prof_dbg,      // s573_prof counters, word17..23 = prof_dbg[15:0]..[111:96]
+    input     [111:0] profg_dbg,     // s573_prof_gpu counters, word24..30
     // ---- CMD_573_SECTRACE: cassette event trace read-out (system573_top) ----
     output reg [7:0]  sec_trace_addr,
     input      [15:0] sec_trace_data,   // valid the cycle after sec_trace_addr
@@ -249,7 +283,8 @@ localparam CMD_573_STATUS = 'h69;
 localparam CMD_573_CTRL   = 'h6A;
 localparam CMD_573_MP3CFG = 'h6B;
 localparam CMD_573_STAGETRACE = 'h6C;
-localparam CMD_573_SECTRACE   = 'h6D;  // must stay the TOP of the range (dout_en)
+localparam CMD_573_SECTRACE   = 'h6D;
+localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_en)
 // CMD_573_SECTRACE (0x6D): word0 up = {armed, entries[8:0]} (0..256); word1 dn =
 // base index (8-bit), words 2..9 up = eight consecutive entries. Same shape as
 // STAGETRACE apart from the wider address and count.
@@ -269,18 +304,19 @@ localparam CMD_573_SECTRACE   = 'h6D;  // must stay the TOP of the range (dout_e
 reg gain_seen = 1'b0;
 always @(posedge clk_sys) if (rst) gain_seen <= 1'b0; else if (gain_stb) gain_seen <= 1'b1;
 
-reg [15:0] snap [1:16];
+reg [15:0] snap [1:30];
 
 integer si;
 initial begin
     heartbeat      = 0;
+    pcprof_addr    = 0;
     hps_pcm_wr     = 0;
     hps_cons_bytes = 0;
     ctrl_flags     = 0;
     dec_frame_sync = 0;
     dec_frame_idle = 0;
     evt_ovf        = 0;
-    for (si = 1; si <= 16; si = si + 1) snap[si] = 16'd0;
+    for (si = 1; si <= 30; si = si + 1) snap[si] = 16'd0;
 end
 
 
@@ -346,7 +382,7 @@ always @(posedge clk_sys) begin
         if(byte_cnt == 0) begin
             cmd <= io_din;
             dout_en <= (io_din >= CD_GET && io_din <= CD_SET) ||
-                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_SECTRACE);
+                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_PCPROF);
             case(io_din)
                 CMD_573_PTRS: begin
                     io_dout <= fab_pcm_rd;
@@ -359,6 +395,14 @@ always @(posedge clk_sys) begin
                 end
                 CMD_573_SECTRACE: begin
                     io_dout <= sec_trace_count;
+                end
+                CMD_573_PCPROF: begin
+                    // the class counters ride the same snapshot so one dump is
+                    // one consistent instant (the bins themselves are diffed)
+                    io_dout <= pcprof_samples;
+                    snap[1] <= pcprof_ram_hi;
+                    snap[2] <= pcprof_bios;
+                    snap[3] <= pcprof_other;
                 end
                 CMD_573_STATUS: begin
                     io_dout <= status_flags;
@@ -378,6 +422,20 @@ always @(posedge clk_sys) begin
                     snap[14] <= sec_emit_dbg[15:0];
                     snap[15] <= sec_emit_dbg[31:16];
                     snap[16] <= sec_cnt_dbg;
+                    snap[17] <= prof_dbg[15:0];
+                    snap[18] <= prof_dbg[31:16];
+                    snap[19] <= prof_dbg[47:32];
+                    snap[20] <= prof_dbg[63:48];
+                    snap[21] <= prof_dbg[79:64];
+                    snap[22] <= prof_dbg[95:80];
+                    snap[23] <= prof_dbg[111:96];
+                    snap[24] <= profg_dbg[15:0];
+                    snap[25] <= profg_dbg[31:16];
+                    snap[26] <= profg_dbg[47:32];
+                    snap[27] <= profg_dbg[63:48];
+                    snap[28] <= profg_dbg[79:64];
+                    snap[29] <= profg_dbg[95:80];
+                    snap[30] <= profg_dbg[111:96];
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -439,6 +497,20 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 14) io_dout <= snap[14];
                     else if(byte_cnt == 15) io_dout <= snap[15];
                     else if(byte_cnt == 16) io_dout <= snap[16];
+                    else if(byte_cnt == 17) io_dout <= snap[17];
+                    else if(byte_cnt == 18) io_dout <= snap[18];
+                    else if(byte_cnt == 19) io_dout <= snap[19];
+                    else if(byte_cnt == 20) io_dout <= snap[20];
+                    else if(byte_cnt == 21) io_dout <= snap[21];
+                    else if(byte_cnt == 22) io_dout <= snap[22];
+                    else if(byte_cnt == 23) io_dout <= snap[23];
+                    else if(byte_cnt == 24) io_dout <= snap[24];
+                    else if(byte_cnt == 25) io_dout <= snap[25];
+                    else if(byte_cnt == 26) io_dout <= snap[26];
+                    else if(byte_cnt == 27) io_dout <= snap[27];
+                    else if(byte_cnt == 28) io_dout <= snap[28];
+                    else if(byte_cnt == 29) io_dout <= snap[29];
+                    else if(byte_cnt == 30) io_dout <= snap[30];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin
@@ -459,6 +531,19 @@ always @(posedge clk_sys) begin
                         io_dout <= sec_trace_data;
                         sec_trace_addr <= sec_trace_addr + 8'd1;
                     end
+                end
+                CMD_573_PCPROF: begin
+                    if(byte_cnt == 1) begin
+                        pcprof_addr <= io_din[8:0];
+                        io_dout <= io_din;
+                    end
+                    else if(byte_cnt >= 2 && byte_cnt <= 17) begin
+                        io_dout <= pcprof_data;
+                        pcprof_addr <= pcprof_addr + 9'd1;
+                    end
+                    else if(byte_cnt == 18) io_dout <= snap[1];
+                    else if(byte_cnt == 19) io_dout <= snap[2];
+                    else if(byte_cnt == 20) io_dout <= snap[3];
                 end
                 CMD_573_MP3CFG: begin
                     // pure read-out of the latched tuple; the HPS may stop

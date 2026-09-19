@@ -68,6 +68,12 @@ module tb_s573_hps_ext;
     wire        dec_frame_idle;
     wire        evt_ovf;
     wire        heartbeat;
+    // CMD_573_PCPROF model of s573_prof_pc's read port: registered, one cycle late
+    wire [8:0]  pc_addr;
+    reg  [15:0] pc_data = 0;
+    reg  [15:0] pc_bins [0:511];
+    reg  [15:0] pc_samples = 0, pc_ram_hi = 0, pc_bios = 0, pc_other = 0;
+    always @(posedge clk) pc_data <= pc_bins[pc_addr];
 
     s573_hps_ext dut (
         .clk_sys(clk), .rst(tb_rst), .EXT_BUS(EXT_BUS), .heartbeat(heartbeat),
@@ -77,6 +83,8 @@ module tb_s573_hps_ext;
         .mp3_key1(mp3_key1), .mp3_key2(mp3_key2), .mp3_key3(mp3_key3),
         .cfg_ddrsbm(cfg_ddrsbm), .fpga_ctrl_en(fpga_ctrl_en),
         .status_flags(status_flags), .underrun_cnt(underrun_cnt), .buf_level(buf_level), .stage_dbg(48'h0), .stage_trace_addr(), .stage_trace_data(16'h0), .stage_trace_count(8'd0),
+        .pcprof_addr(pc_addr), .pcprof_data(pc_data), .pcprof_samples(pc_samples),
+        .pcprof_ram_hi(pc_ram_hi), .pcprof_bios(pc_bios), .pcprof_other(pc_other),
         .ctrl_flags(ctrl_flags), .dec_frame_sync(dec_frame_sync),
         .dec_frame_idle(dec_frame_idle), .evt_ovf(evt_ovf)
     );
@@ -201,8 +209,8 @@ module tb_s573_hps_ext;
         chk(dut_en == 0,            "P2 boundary 0x67: not claimed");
         spi_end;
         spi_begin;
-        spi_word(16'h006E, r0);     // one above CMD_573_SECTRACE (the new top)
-        chk(dut_en == 0,            "P2 boundary 0x6E: not claimed");
+        spi_word(16'h006F, r0);     // one above CMD_573_PCPROF (the new top)
+        chk(dut_en == 0,            "P2 boundary 0x6F: not claimed");
         spi_end;
         spi_begin;
         spi_word(16'h0033, r0);     // one below CD_GET
@@ -616,12 +624,53 @@ module tb_s573_hps_ext;
         spi_begin;
         @(negedge clk); tb_din = 16'h006D; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 1,            "P11: dout_en asserted for 0x6D (CMD_573_SECTRACE, the new top)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6D (CMD_573_SECTRACE)");
         spi_end;
         spi_begin;
         @(negedge clk); tb_din = 16'h006E; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6E (one past the range)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6E (CMD_573_PCPROF, the new top)");
+        spi_end;
+        spi_begin;
+        @(negedge clk); tb_din = 16'h006F; tb_strobe = 1;
+        @(negedge clk); tb_strobe = 0; @(negedge clk);
+        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6F (one past the range)");
+        spi_end;
+
+        // ---------- P12: CMD_573_PCPROF (0x6E) -- PC profile read-out ----------
+        // word0 = cnt_samples + snapshot of the three class counters; word1 = base
+        // (echoed); words 2..17 = 16 consecutive bins from the read port, which is
+        // modelled here as a registered RAM exactly like s573_prof_pc's port B;
+        // words 18..20 = the snapshotted class counters -- which are MUTATED after
+        // word0 to prove the snapshot (a torn dump would mix two seconds).
+        for (k = 0; k < 512; k = k + 1) pc_bins[k] = 16'h1000 + k * 3;
+        pc_samples = 16'h8123; pc_ram_hi = 16'h0011; pc_bios = 16'h0022; pc_other = 16'h0033;
+        spi_begin;
+        spi_word(16'h006E, r0);
+        chk(r0 == 16'h8123,         "P12 PCPROF word0: cnt_samples");
+        pc_ram_hi = 16'hAAAA; pc_bios = 16'hBBBB; pc_other = 16'hCCCC; pc_samples = 16'hDDDD;
+        spi_word(16'h01F8, r1);     // base 0x1F8: the run crosses the end of the table
+        chk(r1 == 16'h01F8,         "P12 PCPROF word1: base echoed");
+        for (k = 0; k < 16; k = k + 1) begin
+            spi_word(16'h0000, r2);
+            if (r2 !== (16'h1000 + ((16'h01F8 + k) & 9'h1FF) * 3)) begin
+                $display("FAIL: P12 PCPROF bin word %0d = %h, expected %h", k, r2,
+                         16'h1000 + ((16'h01F8 + k) & 9'h1FF) * 3);
+                errors = errors + 1;
+            end
+        end
+        spi_word(16'h0000, r3); chk(r3 == 16'h0011, "P12 PCPROF word18: ram_hi SNAPSHOTTED at word0");
+        spi_word(16'h0000, r3); chk(r3 == 16'h0022, "P12 PCPROF word19: bios snapshotted");
+        spi_word(16'h0000, r3); chk(r3 == 16'h0033, "P12 PCPROF word20: other snapshotted");
+        chk(dut_en == 1,            "P12 PCPROF: dout_en held through the transaction");
+        spi_end;
+        chk(dut_en == 0,            "P12 PCPROF: dout_en releases");
+        // a second dump from base 0 reads the first bins (address reload, not continuation)
+        spi_begin;
+        spi_word(16'h006E, r0);
+        spi_word(16'h0000, r1);
+        spi_word(16'h0000, r2); chk(r2 == 16'h1000, "P12 PCPROF second dump: bin 0");
+        spi_word(16'h0000, r2); chk(r2 == 16'h1003, "P12 PCPROF second dump: bin 1");
         spi_end;
 
         if (errors == 0) $display("RESULT: PASS (s573_hps_ext)");

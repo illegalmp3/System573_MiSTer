@@ -210,7 +210,16 @@ module system573_top #(
     output wire [19:0] dio_gain_ll,       // MAS3507D output gain matrix (0 = mute)
     output wire [19:0] dio_gain_rr,
     output wire        dio_gain_stb,
-    output wire [24:0] dio_mp3_cur_pos    // streamer position echo
+    output wire [24:0] dio_mp3_cur_pos,   // streamer position echo
+    // Frame-time profile (s573_prof.v -> STATUS words 17..23). Free-running
+    // cumulative counters; the HPS diffs them per poll.
+    output wire [15:0] prof_flash_k,
+    output wire [15:0] prof_dio_k,
+    output wire [15:0] prof_cd_k,
+    output wire [15:0] prof_sectors,
+    output wire [15:0] prof_frames,
+    output wire [15:0] prof_ide,
+    output wire [15:0] prof_exp1
 );
     wire access = exp1_we | exp1_re;
 
@@ -374,12 +383,27 @@ module system573_top #(
         .dma_req(atapi_dma_req_int), .dma_rd(atapi_dma_rd), .dma_dout(atapi_dma_dout)
     );
 
+    // --- frame-time profile (Tier-3 #1-#3: where the loop's time goes) ---
+    wire cd_sec_busy;                       // a CD sector fetch is outstanding
+    reg  cd_sec_busy_q;
+    always @(posedge clk) cd_sec_busy_q <= cd_sec_busy;
+    wire cd_sec_done = cd_sec_busy_q & ~cd_sec_busy;   // fetch completed
+    s573_prof u_prof (
+        .clk(clk), .rst(rst),
+        .flash_wait(flash_wait), .dio_wait(dio_wait), .cd_busy(cd_sec_busy),
+        .sec_done(cd_sec_done), .wdog_kick(wdog_kick),
+        .ide_acc(sel_ide0 | sel_ide1), .exp1_acc(access),
+        .prof_flash_k(prof_flash_k), .prof_dio_k(prof_dio_k), .prof_cd_k(prof_cd_k),
+        .prof_sectors(prof_sectors), .prof_frames(prof_frames),
+        .prof_ide(prof_ide), .prof_exp1(prof_exp1)
+    );
+
     // --- mounted-CD-image sector reader (Feature B) ---
     s573_cdimg u_cdimg (
         .clk(clk), .rst(rst), .ide_rst(ide_rst),
         .sec_req(atapi_sec_req), .sec_lba(atapi_sec_lba),
         .sbuf_addr(atapi_sbuf_addr), .sbuf_q(atapi_sbuf_q),
-        .sec_ready(atapi_sec_ready), .sec_busy(),
+        .sec_ready(atapi_sec_ready), .sec_busy(cd_sec_busy),
         .cd_req(cd_hps_req), .cd_lba(cd_hps_lba),
         .cd_ack(cd_hps_ack), .cd_wr(cd_hps_write), .cd_data(cd_hps_data)
     );

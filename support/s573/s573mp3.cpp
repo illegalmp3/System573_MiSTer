@@ -106,6 +106,22 @@ static int   opt_atten = 100;    /* atten=0..100  MP3 channel percent          *
 static int   opt_dump  = 0;      /* dump=1   write the raw window to the SD card */
 static int   opt_unsafe_ring = 0;/* ring_unsafe_ok=1  write PCM anyway           */
 static int   opt_cdtrace = 0;    /* cdtrace=1  log every CD sector read          */
+/* Main is ONE poll loop: this service, the CD sector service the fabric asks for,
+ * and USB input all take their turn in it. A decode burst here is dead time for
+ * the other two. Tier-3 #1-#3 (dropped arrows, sub-60 fps scrolling, half-speed
+ * background movies) are all gameplay-only -- i.e. they appear exactly when this
+ * service is decoding -- so the burst length is a suspect that has to be measured
+ * and then bounded, not argued about. mp3_frames caps frames per poll (the old
+ * fixed 12); mp3_budget_us additionally stops the burst once it has run that long,
+ * which bounds the blocking time no matter how slow a frame decodes. */
+static int   opt_frames    = 12;  /* mp3_frames=N     frames per poll             */
+static int   opt_log_fsync = 1;   /* log_fsync=0      do not fsync every log line  */
+static uint32_t log_us_max = 0, log_us_sum = 0, log_writes = 0;
+static int   opt_budget_us = 0;   /* mp3_budget_us=N  0 = no time bound           */
+/* poll-loop and decode-burst timing, per heartbeat second */
+static uint32_t poll_gap_max = 0, poll_gap_sum = 0, poll_gaps = 0;
+static uint32_t dec_us_max = 0, dec_us_sum = 0, dec_bursts = 0, dec_frames_hb = 0;
+static uint64_t poll_last_us = 0;
 /* CD read activity, fed by Main's block-device read path (s573_cd_trace, hooked
  * at the SD RD dispatch in user_io_poll). ddrs2k's attract demo stalled with the
  * song loader silent for 50 s (2026-09-12); whether the game stopped ASKING for
@@ -117,6 +133,8 @@ static FILE *logf      = 0;
 static uint32_t probe_sum_init = 0, probe_nz_init = 0;
 static int      probe_done = 0, ring_collides = 0;
 static uint32_t tone_phase = 0;
+
+static uint64_t now_us(void);   /* defined below; the log times its own commit */
 
 /* Writes to both sinks: our SD-card log (when enabled) and stdout (which Main
  * usually has pointed at /dev/null -- harmless either way). */
@@ -133,8 +151,21 @@ static void s573_log(const char *fmt, ...)
          * there is no shell to reboot from. fsync per line makes the log survive
          * that. At ~1 line/s it costs nothing; a log that vanishes on power-off
          * would cost a whole test session. */
+        /* MEASURED 2026-09-17: Main's poll loop shows a 13-17 ms block every
+         * second (and 44-47 ms every other second) with nothing else running,
+         * which is the size and cadence of these commits to a FAT SD card. The
+         * log is supposed to observe the system, not perturb it, so time the
+         * commit and report it, and allow it to be relaxed for a run where the
+         * loop timing itself is the measurement (log_fsync=0). */
+        uint64_t lt0 = now_us();
         fflush(logf);
-        fsync(fileno(logf));
+        if (opt_log_fsync) fsync(fileno(logf));
+        {
+            uint32_t lus = (uint32_t)(now_us() - lt0);
+            if (lus > log_us_max) log_us_max = lus;
+            log_us_sum += lus;
+            log_writes++;
+        }
     }
     va_start(ap, fmt);
     vprintf(fmt, ap);
@@ -174,6 +205,9 @@ static int s573_read_debug_file(void)
         else if (sscanf(p, "dump=%d", &v)  == 1) opt_dump = (v != 0);
         else if (sscanf(p, "ring_unsafe_ok=%d", &v) == 1) opt_unsafe_ring = (v != 0);
         else if (sscanf(p, "cdtrace=%d", &v) == 1) opt_cdtrace = (v != 0);
+        else if (sscanf(p, "mp3_frames=%d", &v) == 1) { if (v >= 1 && v <= 64) opt_frames = v; }
+        else if (sscanf(p, "mp3_budget_us=%d", &v) == 1) { if (v >= 0 && v <= 50000) opt_budget_us = v; }
+        else if (sscanf(p, "log_fsync=%d", &v) == 1) opt_log_fsync = (v != 0);
     }
     fclose(f);
     return 1;
@@ -262,6 +296,21 @@ static void ctrl_exchange(void)
 }
 
 static uint16_t last_stage_dbg = 0, last_stage_dbg2 = 0, last_stage_dbg3 = 0;
+/* Frame-time profile (STATUS words 17..23, rtl/s573_prof.v). Free-running
+ * cumulative 16-bit fabric counters; what means anything is the DIFF between two
+ * heartbeats, so keep the previous set. Tier-3 #1-#3: ddrextrm's loop halves while
+ * a background movie plays and PSX Turbo (RAM waits) changed nothing on silicon,
+ * so the question is whether the missing time is ours (573 bus waits, CD fetch)
+ * or the PSX core's. prof[4] (watchdog kicks) is the loop-rate meter: every title
+ * strobes 0x1f5c0000 once per main loop. */
+static uint16_t prof[7], prof_prev[7];
+/* The PSX half (STATUS words 24..29, rtl/s573_prof_gpu.v): rendered frames (GP1(05)
+ * buffer flips), VBLANK irqs as the ~60/s reference, and the cycles a second spends
+ * with the CPU paused for DMA, the CPU stalled on memory, the GPU drawing, and the
+ * MDEC decoding. Run B showed the 573-side counters at ~0%, so the frame time is
+ * being lost in here. */
+static uint16_t profg[7], profg_prev[7];
+static int      prof_have_prev = 0, profg_have_prev = 0;
 /* zs01 packet-engine observability (STATUS words 6/7/8; rtl/zs01.v dbg). The engine
  * is multi-cycle and the real host neither clock-stretches nor waits, so 'did the
  * game clock the response before we finished' is a question only the board answers. */
@@ -275,6 +324,9 @@ static uint16_t last_sec_cnt = 0;   /* word16: {0x1f400004 reads, latch writes} 
 #endif
 #ifndef CMD_573_STAGETRACE
 #define CMD_573_STAGETRACE 0x6C
+#endif
+#ifndef CMD_573_PCPROF
+#define CMD_573_PCPROF 0x6E
 #endif
 /* gn845pwbb line-event trace: the first 128 changes of the stage-0 DO/CLK lines
  * after reset, each {dt[13:0] in 64-clk ticks, ck, do}. Dumped once, when the
@@ -400,6 +452,92 @@ static void sectrace_dump(void)
                  ((asm_bits & 0xfffffffful) == 0x5a530001ul) ? "  <== the CPU GOT THE ID" : "");
     if (cnt >= 256) s573_log("s573mp3: cassette trace: buffer full (256 events)\n");
 }
+/* PC-sampling profile (CMD_573_PCPROF, rtl/s573_prof_pc.v, psx_patches 0031).
+ * The fabric samples the R3000 fetch PC every 1024 clk1x (33,075/s) into 512
+ * cumulative 16-bit bins of 2 KB over the first MB of RAM -- the game executable
+ * loads at 0x80010000 -- plus three class counters (RAM above 1 MB, BIOS, other).
+ * Once a second this pulls all 512 bins in 32 transactions, diffs them against the
+ * previous dump, and prints (a) the split and the top bins as percentages of the
+ * second, for reading in the log, and (b) the whole histogram as 512 hex words for
+ * tools/pcprof_map.py to lay over the disassembly. Cumulative counters, so a
+ * retried or skipped dump cannot double-count; the first dump only primes. */
+static uint16_t pcprof_prev[512];
+static uint16_t pcprof_prev_cls[4];      /* samples, ram_hi, bios, other */
+static int      pcprof_have = 0;
+static void pcprof_dump(void)
+{
+    static uint64_t next = 0;
+    uint16_t cur[512], cls[4], w0, w1;
+    unsigned d[512], dc[4], total, i, base, k;
+    unsigned top[8], ntop = 0;
+    uint64_t t = now_us();
+    if (t < next) return;
+    next = t + 1000000ull;
+
+    for (base = 0; base < 512; base += 16) {
+        w0 = spi_uio_cmd_cont(CMD_573_PCPROF);       /* word0: cnt_samples + class snapshot */
+        w1 = spi_w((uint16_t)base);                  /* word1: base, echoed */
+        for (i = 0; i < 16; i++) cur[base + i] = spi_w(0);
+        if (base == 0) {
+            cls[0] = w0;
+            cls[1] = spi_w(0);                       /* word18: ram_hi (snapshot) */
+            cls[2] = spi_w(0);                       /* word19: bios            */
+            cls[3] = spi_w(0);                       /* word20: other           */
+        }
+        DisableIO();
+        if (w1 != base) {
+            s573_log("s573mp3: pcprof: base echo %u != %u -- protocol out of step, dump dropped\n",
+                     w1, base);
+            return;
+        }
+    }
+    /* An older bitstream leaves word0 at whatever the snapshot bank held: the
+     * profiler is present only if the sample counter is MOVING. */
+    if (!pcprof_have) {
+        for (i = 0; i < 512; i++) pcprof_prev[i] = cur[i];
+        for (i = 0; i < 4; i++) pcprof_prev_cls[i] = cls[i];
+        pcprof_have = 1;
+        return;
+    }
+    for (i = 0; i < 4; i++) { dc[i] = (uint16_t)(cls[i] - pcprof_prev_cls[i]); pcprof_prev_cls[i] = cls[i]; }
+    total = 0;
+    for (i = 0; i < 512; i++) {
+        d[i] = (uint16_t)(cur[i] - pcprof_prev[i]);
+        pcprof_prev[i] = cur[i];
+        total += d[i];
+    }
+    if (dc[0] == 0) return;                          /* no samples: RTL without the profiler */
+
+    /* top 8 bins by samples (dc[0] is the denominator: every sample lands somewhere) */
+    for (k = 0; k < 8; k++) {
+        unsigned best = 0, bi = 512;
+        for (i = 0; i < 512; i++) {
+            unsigned j, seen = 0;
+            for (j = 0; j < ntop; j++) if (top[j] == i) seen = 1;
+            if (!seen && d[i] > best) { best = d[i]; bi = i; }
+        }
+        if (bi == 512 || best == 0) break;
+        top[ntop++] = bi;
+    }
+    {
+        char line[512];
+        int n = snprintf(line, sizeof line,
+                         "s573mp3: pcprof: samples=%u/s | ram<1M=%.1f%% ram>1M=%.1f%% bios=%.1f%% other=%.1f%% | top",
+                         dc[0], 100.0 * total / dc[0], 100.0 * dc[1] / dc[0],
+                         100.0 * dc[2] / dc[0], 100.0 * dc[3] / dc[0]);
+        for (k = 0; k < ntop && n < (int)sizeof line - 32; k++)
+            n += snprintf(line + n, sizeof line - n, " %08x:%.1f%%", 0x80000000u + top[k] * 0x800u, 100.0 * d[top[k]] / dc[0]);
+        s573_log("%s\n", line);
+    }
+    {
+        /* the whole histogram, 512 x 4 hex digits, for tools/pcprof_map.py */
+        char line[32 + 512 * 4 + 8];
+        int n = snprintf(line, sizeof line, "s573mp3: pcprof-hist:");
+        for (i = 0; i < 512; i++) n += snprintf(line + n, sizeof line - n, "%04x", d[i] & 0xffff);
+        s573_log("%s\n", line);
+    }
+}
+
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
     *flags    = spi_uio_cmd_cont(CMD_573_STATUS);
@@ -419,6 +557,10 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
     last_sec_em0    = spi_w(0);   /* word14: bits we drove [15:0]  */
     last_sec_em1    = spi_w(0);   /* word15: bits we drove [31:16] */
     last_sec_cnt    = spi_w(0);   /* word16: {0x1f400004 reads[7:0], cassette latch writes[7:0]} */
+    for (int i = 0; i < 7; i++)
+        prof[i]     = spi_w(0);   /* words17..23: the 573-side profile (0 on older RTL) */
+    for (int i = 0; i < 7; i++)
+        profg[i]    = spi_w(0);   /* words24..30: the PSX-side profile (0 on older RTL) */
     DisableIO();
 }
 
@@ -650,11 +792,18 @@ static void report_decode_stall(const char *why)
 
 static void decode_some(void)
 {
-    int budget = S573_FRAMES_PER_POLL;
+    int budget = opt_frames;
+    uint64_t t0 = now_us();
+    uint32_t took;
+    int decoded_here = 0;
 
     static int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
 
     while (budget-- > 0 && s573_core_may_decode(&core)) {
+        /* Bound the blocking time, not just the frame count: Main cannot service
+         * a CD sector or a USB report while we are inside this loop. */
+        if (opt_budget_us && decoded_here &&
+            (uint32_t)(now_us() - t0) >= (uint32_t)opt_budget_us) break;
         mp3dec_frame_info_t info;
         int samples;
         uint32_t avail;
@@ -721,6 +870,16 @@ static void decode_some(void)
                    "44100, so pitch will be wrong (no resampler)\n", info.hz);
         }
         push_frame(pcm, samples, info.channels, (uint32_t)info.frame_bytes);
+        decoded_here++;
+    }
+
+    /* How long this poll blocked Main, and how many frames it bought. */
+    if (decoded_here) {
+        took = (uint32_t)(now_us() - t0);
+        if (took > dec_us_max) dec_us_max = took;
+        dec_us_sum    += took;
+        dec_bursts++;
+        dec_frames_hb += (uint32_t)decoded_here;
     }
 }
 
@@ -830,6 +989,68 @@ static void heartbeat(void)
            core.ctrl_flags, sf, ur, bl,
            core.flushes, core.beats_dropped, core.torn_cfg,
            core.pulled_bytes - core.cons_bytes, core.pull_stalls, core.rewinds);
+
+    /* --- Main's poll loop and our decode bursts (both in microseconds) --- */
+    {
+        /* Snapshot the log counters BEFORE this line is written, so the line
+         * reports the second that just passed and not its own commit. */
+        uint32_t lmax = log_us_max, lsum = log_us_sum, lw = log_writes;
+        log_us_max = log_us_sum = log_writes = 0;
+        s573_log("s573mp3: poll: loop avg=%uus max=%uus over %u polls | decode avg=%uus "
+                 "max=%uus over %u bursts, %u frames | log total=%uus max=%uus over %u writes "
+                 "| mp3_frames=%d mp3_budget_us=%d log_fsync=%d\n",
+                 poll_gaps ? poll_gap_sum / poll_gaps : 0u, poll_gap_max, poll_gaps,
+                 dec_bursts ? dec_us_sum / dec_bursts : 0u, dec_us_max, dec_bursts,
+                 dec_frames_hb, lsum, lmax, lw,
+                 opt_frames, opt_budget_us, opt_log_fsync);
+    }
+    poll_gap_max = poll_gap_sum = poll_gaps = 0;
+    dec_us_max = dec_us_sum = dec_bursts = dec_frames_hb = 0;
+
+    /* --- frame-time profile: one line per second, deltas only --- */
+    {
+        /* clk1x = 33.8688 MHz and the cycle counters are cycles >> 10, so one
+         * second of a permanently asserted level is 33075 counts. */
+        const double per_sec = 33868800.0 / 1024.0;
+        unsigned d[7];
+        int any = 0;
+        for (int i = 0; i < 7; i++) {
+            d[i] = prof_have_prev ? (unsigned)(uint16_t)(prof[i] - prof_prev[i]) : 0u;
+            if (prof[i]) any = 1;
+            prof_prev[i] = prof[i];
+        }
+        prof_have_prev = 1;
+        if (any) {
+            s573_log("s573mp3: prof: loop=%u/s (watchdog kicks) | flash_wait=%.1f%% dio_wait=%.1f%% "
+                     "cd_fetch=%.1f%% | sectors=%u ide_acc=%u exp1_acc=%u (raw %u %u %u %u %u %u %u)\n",
+                     d[4], 100.0 * d[0] / per_sec, 100.0 * d[1] / per_sec, 100.0 * d[2] / per_sec,
+                     d[3], d[5] * 16u, d[6] * 64u,
+                     d[0], d[1], d[2], d[3], d[4], d[5], d[6]);
+        }
+
+        {
+            unsigned g[7];
+            int anyg = 0;
+            for (int i = 0; i < 7; i++) {
+                g[i] = profg_have_prev ? (unsigned)(uint16_t)(profg[i] - profg_prev[i]) : 0u;
+                if (profg[i]) anyg = 1;
+                profg_prev[i] = profg[i];
+            }
+            profg_have_prev = 1;
+            if (anyg)
+                /* mdec_mb/s is the decode RATE. At the modelled 2171 clk per
+                 * macroblock in 15-bit mode the ceiling is 15600/s; a rate far below
+                 * that with the MDEC busy means it is waiting for its input, which
+                 * is a different problem from the timing model being too slow. */
+                s573_log("s573mp3: gpu: FRAMES=%u/s vblank=%u/s | dma_paused=%.1f%% cpu_stall=%.1f%% "
+                         "gpu_busy=%.1f%% mdec_busy=%.1f%% mdec_mb=%u/s (%.1f%% of the 2171-clk "
+                         "ceiling) (raw %u %u %u %u %u %u %u)\n",
+                         g[0], g[1], 100.0 * g[2] / per_sec, 100.0 * g[3] / per_sec,
+                         100.0 * g[4] / per_sec, 100.0 * g[5] / per_sec,
+                         g[6], 100.0 * g[6] / (33868800.0 / 2171.0),
+                         g[0], g[1], g[2], g[3], g[4], g[5], g[6]);
+        }
+    }
 
     if (sf & 0x0008) s573_log("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");
     /* underrun_cnt is a saturating 16-bit fabric counter: once it pins at 65535
@@ -960,6 +1181,17 @@ void s573mp3_poll(void)
     if (!inited && !s573_init()) { gave_up = 1; return; }
 
     t = now_us();
+    /* Main's loop period as seen from inside it: the worst gap is how long a CD
+     * sector request or a USB report can sit unserviced. Sampled on EVERY call,
+     * before the due check, because that is the loop itself, not our cadence. */
+    if (poll_last_us) {
+        uint32_t gap = (uint32_t)(t - poll_last_us);
+        if (gap > poll_gap_max) poll_gap_max = gap;
+        poll_gap_sum += gap;
+        poll_gaps++;
+    }
+    poll_last_us = t;
+
     if (t < next_due_us) return;
     next_due_us = t + S573_POLL_US;
 
@@ -1035,5 +1267,5 @@ void s573mp3_poll(void)
     }
 
     ctrl_exchange();
-    if (opt_hb) { ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump(); }
+    if (opt_hb) { ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump(); pcprof_dump(); }
 }

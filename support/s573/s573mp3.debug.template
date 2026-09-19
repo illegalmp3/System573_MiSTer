@@ -29,3 +29,33 @@ atten=100     # MP3 channel level, percent. Upstream measured peaks above
               # write PCM anyway. A collision means the PCM ring address
               # (0x33F10000, still marked PROVISIONAL in the RTL) overlaps live
               # game memory, so overriding it corrupts the running game.
+
+mp3_frames=12 # How many MP3 frames one poll may decode. Main is a SINGLE poll loop:
+              # this service, the CD sector reads the fabric asks for, and USB input
+              # all take their turn in it, so a long decode burst is dead time for the
+              # other two. 12 was chosen for headroom, not measured. The "poll:" line
+              # in the log reports Main's loop period and the burst length, in
+              # microseconds, once a second.
+
+mp3_budget_us=0
+              # 0 = no time bound (the frame count alone caps a burst). Set e.g. 1500
+              # to end a burst once it has run that long, whatever the frame count --
+              # which bounds how long Main can be blocked. The A/B that matters for
+              # the Tier-3 gameplay symptoms (dropped arrows, sub-60 fps scrolling,
+              # half-speed background movies -- all of them gameplay-only, i.e. they
+              # appear exactly when this service is decoding) is this knob at 0
+              # versus 1500 on the same song.
+
+log_fsync=1   # The log commits every line to the SD card so it survives a power cut at
+              # the wall (which is how this board gets tested). MEASURED 2026-09-17:
+              # that commit is also what blocks Main's poll loop for 13-17 ms once a
+              # second, 44-47 ms every other second, with nothing else running -- the
+              # log was perturbing the very timing it was there to observe. The "poll:"
+              # line now reports the commit cost so the log accounts for its own
+              # footprint. Set 0 only for a run where loop timing IS the measurement;
+              # the last second or two of log can then be lost on a power cut.
+
+# pcprof: nothing to switch on. When the bitstream carries rtl/s573_prof_pc.v the
+# heartbeat adds two lines a second -- "pcprof:" (sample rate, class split, top
+# bins) and "pcprof-hist:" (all 512 bins) -- and stays silent on a bitstream
+# without it. Read them with tools/pcprof_map.py.

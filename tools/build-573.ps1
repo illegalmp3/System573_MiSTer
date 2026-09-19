@@ -143,15 +143,40 @@ if (Test-Path $fit) {
 if (Test-Path $sta) {
   Write-Host ""
   Write-Host "  timing:"
-  $neg = Select-String -Path $sta -Pattern '^\s*;\s*-\d'
-  if ($neg) {
+  # The multicorner summary is the verdict: one "Worst-case Slack" row over every
+  # corner, then a row per clock. A negative number in ANY numeric column
+  # (setup/hold/recovery/removal/min-pulse) fails the build.
+  # (Until 2026-09-18 this looked for lines BEGINNING with a negative number,
+  # which no row of this report ever does -- so every build was reported as
+  # "all corners non-negative", including one with 283 endpoints at -1.7 ns.
+  # Read the report, not the script's opinion of it.)
+  $mc = Select-String -Path $sta -Pattern '^; Multicorner Timing Analysis Summary' | Select-Object -First 1
+  $neg = @()
+  if ($mc) {
+    $lines = Get-Content $sta
+    for ($i = $mc.LineNumber + 3; $i -lt $lines.Count; $i++) {
+      $l = $lines[$i]
+      if ($l -notmatch '^;') { break }
+      $cols = $l.Split(';') | ForEach-Object { $_.Trim() }
+      for ($c = 2; $c -lt $cols.Count; $c++) {
+        if ($cols[$c] -match '^-\d') { $neg += ("{0}: {1}" -f $cols[1], $l.Trim()); break }
+      }
+    }
+  } else {
+    Write-Host "  (no Multicorner Timing Analysis Summary in $sta -- cannot judge timing)" -ForegroundColor Red
+    $failed = $true
+  }
+  $wc = Select-String -Path $sta -Pattern '^; Worst-case Slack' | Select-Object -First 1
+  if ($wc) { "    " + $wc.Line.Trim() }
+  if ($neg.Count -gt 0) {
     Write-Host "  TIMING NOT MET:" -ForegroundColor Red
-    $neg | Select-Object -First 12 | ForEach-Object { "    " + $_.Line.Trim() }
+    $neg | Select-Object -First 12 | ForEach-Object { "    " + $_ }
     Write-Host ""
     Write-Host "  A .rbf built from this will load and misbehave. Do not ship it." -ForegroundColor Red
+    Write-Host "  Failing paths: quartus_sta -t tools\timing_triage.tcl" -ForegroundColor Red
     $failed = $true
   } else {
-    Write-Host "    all corners non-negative" -ForegroundColor Green
+    Write-Host "    all corners non-negative (multicorner summary)" -ForegroundColor Green
   }
 }
 

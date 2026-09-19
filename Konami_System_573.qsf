@@ -124,6 +124,8 @@ source sys_pins.tcl
 # instance paths (emu|pll2|..., emu|pll|..., pll_hdmi|..., sysmem|...) match our
 # sys_top->emu hierarchy (emu.sv is the PSX.sv clone). Read AFTER sys_top.sdc.
 set_global_assignment -name SDC_FILE psx/PSX.sdc
+# 573-specific constraints (false path on the compiled-out savestate read bus). Read LAST.
+set_global_assignment -name SDC_FILE Konami_System_573.sdc
 
 set_global_assignment -name LAST_QUARTUS_VERSION "17.0.2 Lite Edition"
 
@@ -163,3 +165,10 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
 # is not much area left. A seed is area-neutral -- it just re-rolls placement,
 # and 0.3 ns is well inside normal seed spread.
 set_global_assignment -name SEED 3
+# HOLD (2026-09-18). Quartus's default OPTIMIZE_HOLD_TIMING covers only I/O and
+# minimum-tPD paths, so an internal register-to-register hold violation is left
+# standing: build #2 of the pcprof/MDEC A/B bitstream had exactly one, -0.256 ns
+# on savestates SS_DataRead[27] (clk_1x) -> SS_DataRead_2x[27] (clk_2x), with
+# setup clean everywhere. ALL PATHS lets the fitter pad such paths with routing
+# delay. Area-neutral in principle (delay, not logic).
+set_global_assignment -name OPTIMIZE_HOLD_TIMING "ALL PATHS"

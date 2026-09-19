@@ -3,15 +3,17 @@
 # build-hps-mp3.sh - build the forked Main_MiSTer ARM binary carrying the 573
 #                    HPS MP3 service (support/s573/).
 #
-# Runs INSIDE the Linux VM that the Cowork session drives on the Mac: aarch64
-# Ubuntu, ~/Documents mounted and executable, no sudo, no network. ARM publishes
-# an aarch64-hosted build of arm-none-linux-gnueabihf, which is the triple
-# Main's own Makefile expects -- so nothing needs installing.
+# Runs in a Linux environment with the project dir mounted: originally the
+# aarch64 Ubuntu VM on the Mac; since 2026-09-18 the WSL Ubuntu on the Windows PC
+# (x86_64), driven by tools/win/jobrunner.ps1 with DOCS=/mnt/c/Users/ricky/Documents.
+# ARM publishes both aarch64- and x86_64-hosted builds of arm-none-linux-gnueabihf,
+# which is the triple Main's own Makefile expects. tools/wsl/fetch-firmware-inputs.sh
+# downloads the three inputs below into $DOCS when the environment has network.
 #
-# Three inputs must be fetched on macOS into ~/Documents first (the VM has no
-# network):
-#   Main_MiSTer.tar.gz
-#   gcc-arm-10.2-2020.11-aarch64-arm-none-linux-gnueabihf.tar.xz
+# Three inputs must be present in $DOCS:
+#   Main_MiSTer*.tar.gz
+#   gcc-arm-10.2-2020.11-<host>-arm-none-linux-gnueabihf.tar.xz  (host = the
+#                                                                 machine running this)
 #   minimp3.h
 #
 # THE TOOLCHAIN VERSION IS NOT A FREE CHOICE. Main's Makefile comment says
@@ -55,7 +57,7 @@ stage_setup() {
   mkdir -p "$WORK"
 
   local tctar srctar mp3h
-  tctar="$(need_input 'gcc-arm-10.2-*-aarch64-arm-none-linux-gnueabihf.tar.xz' 'ARM toolchain')"
+  tctar="$(need_input "gcc-arm-10.2-*-$(uname -m)-arm-none-linux-gnueabihf.tar.xz" 'ARM toolchain')"
   srctar="$(need_input 'Main_MiSTer*.tar.gz' 'Main_MiSTer source')"
   mp3h="$(need_input 'minimp3.h' 'minimp3 single header')"
 
@@ -214,7 +216,10 @@ stage_build() {
   # fail visibly -- the console just never boots, which reads as "the core is
   # broken". Compare against the binary the board ALREADY RUNS, and refuse to
   # stage anything that asks for more.
+  # The card is not mounted in WSL; a copy of the stock binary the board runs is
+  # kept in the project (out/MiSTer.upstream-nos573, 2026-09-12 stock install).
   local ref="$SD/MiSTer.orig"
+  [ -f "$ref" ] || ref="$PROJ/out/MiSTer.upstream-nos573"
   if [ -f "$ref" ]; then
     local hi_ours hi_ref
     hi_ours=$(arm-none-linux-gnueabihf-readelf -V "$out" | grep -oE 'GLIBC_[0-9.]+' \

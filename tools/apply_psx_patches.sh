@@ -166,7 +166,20 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           # Motive is the TIMING path, not area -- pll_hdmi owns this build's binding
           # path at +0.006 ns and ascal is the only block on it.
           # CONSEQUENCE: do not select bicubic scaling in MiSTer.ini / the video OSD.
-          "$ROOT/psx_patches/0028-s573-ascal-no-bicubic.patch" )
+          "$ROOT/psx_patches/0028-s573-ascal-no-bicubic.patch" \
+          # 0029 = OBSERVATION taps for the Tier-3 frame profile (rtl/s573_prof_gpu.v):
+          # GP1(05) buffer flip, VBLANK irq, cpuPaused, stallNext, GPU/MDEC busy.
+          # Nothing is driven into the core.
+          "$ROOT/psx_patches/0029-s573-frame-profile.patch" \
+          # 0030 = MDEC 15-bit inter-macroblock wait made switchable (mdec15Fast, OSD
+          # "MDEC Timing", default = upstream 2171) + one pulse per decoded macroblock.
+          # Upstream 9530638 introduced the 2171 for Parasite Eve 2 with no measurement;
+          # ddrextrm's 304x176 15-bit movies need >16 ms/frame under it
+          # (docs/2026-09-18-ddrextrm-video-path-from-sources.md).
+          "$ROOT/psx_patches/0030-s573-mdec-timing-switch.patch" \
+          # 0031 = the R3000 fetch PC brought out (dbg573_pc) for the PC-sampling
+          # profiler rtl/s573_prof_pc.v. Observation only.
+          "$ROOT/psx_patches/0031-s573-cpu-pc-tap.patch" )
 
 if [ ! -e "$PSX/.git" ]; then
   echo "error: psx submodule not initialised. Run: git submodule update --init psx" >&2

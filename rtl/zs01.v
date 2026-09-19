@@ -279,32 +279,34 @@ module zs01 #(
     // Descramble rounds k7..k1 of one byte: t = ror8(t - (k & 0x1f), k >> 5). The caller
     // finishes with (t - k0) ^ prev and chains prev <= ciphertext. keysel 0 = command
     // key (decrypt), 1 = data key (decrypt2) -- identical arithmetic, different key.
-    function [7:0] dec_rounds(input [7:0] c, input keysel);
-        integer kk; reg [7:0] t, kb;
-        begin
-            t = c;
-            for (kk = 7; kk >= 1; kk = kk - 1) begin
-                kb = keysel ? dkey[kk] : cmdkey[kk];
-                t  = t - (kb & 8'h1f);
-                t  = ror8(t, kb[7:5]);
-            end
-            dec_rounds = t;
-        end
+    //
+    // TIMING (2026-09-18). The seven rounds were originally one combinational
+    // expression per byte: seven dependent subtract+rotate stages behind a 12:1
+    // byte mux, and the fitter placed that at -1.7 ns of setup slack on clk_1x
+    // (283 failing endpoints, every one inside this module). So a byte now takes
+    // FOUR clocks: two rounds per clock (dec_round2 / enc_round2) with the running
+    // value held in `tacc`, and the final round folded into the write-back cycle.
+    // Arithmetic is unchanged -- same rounds, same order, same chaining -- only
+    // the register boundaries moved; tb_zs01_golden replays the real ddrusa
+    // vectors through it. A packet now costs ~150 clocks (~4.4 us) instead of
+    // ~60; the real chip is a PIC that takes hundreds of microseconds and the
+    // host waits for it (overrun stays the bench-visible guard).
+    function [7:0] dec_round(input [7:0] t, input [7:0] kb);
+        dec_round = ror8(t - (kb & 8'h1f), kb[7:5]);
+    endfunction
+    function [7:0] dec_round2(input [7:0] t, input [7:0] kh, input [7:0] kl);   // rounds kh then kl
+        dec_round2 = dec_round(dec_round(t, kh), kl);
     endfunction
     // Scramble one byte with the response key: acc = k0 + (p ^ prev); then for k1..k7
     // acc = rol8(acc, k >> 5) + (k & 0x1f). The caller chains prev <= result.
-    function [7:0] enc_byte(input [7:0] p, input [7:0] prev);
-        integer kk; reg [7:0] acc, kb;
-        begin
-            acc = rkey[0] + (p ^ prev);
-            for (kk = 1; kk <= 7; kk = kk + 1) begin
-                kb  = rkey[kk];
-                acc = rol8(acc, kb[7:5]);
-                acc = acc + (kb & 8'h1f);
-            end
-            enc_byte = acc;
-        end
+    function [7:0] enc_round(input [7:0] acc, input [7:0] kb);
+        enc_round = rol8(acc, kb[7:5]) + (kb & 8'h1f);
     endfunction
+    function [7:0] enc_round2(input [7:0] acc, input [7:0] kl, input [7:0] kh);  // rounds kl then kh
+        enc_round2 = enc_round(enc_round(acc, kl), kh);
+    endfunction
+    reg [1:0] rnd;        // cipher sub-step within a byte (0..3)
+    reg [7:0] tacc;       // running cipher value between sub-steps
     // One CRC-16/CCITT byte step (poly 0x1021, MSB-first); init 0xFFFF, final inversion
     // are the caller's.
     function [15:0] crc_step(input [15:0] v0, input [7:0] b);
@@ -353,6 +355,7 @@ module zs01 #(
             state <= ST_STOP; bitc <= 0; bytec <= 0; shift <= 0;
             prevbyte <= 0; sda_o <= 1'b0;
             pstate <= P_DEC_CMD; pidx <= 0; pcnt <= 0; pprev <= 0; crcv <= 16'hffff; overrun <= 1'b0;
+            rnd <= 2'd0; tacc <= 8'd0;
             dbg_pkts <= 0; dbg_cmd <= 0; dbg_addr <= 0; dbg_status <= 0; dbg_rbytes <= 0; dbg_crc_ok <= 0;
             dbg_rtr <= 0; dbg_starts <= 0; dbg_cs_seen <= 1'b0; rtr_edges <= 0; rtr_emit <= 0;
         end else begin
@@ -360,9 +363,17 @@ module zs01 #(
             if (state == ST_PROC) begin
                 case (pstate)
                 P_DEC_CMD: begin                 // decrypt(wbuf, 12, cmdkey, 0xff), descending
-                    wbuf[pidx] <= (dec_rounds(wbuf[pidx], 1'b0) - cmdkey[0]) ^ pprev;
-                    pprev      <= wbuf[pidx];
-                    if (pidx == 4'd0) pstate <= P_DEC_DONE; else pidx <= pidx - 4'd1;
+                    rnd <= rnd + 2'd1;
+                    case (rnd)
+                    2'd0: tacc <= dec_round2(wbuf[pidx], cmdkey[7], cmdkey[6]);
+                    2'd1: tacc <= dec_round2(tacc, cmdkey[5], cmdkey[4]);
+                    2'd2: tacc <= dec_round2(tacc, cmdkey[3], cmdkey[2]);
+                    default: begin
+                        wbuf[pidx] <= (dec_round(tacc, cmdkey[1]) - cmdkey[0]) ^ pprev;
+                        pprev      <= wbuf[pidx];
+                        if (pidx == 4'd0) pstate <= P_DEC_DONE; else pidx <= pidx - 4'd1;
+                    end
+                    endcase
                 end
                 P_DEC_DONE: begin                // (write_buffer[0] & 4) -> decrypt2 with the data key
                     if (wbuf[0][2]) begin
@@ -372,10 +383,18 @@ module zs01 #(
                     end
                 end
                 P_DEC_DATA: begin                // decrypt2(wbuf+2, 8, dkey, m_previous_byte), ascending
-                    wbuf[pidx] <= (dec_rounds(wbuf[pidx], 1'b1) - dkey[0]) ^ pprev;
-                    pprev      <= wbuf[pidx];
-                    if (pidx == 4'd9) begin pstate <= P_CRC_CMD; pidx <= 4'd0; crcv <= 16'hffff; end
-                    else pidx <= pidx + 4'd1;
+                    rnd <= rnd + 2'd1;
+                    case (rnd)
+                    2'd0: tacc <= dec_round2(wbuf[pidx], dkey[7], dkey[6]);
+                    2'd1: tacc <= dec_round2(tacc, dkey[5], dkey[4]);
+                    2'd2: tacc <= dec_round2(tacc, dkey[3], dkey[2]);
+                    default: begin
+                        wbuf[pidx] <= (dec_round(tacc, dkey[1]) - dkey[0]) ^ pprev;
+                        pprev      <= wbuf[pidx];
+                        if (pidx == 4'd9) begin pstate <= P_CRC_CMD; pidx <= 4'd0; crcv <= 16'hffff; end
+                        else pidx <= pidx + 4'd1;
+                    end
+                    endcase
                 end
                 P_CRC_CMD: begin                 // calc_crc(wbuf, 10)
                     crcv <= crc_step(crcv, wbuf[pidx]);
@@ -451,12 +470,20 @@ module zs01 #(
                     pstate   <= P_ENC;
                 end
                 P_ENC: begin                     // encrypt(rbuf, 12, rkey, 0xff), descending
-                    encb       = enc_byte(rbuf[pidx], pprev);
-                    rbuf[pidx] <= encb;
-                    pprev      <= encb;
-                    if (pidx == 4'd0) begin
-                        state <= ST_READ; bytec <= 8'd0; bitc <= 4'd0;
-                    end else pidx <= pidx - 4'd1;
+                    rnd <= rnd + 2'd1;
+                    case (rnd)
+                    2'd0: tacc <= enc_round2(rkey[0] + (rbuf[pidx] ^ pprev), rkey[1], rkey[2]);
+                    2'd1: tacc <= enc_round2(tacc, rkey[3], rkey[4]);
+                    2'd2: tacc <= enc_round2(tacc, rkey[5], rkey[6]);
+                    default: begin
+                        encb       = enc_round(tacc, rkey[7]);
+                        rbuf[pidx] <= encb;
+                        pprev      <= encb;
+                        if (pidx == 4'd0) begin
+                            state <= ST_READ; bytec <= 8'd0; bitc <= 4'd0;
+                        end else pidx <= pidx - 4'd1;
+                    end
+                    endcase
                 end
                 default: pstate <= P_DEC_CMD;
                 endcase
@@ -528,6 +555,7 @@ module zs01 #(
                                 pstate <= P_DEC_CMD;
                                 pidx   <= 4'd11;
                                 pprev  <= 8'hff;                 // decrypt() seed
+                                rnd    <= 2'd0;                  // cipher sub-step (see dec_round2)
                                 bytec  <= 8'd0;
                             end else
                                 bytec <= bytec + 8'd1;

@@ -1,0 +1,123 @@
+System 573: make the MDEC 15-bit wait switchable, and count macroblocks.
+
+MEASURED on hardware 2026-09-17 (run C, ddrextrm): the game renders exactly 60
+frames a second whenever the MDEC is idle -- including a song section whose
+background was a near-static image -- and exactly 30 whenever the MDEC is
+decoding, with the machine only about half busy either way (mdec 24.6%, gpu 10%,
+DMA 3.5%, CPU memory stall 13.6%). The 573 side measures ~0% in both.
+
+rtl/mdec.vhd waits 2171 clk between macroblocks in 15-bit output mode and 10 clk
+in every other depth. That asymmetry is not a measured hardware figure: it came in
+as "MDEC: reduce decoding speed for 15bit mode (fixes Parasite Eve 2 FMV-ingame
+stuttering)", and psx-spx documents no MDEC timing at all (DuckStation, for what
+it is worth, uses 448 ticks per block = 2688 per macroblock for every depth).
+ddrextrm's background movies are 15-bit, so this wait is on its critical path.
+
+So rather than change the number on a hunch, make it selectable (mdec15Fast, off
+by default = upstream behaviour, driven from a 573 OSD item) and add dbg573_mb,
+one pulse per decoded macroblock, so the log reports the decode RATE next to the
+busy percentage -- an MDEC that is busy but far below the modelled ceiling is
+starved by its input, which is a different fault from the model being too slow.
+Nothing else in the core is touched and the default behaviour is unchanged.
+
+diff --git a/rtl/mdec.vhd b/rtl/mdec.vhd
+--- a/rtl/mdec.vhd	2026-09-17 22:05:13.438000508 +0000
++++ b/rtl/mdec.vhd	2026-09-17 22:00:58.137215835 +0000
+@@ -33,7 +33,14 @@
+       SS_wren              : in  std_logic;
+       SS_rden              : in  std_logic;
+       SS_DataRead          : out std_logic_vector(31 downto 0);
+-      SS_Idle              : out std_logic
++      SS_Idle              : out std_logic;
++      -- System 573 (psx_patches 0030). mdec15Fast replaces the 15-bit-mode
++      -- inter-macroblock wait below with the same value every other depth uses, so
++      -- the cost of that wait can be A/B'd on hardware instead of argued about.
++      -- dbg573_mb pulses once per completed macroblock (per block in the 4/8-bit
++      -- monochrome modes), which is what turns "mdec busy %" into a decode RATE.
++      mdec15Fast           : in  std_logic := '0';
++      dbg573_mb            : out std_logic := '0'
+    );
+ end entity;
+ 
+@@ -792,6 +799,7 @@
+       
+          idct_write     <= '0';
+          idct_done      <= '0';
++         dbg573_mb      <= '0';
+          idct_calc0_ena <= '0';
+       
+          if (reset_calc = '1') then
+@@ -803,7 +811,14 @@
+             case (idctState) is
+             
+                when IDCT_IDLE =>
+-                  if (rec_depth = "11") then -- 15bit mode
++                  -- 2171 is not a measured hardware figure: it was introduced
++                  -- upstream as "MDEC: reduce decoding speed for 15bit mode (fixes
++                  -- Parasite Eve 2 FMV-ingame stuttering)" and applies to 15-bit
++                  -- output only -- 24-bit, which moves MORE data, still waits 10.
++                  -- psx-spx documents no MDEC timing at all. So make it switchable
++                  -- and let the hardware say whether it is what costs ddrextrm its
++                  -- frame rate; the default is unchanged.
++                  if (rec_depth = "11" and mdec15Fast = '0') then -- 15bit mode
+                      idct_wait_cnt <= 2171;
+                   else
+                      idct_wait_cnt <= 10;
+@@ -899,6 +914,7 @@
+                   else
+                      idctState <= IDCT_IDLE;
+                      idct_done <= '1';
++                     dbg573_mb <= '1';
+                   end if;
+                   
+                
+diff --git a/rtl/psx_top.vhd b/rtl/psx_top.vhd
+--- a/rtl/psx_top.vhd	2026-09-17 22:05:13.438000508 +0000
++++ b/rtl/psx_top.vhd	2026-09-17 22:01:14.340952662 +0000
+@@ -261,7 +261,9 @@
+       dbg573_cpupaused      : out    std_logic := '0';
+       dbg573_cpustall       : out    std_logic := '0';
+       dbg573_gpubusy        : out    std_logic := '0';
+-      dbg573_mdecbusy       : out    std_logic := '0'
++      dbg573_mdecbusy       : out    std_logic := '0';
++      dbg573_mdecmb         : out    std_logic := '0';   -- 1 clk per decoded macroblock
++      mdec15Fast            : in     std_logic := '0'    -- see mdec.vhd (psx_patches 0030)
+    );
+ end entity;
+ 
+@@ -1713,7 +1715,9 @@
+       SS_wren              => SS_wren(6),     
+       SS_rden              => SS_rden(6),     
+       SS_DataRead          => SS_DataRead_MDEC,
+-      SS_Idle              => SS_Idle_mdec
++      SS_Idle              => SS_Idle_mdec,
++      mdec15Fast           => mdec15Fast,
++      dbg573_mb            => dbg573_mdecmb
+    );
+ 
+    ispu : entity work.spu
+diff --git a/rtl/psx_mister.vhd b/rtl/psx_mister.vhd
+--- a/rtl/psx_mister.vhd	2026-09-17 22:05:13.438000508 +0000
++++ b/rtl/psx_mister.vhd	2026-09-17 22:01:14.347869246 +0000
+@@ -302,7 +302,9 @@
+       dbg573_cpupaused      : out    std_logic := '0';
+       dbg573_cpustall       : out    std_logic := '0';
+       dbg573_gpubusy        : out    std_logic := '0';
+-      dbg573_mdecbusy       : out    std_logic := '0'
++      dbg573_mdecbusy       : out    std_logic := '0';
++      dbg573_mdecmb         : out    std_logic := '0';
++      mdec15Fast            : in     std_logic := '0'
+    );
+ end entity;
+ 
+@@ -705,7 +707,9 @@
+       dbg573_cpupaused      => dbg573_cpupaused,
+       dbg573_cpustall       => dbg573_cpustall,
+       dbg573_gpubusy        => dbg573_gpubusy,
+-      dbg573_mdecbusy       => dbg573_mdecbusy
++      dbg573_mdecbusy       => dbg573_mdecbusy,
++      dbg573_mdecmb         => dbg573_mdecmb,
++      mdec15Fast            => mdec15Fast
+    );                          
+ 
+ end architecture;

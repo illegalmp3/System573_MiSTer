@@ -116,3 +116,8 @@ sim/**/build*/run*.log
 /out/
 support/s573/tests/test
 support/s573/tests/test_S573_MUT_*
+
+# macOS AppleDouble sidecars left by copying the tree from the Mac (2026-09-18)
+._*
+.DS_Store
+sim/Makefile.pcprof

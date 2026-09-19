@@ -482,6 +482,15 @@ parameter CONF_STR = {
 	// Rename only (2026-09-16): the card is now also fitted automatically whenever the
 	// mounted .sav is 48 MB, so "Auto" is what the old "Off" position does.
 	"O[107],573 PCMCIA Card,Auto,32MB (slot 2);",
+	// MDEC TIMING (diagnostic, 2026-09-17). psx/rtl/mdec.vhd waits 2171 clk between
+	// macroblocks in 15-bit output mode and 10 in every other depth. That asymmetry
+	// is not a measured hardware figure -- it came in upstream as "reduce decoding
+	// speed for 15bit mode (fixes Parasite Eve 2 FMV-ingame stuttering)", and
+	// psx-spx documents no MDEC timing at all. ddrextrm renders exactly 60 fps
+	// whenever the MDEC is idle and exactly 30 whenever it is decoding (measured
+	// 2026-09-17), so this switch exists to let the hardware say whether that wait
+	// is what costs the frame. "Accurate" is the upstream behaviour and the default.
+	"O[108],MDEC Timing,Accurate,Fast (test);",
 	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
 	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
 	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
@@ -803,6 +812,39 @@ wire        heartbeat;
 // signals are declared with the MP3 transport block above the DDR3 arb.
 // Byte-ring inputs are tied 0: that leg is decision-B-gated (the
 // descramble-on-HPS spike may delete it) and the writer does not exist yet.
+// Frame-time profile (s573_prof.v) -> HPS STATUS words 17..23. Free-running
+// cumulative counters; the service diffs them per second and prints one line.
+wire [15:0] prof_flash_k, prof_dio_k, prof_cd_k, prof_sectors, prof_frames, prof_ide, prof_exp1;
+wire [111:0] prof_dbg112 = {prof_exp1, prof_ide, prof_frames, prof_sectors, prof_cd_k, prof_dio_k, prof_flash_k};
+// The PSX half of the same profile: the game's RENDERED FRAME RATE (GP1(05) buffer
+// flips) plus where a frame's cycles go inside the PSX core. The 573-side counters
+// above measured ~0% on silicon, so this is where the missing time has to be.
+wire psx_dbg_flip, psx_dbg_vblank, psx_dbg_cpupaused, psx_dbg_cpustall;
+wire psx_dbg_gpubusy, psx_dbg_mdecbusy, psx_dbg_mdecmb;
+wire mdec15_fast    = status[108];                 // "O[108],MDEC Timing" 1 = drop the 15-bit wait
+wire [15:0] prof_flips, prof_vblanks, prof_paused_k, prof_stall_k, prof_gpu_k, prof_mdec_k, prof_mdec_mb;
+wire [111:0] profg_dbg112 = {prof_mdec_mb, prof_mdec_k, prof_gpu_k, prof_stall_k, prof_paused_k, prof_vblanks, prof_flips};
+s573_prof_gpu u_prof_gpu (
+   .clk(clk_1x), .rst(reset_or),
+   .flip(psx_dbg_flip), .vblank(psx_dbg_vblank),
+   .cpupaused(psx_dbg_cpupaused), .cpustall(psx_dbg_cpustall),
+   .gpubusy(psx_dbg_gpubusy), .mdecbusy(psx_dbg_mdecbusy), .mdecmb(psx_dbg_mdecmb),
+   .prof_flips(prof_flips), .prof_vblanks(prof_vblanks),
+   .prof_paused_k(prof_paused_k), .prof_stall_k(prof_stall_k),
+   .prof_gpu_k(prof_gpu_k), .prof_mdec_k(prof_mdec_k), .prof_mdec_mb(prof_mdec_mb)
+);
+// PC-sampling profile (s573_prof_pc.v, tap from psx_patches 0031) -> CMD_573_PCPROF.
+// The occupancy levels above cannot tell a spin-wait from work; this says WHERE
+// the CPU's time goes, in 2 KB bins over the game executable, once a second.
+wire [31:0] psx_dbg_pc;
+wire  [8:0] pcprof_addr;
+wire [15:0] pcprof_data, pcprof_samples, pcprof_ram_hi, pcprof_bios, pcprof_other;
+s573_prof_pc u_prof_pc (
+   .clk(clk_1x), .rst(reset_or), .pc(psx_dbg_pc),
+   .rd_addr(pcprof_addr), .rd_data(pcprof_data),
+   .cnt_samples(pcprof_samples), .cnt_ram_hi(pcprof_ram_hi),
+   .cnt_bios(pcprof_bios), .cnt_other(pcprof_other)
+);
 s573_hps_ext hps_ext
 (
 	.clk_sys(clk_1x),
@@ -839,6 +881,10 @@ s573_hps_ext hps_ext
 	.sec_rd_dbg(sec_rd_dbg48),
 	.sec_emit_dbg(sec_emit_dbg32),
 	.sec_cnt_dbg(sec_cnt_dbg16),
+	.prof_dbg(prof_dbg112),
+	.profg_dbg(profg_dbg112),
+	.pcprof_addr(pcprof_addr), .pcprof_data(pcprof_data), .pcprof_samples(pcprof_samples),
+	.pcprof_ram_hi(pcprof_ram_hi), .pcprof_bios(pcprof_bios), .pcprof_other(pcprof_other),
 	.sec_trace_addr(sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),
 	.stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
 
@@ -1688,7 +1734,17 @@ psx
    .Cheats_BusWriteData(cheats_dout),
    .Cheats_Bus_ena(cheats_ena),
    .Cheats_BusReadData(cheats_din),
-   .Cheats_BusDone(sdramCh3_done)
+   .Cheats_BusDone(sdramCh3_done),
+   // 573 frame profile taps (psx_patches 0029 -> s573_prof_gpu.v)
+   .dbg573_flip(psx_dbg_flip),
+   .dbg573_vblank(psx_dbg_vblank),
+   .dbg573_cpupaused(psx_dbg_cpupaused),
+   .dbg573_cpustall(psx_dbg_cpustall),
+   .dbg573_gpubusy(psx_dbg_gpubusy),
+   .dbg573_mdecbusy(psx_dbg_mdecbusy),
+   .dbg573_mdecmb(psx_dbg_mdecmb),
+   .mdec15Fast(mdec15_fast),
+   .dbg573_pc(psx_dbg_pc)             // psx_patches 0031 -> s573_prof_pc
 );
 
 ////////////////////////////  SYSTEM 573 (EXP1 SLAVE)  ///////////////////
@@ -2492,6 +2548,13 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .sec_dump_addr  (sec_dump_addr),
    .sec_dump_data  (sec_dump_data),
    .sec_nv_wr      (sec_nv_wr),
+   .prof_flash_k   (prof_flash_k),
+   .prof_dio_k     (prof_dio_k),
+   .prof_cd_k      (prof_cd_k),
+   .prof_sectors   (prof_sectors),
+   .prof_frames    (prof_frames),
+   .prof_ide       (prof_ide),
+   .prof_exp1      (prof_exp1),
    .sec_ser_we     (sec_ser_we),
    .sec_ser_addr   (sec_ser_addr),
    .sec_ser_din    (sec_ser_din),

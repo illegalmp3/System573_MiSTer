@@ -1,0 +1,93 @@
+System 573: frame profile taps out of the PSX core (Tier-3 #1-#3).
+
+Run B (2026-09-17) measured the 573 side and found nothing: with ddrextrm in
+gameplay the flash wait, the digital-board wait and the CD fetch are each ~0% of
+the second, and the watchdog -- the intended frame meter -- turned out to be a
+fixed 30 Hz task in this title (30 kicks/s in the attract screens that run at full
+speed just as much as in the slow gameplay). So the run produced no frame rate at
+all, and the time the game is losing is being lost inside the PSX core.
+
+These are five signals that already exist in psx_top, brought out unchanged:
+  dbg573_flip       GP1(05) "start of display area" write = the game's buffer
+                    flip, one per RENDERED frame. This is the missing number.
+  dbg573_vblank     the GPU's VBLANK irq, ~60/s: the reference to read it against.
+  dbg573_cpupaused  cpuPaused -- the CPU is stopped while a DMA owns the bus.
+  dbg573_cpustall   stallNext -- the CPU is stalled on a memory request.
+  dbg573_gpubusy /  not SS_Idle_gpu / not SS_Idle_mdec -- the drawing engine and
+  dbg573_mdecbusy   the MDEC video decoder are working.
+Nothing is driven INTO the core and no existing signal changes, so this cannot
+alter behaviour; rtl/s573_prof_gpu.v counts them and the HPS prints them once a
+second.
+
+diff --git a/rtl/psx_top.vhd b/rtl/psx_top.vhd
+--- a/rtl/psx_top.vhd	2026-09-17 21:00:01.408000955 +0000
++++ b/rtl/psx_top.vhd	2026-09-17 20:53:46.396200415 +0000
+@@ -251,7 +251,17 @@
+       Cheats_BusWriteData   : out    std_logic_vector(31 downto 0);
+       Cheats_Bus_ena        : out    std_logic := '0';
+       Cheats_BusReadData    : in     std_logic_vector(31 downto 0);
+-      Cheats_BusDone        : in     std_logic
++      Cheats_BusDone        : in     std_logic;
++      -- System 573 frame profile (s573_prof.v). Observation only: five signals that
++      -- already exist here, brought out so the 573 side can count them per second.
++      -- dbg573_flip is the GP1(05) "start of display area" write, i.e. the game's
++      -- buffer flip = one rendered frame; the rest are occupancy levels.
++      dbg573_flip           : out    std_logic := '0';
++      dbg573_vblank         : out    std_logic := '0';
++      dbg573_cpupaused      : out    std_logic := '0';
++      dbg573_cpustall       : out    std_logic := '0';
++      dbg573_gpubusy        : out    std_logic := '0';
++      dbg573_mdecbusy       : out    std_logic := '0'
+    );
+ end entity;
+ 
+@@ -754,6 +764,15 @@
+       end if;
+    end process;
+  
++   -- ---- System 573 frame profile taps (observation only) ----
++   dbg573_flip      <= '1' when (bus_gpu_write = '1' and bus_gpu_addr = x"4" and
++                                 bus_gpu_dataWrite(29 downto 24) = "000101") else '0';
++   dbg573_vblank    <= irq_VBLANK;
++   dbg573_cpupaused <= cpuPaused;
++   dbg573_cpustall  <= stallNext;
++   dbg573_gpubusy   <= not SS_Idle_gpu;
++   dbg573_mdecbusy  <= not SS_Idle_mdec;
++
+    SS_idle    <= SS_Idle_gpu and SS_Idle_mdec and SS_Idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma;
+    
+    Pause_Idle <= SS_Idle_gpu and SS_Idle_mdec and Pause_idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma; 
+diff --git a/rtl/psx_mister.vhd b/rtl/psx_mister.vhd
+--- a/rtl/psx_mister.vhd	2026-09-17 21:00:01.408000955 +0000
++++ b/rtl/psx_mister.vhd	2026-09-17 20:54:01.849514182 +0000
+@@ -295,7 +295,14 @@
+       Cheats_BusWriteData   : out    std_logic_vector(31 downto 0);
+       Cheats_Bus_ena        : out    std_logic := '0';
+       Cheats_BusReadData    : in     std_logic_vector(31 downto 0);
+-      Cheats_BusDone        : in     std_logic
++      Cheats_BusDone        : in     std_logic;
++      -- System 573 frame profile (see psx_top.vhd): pure observation taps.
++      dbg573_flip           : out    std_logic := '0';
++      dbg573_vblank         : out    std_logic := '0';
++      dbg573_cpupaused      : out    std_logic := '0';
++      dbg573_cpustall       : out    std_logic := '0';
++      dbg573_gpubusy        : out    std_logic := '0';
++      dbg573_mdecbusy       : out    std_logic := '0'
+    );
+ end entity;
+ 
+@@ -692,7 +699,13 @@
+       Cheats_BusWriteData   => Cheats_BusWriteData,
+       Cheats_Bus_ena        => Cheats_Bus_ena,
+       Cheats_BusReadData    => Cheats_BusReadData,
+-      Cheats_BusDone        => Cheats_BusDone
++      Cheats_BusDone        => Cheats_BusDone,
++      dbg573_flip           => dbg573_flip,
++      dbg573_vblank         => dbg573_vblank,
++      dbg573_cpupaused      => dbg573_cpupaused,
++      dbg573_cpustall       => dbg573_cpustall,
++      dbg573_gpubusy        => dbg573_gpubusy,
++      dbg573_mdecbusy       => dbg573_mdecbusy
+    );                          
+ 
+ end architecture;
