@@ -147,6 +147,15 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
   triggers. Games still execute **cached from RAM** (the upstream-proven path), so
   there is no regression risk to game execution.
 
+> **2026-09-27 — 0004 RETIRED** (`psx_patches/retired/`). Its premise was wrong: the
+> i-cache tag store is an asynchronous MLAB read, so upstream's hit test already sees the
+> current fetch address. What 0004 actually did was force an i-cache refill on **every
+> 16-byte line crossing** (+5 clk1x each; a 16-line loop went 65 → 150 cycles in NVC),
+> i.e. it slowed every cached instruction stream ~2×. That is what held ddrextrm at
+> 30 fps (DecDCTvlc at CPI 3.3). The BIOS-mirror crash is 0005's (the mirror got tags
+> without data); the boot regression without 0004 is in
+> `docs/2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md`.
+
 With both applied, the BIOS in the NVC sim **advances ~80 ms past the old 220.6 ms
 crash** through normal init (a large ROM→RAM copy) to 300 ms with **zero AdEL /
 reserved-instruction / unmapped-fetch faults**. Confirmed on silicon: with 0004/0005

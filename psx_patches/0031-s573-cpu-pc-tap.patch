@@ -42,7 +42,7 @@ Stacks on 0029 (frame profile taps) and 0030 (MDEC timing switch).
 @@ -263,7 +263,8 @@
        dbg573_gpubusy        : out    std_logic := '0';
        dbg573_mdecbusy       : out    std_logic := '0';
-       dbg573_mdecmb         : out    std_logic := '0';   -- 1 clk per decoded macroblock
+       dbg573_mdecmb         : out    std_logic := '0';   -- toggles once per decoded macroblock
 -      mdec15Fast            : in     std_logic := '0'    -- see mdec.vhd (psx_patches 0030)
 +      mdec15Fast            : in     std_logic := '0';   -- see mdec.vhd (psx_patches 0030)
 +      dbg573_pc             : out    std_logic_vector(31 downto 0) := (others => '0')  -- fetch PC (psx_patches 0031)

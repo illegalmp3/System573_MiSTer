@@ -121,3 +121,5 @@ support/s573/tests/test_S573_MUT_*
 ._*
 .DS_Store
 sim/Makefile.pcprof
+sim/system573/build_*/
+Konami_System_573.qsf.prebuild

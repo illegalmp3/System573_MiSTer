@@ -96,17 +96,17 @@ module tb_s573_prof_gpu;
         chk("paused unchanged by gpu/mdec", p_paused, 3);
 
         // macroblock rate: 300 decoded macroblocks = one 320x240 frame's worth
+        // mdecmb is a TOGGLE (one level change per macroblock, either direction)
         for (k = 0; k < 300; k = k + 1) begin
-            @(negedge clk); mdecmb = 1; @(negedge clk); mdecmb = 0;
+            @(negedge clk); mdecmb = ~mdecmb; @(negedge clk);
         end
-        chk("300 macroblocks", p_mb, 300);
-        // a macroblock pulse stretched over 5 cycles is still ONE macroblock
+        chk("300 macroblocks (300 toggles)", p_mb, 300);
+        // a level held for 5 cycles is still ONE macroblock (no re-counting a level)
         for (k = 0; k < 4; k = k + 1) begin
-            @(negedge clk); mdecmb = 1;
+            @(negedge clk); mdecmb = ~mdecmb;
             for (i = 0; i < 5; i = i + 1) @(negedge clk);
-            mdecmb = 0; @(negedge clk);
         end
-        chk("4 stretched macroblocks", p_mb, 304);
+        chk("4 held toggles", p_mb, 304);
 
         if (errors == 0) $display("RESULT: PASS (s573_prof_gpu)");
         else             $display("RESULT: FAIL (s573_prof_gpu, %0d errors)", errors);

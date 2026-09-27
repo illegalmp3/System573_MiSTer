@@ -20,8 +20,8 @@ alter behaviour; rtl/s573_prof_gpu.v counts them and the HPS prints them once a
 second.
 
 diff --git a/rtl/psx_top.vhd b/rtl/psx_top.vhd
---- a/rtl/psx_top.vhd	2026-09-17 21:00:01.408000955 +0000
-+++ b/rtl/psx_top.vhd	2026-09-17 20:53:46.396200415 +0000
+--- a/rtl/psx_top.vhd
++++ b/rtl/psx_top.vhd
 @@ -251,7 +251,17 @@
        Cheats_BusWriteData   : out    std_logic_vector(31 downto 0);
        Cheats_Bus_ena        : out    std_logic := '0';
@@ -58,8 +58,8 @@ diff --git a/rtl/psx_top.vhd b/rtl/psx_top.vhd
     
     Pause_Idle <= SS_Idle_gpu and SS_Idle_mdec and Pause_idle_cd and SS_idle_spu and SS_idle_pad and SS_idle_irq and SS_idle_cpu and SS_idle_gte and SS_idle_dma; 
 diff --git a/rtl/psx_mister.vhd b/rtl/psx_mister.vhd
---- a/rtl/psx_mister.vhd	2026-09-17 21:00:01.408000955 +0000
-+++ b/rtl/psx_mister.vhd	2026-09-17 20:54:01.849514182 +0000
+--- a/rtl/psx_mister.vhd
++++ b/rtl/psx_mister.vhd
 @@ -295,7 +295,14 @@
        Cheats_BusWriteData   : out    std_logic_vector(31 downto 0);
        Cheats_Bus_ena        : out    std_logic := '0';

@@ -21,9 +21,9 @@ starved by its input, which is a different fault from the model being too slow.
 Nothing else in the core is touched and the default behaviour is unchanged.
 
 diff --git a/rtl/mdec.vhd b/rtl/mdec.vhd
---- a/rtl/mdec.vhd	2026-09-17 22:05:13.438000508 +0000
-+++ b/rtl/mdec.vhd	2026-09-17 22:00:58.137215835 +0000
-@@ -33,7 +33,14 @@
+--- a/rtl/mdec.vhd
++++ b/rtl/mdec.vhd
+@@ -33,7 +33,17 @@
        SS_wren              : in  std_logic;
        SS_rden              : in  std_logic;
        SS_DataRead          : out std_logic_vector(31 downto 0);
@@ -32,22 +32,34 @@ diff --git a/rtl/mdec.vhd b/rtl/mdec.vhd
 +      -- System 573 (psx_patches 0030). mdec15Fast replaces the 15-bit-mode
 +      -- inter-macroblock wait below with the same value every other depth uses, so
 +      -- the cost of that wait can be A/B'd on hardware instead of argued about.
-+      -- dbg573_mb pulses once per completed macroblock (per block in the 4/8-bit
++      -- dbg573_mb TOGGLES once per completed macroblock (per block in the 4/8-bit
 +      -- monochrome modes), which is what turns "mdec busy %" into a decode RATE.
++      -- A toggle, not a pulse: this process runs on clk2x and the counter samples
++      -- on clk1x, so a 1-clk2x pulse was seen only half the time (2026-09-27 log:
++      -- 1450 mb/s reported for a 15 fps x 209 mb video). A level change is never missed.
 +      mdec15Fast           : in  std_logic := '0';
 +      dbg573_mb            : out std_logic := '0'
     );
  end entity;
  
-@@ -792,6 +799,7 @@
-       
-          idct_write     <= '0';
-          idct_done      <= '0';
-+         dbg573_mb      <= '0';
-          idct_calc0_ena <= '0';
-       
-          if (reset_calc = '1') then
-@@ -803,7 +811,14 @@
+@@ -121,6 +131,7 @@
+    signal idctState           : tidctState := IDCT_IDLE;
+    
+    signal idct_wait_cnt       : integer range 0 to 2171;
++   signal mb_toggle           : std_logic := '0';   -- System 573: dbg573_mb source
+    
+    -- synthesis translate_off
+    type tidct_input is array(0 to 63) of signed(10 downto 0);
+@@ -308,6 +319,8 @@
+ 
+ begin 
+ 
++   dbg573_mb <= mb_toggle;   -- System 573 (psx_patches 0030): macroblock toggle
++
+    FifoIn_Din <= dma_writedata when (dma_write = '1') else bus_dataWrite;
+    FifoIn_Wr  <= ce when ((bus_write = '1' and bus_addr = x"0") or dma_write = '1') else '0';
+ 
+@@ -803,7 +816,14 @@
              case (idctState) is
              
                 when IDCT_IDLE =>
@@ -63,24 +75,24 @@ diff --git a/rtl/mdec.vhd b/rtl/mdec.vhd
                       idct_wait_cnt <= 2171;
                    else
                       idct_wait_cnt <= 10;
-@@ -899,6 +914,7 @@
+@@ -899,6 +919,7 @@
                    else
                       idctState <= IDCT_IDLE;
                       idct_done <= '1';
-+                     dbg573_mb <= '1';
++                     mb_toggle <= not mb_toggle;
                    end if;
                    
                 
 diff --git a/rtl/psx_top.vhd b/rtl/psx_top.vhd
---- a/rtl/psx_top.vhd	2026-09-17 22:05:13.438000508 +0000
-+++ b/rtl/psx_top.vhd	2026-09-17 22:01:14.340952662 +0000
+--- a/rtl/psx_top.vhd
++++ b/rtl/psx_top.vhd
 @@ -261,7 +261,9 @@
        dbg573_cpupaused      : out    std_logic := '0';
        dbg573_cpustall       : out    std_logic := '0';
        dbg573_gpubusy        : out    std_logic := '0';
 -      dbg573_mdecbusy       : out    std_logic := '0'
 +      dbg573_mdecbusy       : out    std_logic := '0';
-+      dbg573_mdecmb         : out    std_logic := '0';   -- 1 clk per decoded macroblock
++      dbg573_mdecmb         : out    std_logic := '0';   -- toggles once per decoded macroblock
 +      mdec15Fast            : in     std_logic := '0'    -- see mdec.vhd (psx_patches 0030)
     );
  end entity;
@@ -97,8 +109,8 @@ diff --git a/rtl/psx_top.vhd b/rtl/psx_top.vhd
  
     ispu : entity work.spu
 diff --git a/rtl/psx_mister.vhd b/rtl/psx_mister.vhd
---- a/rtl/psx_mister.vhd	2026-09-17 22:05:13.438000508 +0000
-+++ b/rtl/psx_mister.vhd	2026-09-17 22:01:14.347869246 +0000
+--- a/rtl/psx_mister.vhd
++++ b/rtl/psx_mister.vhd
 @@ -302,7 +302,9 @@
        dbg573_cpupaused      : out    std_logic := '0';
        dbg573_cpustall       : out    std_logic := '0';

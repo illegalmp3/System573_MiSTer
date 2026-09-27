@@ -22,9 +22,14 @@ trap '[ -x "$COORD" ] && "$COORD" sim 573 stop >/dev/null 2>&1 || true' EXIT INT
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-PSX="$ROOT/psx"; RTL="$PSX/rtl"; MEMSRC="$PSX/sim/system/src/mem"; TBSRC="$PSX/sim/system/src/tb"
+PSX="$ROOT/psx"; MEMSRC="$PSX/sim/system/src/mem"; TBSRC="$PSX/sim/system/src/tb"
+# RTL_DIR: analyze the core from another directory (an A/B copy of psx/rtl with one patch
+# reverted, e.g. local/psx_rtl_no0004 -- 2026-09-27); TAG suffixes the build dir so two
+# variants can coexist. Defaults: the checked-out psx/rtl, build/.
+RTL="${RTL_DIR:-$PSX/rtl}"
+case "$RTL" in /*) ;; *) RTL="$ROOT/$RTL" ;; esac
 NVCDIR="$ROOT/sim/nvc"
-WD="$HERE/build"
+WD="$HERE/build${TAG:+_$TAG}"
 
 STOP_TIME="${1:-2ms}"
 RAM8MB="${2:-1}"

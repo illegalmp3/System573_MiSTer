@@ -34,7 +34,7 @@ module s573_prof_gpu (
     input  wire        cpustall,   // level: CPU stalled on memory
     input  wire        gpubusy,    // level: drawing engine busy
     input  wire        mdecbusy,   // level: MDEC busy
-    input  wire        mdecmb,     // 1-clk: a macroblock finished decoding
+    input  wire        mdecmb,     // TOGGLE: flips once per decoded macroblock (clk2x source)
     output wire [15:0] prof_flips,
     output wire [15:0] prof_vblanks,
     output wire [15:0] prof_paused_k,
@@ -49,7 +49,9 @@ module s573_prof_gpu (
     reg flip_q, vb_q, mb_q;
     wire flip_edge = flip   & ~flip_q;
     wire vb_edge   = vblank & ~vb_q;
-    wire mb_edge   = mdecmb & ~mb_q;
+    // mdecmb is a toggle from the MDEC's clk2x domain: count EVERY level change. A
+    // 1-clk2x pulse sampled here on clk1x was caught only ~half the time (09-27 log).
+    wire mb_edge   = mdecmb ^ mb_q;
 
     reg [15:0] c_flip, c_vb, c_mb;
     reg [25:0] c_paused, c_stall, c_gpu, c_mdec;   // 16 visible + 10 fraction

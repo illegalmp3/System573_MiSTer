@@ -112,7 +112,15 @@ entity tb_system573 is
       -- the three observed values to RAM 0x100/0x104/0x108 and a done flag to 0x10C.
       -- The checker spies those stores on the ram bus and FAILS the sim unless all
       -- three round-tripped through the 4 MB mask. Sim-only; never in the .rbf.
-      MIRRORTEST   : std_logic := '0'
+      MIRRORTEST   : std_logic := '0';
+      -- CPUBENCH ('1'): cached-fetch cost meter (tools/cpubench_rom.py probe ROM, run via
+      -- sim/system573/run_cpubench.sh). Logs the clk1x cycle count at every NON-sequential
+      -- PC change to bench_trace.log, so cycles per loop iteration can be read off for
+      -- loops that differ only in how they cross i-cache lines (the psx_patches/0004 cost
+      -- question, 2026-09-27). Finishes when the probe parks in its j-self halt at
+      -- BENCH_HALT. Sim-only observability; no DUT change.
+      CPUBENCH     : std_logic := '0';
+      BENCH_HALT   : std_logic_vector(31 downto 0) := x"00000000"
    );
 end entity;
 
@@ -729,6 +737,51 @@ begin
             report "MIRRORTEST TIMEOUT: probe ROM never wrote the done flag (0x10C)"
             severity failure;
          wait;
+      end process;
+   end generate;
+
+   -- -----------------------------------------------------------------------
+   -- CPUBENCH tap (generic-gated): cycle-stamped control-flow trace. One line per
+   -- non-sequential PC change: "<clk1x cycle> <PC>". Consecutive stamps of the same
+   -- loop-head PC differ by the loop's cycles/iteration -- the number the probe ROM
+   -- exists to measure. Ends the run when the probe reaches its halt loop.
+   -- -----------------------------------------------------------------------
+   gbench : if CPUBENCH = '1' generate
+      bench_tap : process(clk1x)
+         alias cpu_pc is << signal .tb_system573.ipsx_mister.ipsx_top.icpu.pc : unsigned(31 downto 0) >>;
+         file     bf     : text;
+         variable opened : boolean := false;
+         variable l      : line;
+         variable status : FILE_OPEN_STATUS;
+         variable prev   : unsigned(31 downto 0) := (others => '1');
+         variable cnt    : integer := 0;
+         variable logged : integer := 0;
+         variable halts  : integer := 0;
+      begin
+         if rising_edge(clk1x) then
+            if not opened then
+               file_open(status, bf, "bench_trace.log", write_mode); opened := true;
+            end if;
+            cnt := cnt + 1;
+            if cpu_pc /= prev then
+               if (cpu_pc /= prev + 4) and (logged < 20000) then
+                  write(l, cnt); write(l, string'(" ")); write(l, to_hstring(cpu_pc)); writeline(bf, l);
+                  logged := logged + 1;
+               end if;
+               if cpu_pc = unsigned(BENCH_HALT) then
+                  halts := halts + 1;
+                  -- 64, not a handful: the fetch PC runs one instruction past a loop's
+                  -- delay slot before the branch redirects it, so a loop that sits in the
+                  -- line before the halt 'visits' the halt address once per iteration.
+                  if halts = 64 then
+                     file_close(bf);
+                     report "CPUBENCH: probe reached its halt loop at cycle " & integer'image(cnt) & "; trace in bench_trace.log";
+                     std.env.finish;
+                  end if;
+               end if;
+               prev := cpu_pc;
+            end if;
+         end if;
       end process;
    end generate;
 

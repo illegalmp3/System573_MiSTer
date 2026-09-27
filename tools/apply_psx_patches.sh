@@ -22,7 +22,12 @@ PIN=67153439fbb8e85e4108b9f0ff474d37aa6f7f5b
 PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           "$ROOT/psx_patches/0002-s573-nvc-cd-positionInIndex-init.patch" \
           "$ROOT/psx_patches/0003-s573-nvc-gpu-videoout-linemax-clamp.patch" \
-          "$ROOT/psx_patches/0004-s573-cpu-icache-redirect-fix.patch" \
+          # 0004 (i-cache "redirect fix") RETIRED 2026-09-27 -> psx_patches/retired/. Its premise
+          # was wrong: the tag store (RamMLAB) is an asynchronous read, so upstream's hit test
+          # already sees the current FetchAddr. The patch forced an i-cache MISS on every 16-byte
+          # line crossing (+5 clk1x each, NVC-measured: 65 -> 150 cycles for a 16-line loop),
+          # which is what held ddrextrm at 30 fps. The June BIOS crash it was blamed for is the
+          # cached-BIOS-mirror fill gap that 0005 fixes. docs/2026-09-27-icache-patch-0004-cost.md
           "$ROOT/psx_patches/0005-s573-cpu-bios-uncached.patch" \
           "$ROOT/psx_patches/0006-s573-exp1-flash-wait.patch" \
           "$ROOT/psx_patches/0007-sdram-ch4-flash.patch" \
@@ -189,7 +194,7 @@ cd "$PSX"
 mode="${1:-apply}"
 
 # files a patch touches (relative to psx/), for scoped resets only
-touched_files() { for p in "${PATCHES[@]}"; do sed -n 's#^+++ b/##p' "$p"; done | sort -u; }
+touched_files() { for p in "${PATCHES[@]}"; do sed -n 's#^+++ b/\([^\t]*\).*#\1#p' "$p"; done | sort -u; }
 
 case "$mode" in
   --check)

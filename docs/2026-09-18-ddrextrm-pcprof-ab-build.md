@@ -132,3 +132,12 @@ confirmed as the video's problem regardless of what the game's frame rate does.
   recovery +17.8, removal +0.497). `tools/win/check-timing.ps1` rc=0.
 * Deployed set: `out/deploy-20260918/` (rbf md5 `2713e2fb086d…`, `MiSTer`
   firmware, `s573mp3.debug`, README with the copy map and the A/B procedure).
+
+## Outcome (2026-09-27)
+
+The cabinet log came back: row 1 of the table above — `DecDCTvlc` dominant (25.5 %),
+VSync 44 %, FR = 30 in both runs, MDEC 21–25 % busy and unchanged by the switch. The
+follow-up (instruction count of the game's VLC on the game's frames, the `RamMLAB` re-read,
+the NVC probe-ROM benchmark) is in `2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md`:
+the CPU was running cached code at ~CPI 3 because `psx_patches/0004` forced an i-cache
+refill on every line crossing. Not the memory timing, not the MDEC.
