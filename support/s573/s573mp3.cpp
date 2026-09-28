@@ -159,7 +159,7 @@ static uint64_t now_us(void);   /* defined below; the logger thread times its co
  * still survives a power-off at the wall, with at most a few lines of lag) and
  * mirrors it to stdout. A full queue drops the line and counts it. */
 #include <pthread.h>
-#define LOGQ_N    64
+#define LOGQ_N    256                 /* 2026-09-28b: 64 overflowed (213 lines lost) while Main loaded a song */
 #define LOGQ_LINE 4096
 static char            logq_buf[LOGQ_N][LOGQ_LINE];
 static uint16_t        logq_len[LOGQ_N];
@@ -185,9 +185,15 @@ static void *logger_main(void *arg)
 
         if (logf) {
             uint64_t lt0 = now_us();
+            int more;
             fwrite(line, 1, len, logf);
             fflush(logf);
-            if (opt_log_fsync) fsync(fileno(logf));
+            /* fsync when the queue has drained, not per line: a burst of lines costs
+             * one card commit instead of one per line (the per-line commits are what
+             * overflowed the 64-entry queue on 09-28b). Power-off still loses at
+             * most the lines of one burst. */
+            pthread_mutex_lock(&logq_mx); more = (logq_head != logq_tail); pthread_mutex_unlock(&logq_mx);
+            if (opt_log_fsync && !more) fsync(fileno(logf));
             {
                 uint32_t lus = (uint32_t)(now_us() - lt0);
                 if (lus > log_us_max) log_us_max = lus;   /* thread time, informational */

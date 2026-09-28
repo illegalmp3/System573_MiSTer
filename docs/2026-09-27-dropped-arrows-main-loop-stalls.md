@@ -65,3 +65,21 @@ reported 13–16 µs — nothing left to flush). The SPI dumps are microseconds.
 writes, fsyncs and mirrors to stdout. Main's loop never touches the SD card. Dropped
 lines (queue of 64) are counted on the `poll:` line. Expect `hb max` to fall to the
 SPI cost (< 1 ms) and the worst loop gap with it.
+
+### Confirmed (2026-09-28b log, three songs, no dropped inputs reported)
+
+| gameplay seconds (251) | before (09-28a) | after (logger thread) |
+|---|---|---|
+| worst Main-loop gap, median | 30.8 ms | **1.9 ms** |
+| worst Main-loop gap, p90 / max | 83 ms / 83 ms | 2.3 ms / **3.0 ms** |
+| heartbeat block, median | 30 ms | 1.6 ms (the SPI dumps) |
+
+The six remaining > 20 ms gaps all fall outside gameplay with our time at 2–12 µs — Main's
+own song loading (CD sector service), not this service. The logger's 64-line queue overflowed
+213 times during those loads; now 256 lines and one fsync per drained burst instead of per
+line (firmware `d5ece4c5…`). Song-select re-arms took the "reader stopped" path 31 times, the
+"drain live" path never; underruns only at stream starts (13–152 samples = the DDR3 fetch
+latency before the first beat, silence-before-audio, inaudible).
+
+Issue #1 (dropped arrows): closed as a Main-loop stall caused by our own SD-card logging,
+with the press-width guard as belt-and-braces.

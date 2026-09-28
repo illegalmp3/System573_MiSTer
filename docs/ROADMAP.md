@@ -156,6 +156,12 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > without data); the boot regression without 0004 is in
 > `docs/2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md`.
 > **Confirmed on the cabinet the same day: ddrextrm at 60 fps with full-speed video.**
+> **2026-09-28:** ddrextrm's other reports closed the same weekend — song-select preview
+> residue/pops (firmware: re-arm stops the fabric reader first, `2026-09-27-song-select-preview-residue.md`)
+> and the occasional dropped arrows (our own unbuffered SD-card log was stalling Main's loop
+> 25–83 ms every second; logging moved to a thread, plus a 32 ms press-width guard in RTL,
+> `2026-09-27-dropped-arrows-main-loop-stalls.md`). Select L/R and flash-install persistence
+> reported fixed by earlier commits.
 
 With both applied, the BIOS in the NVC sim **advances ~80 ms past the old 220.6 ms
 crash** through normal init (a large ROM→RAM copy) to 300 ms with **zero AdEL /
