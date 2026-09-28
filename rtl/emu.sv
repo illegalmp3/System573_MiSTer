@@ -1794,6 +1794,11 @@ wire [23:0] dio_mem_wr_addr;
 wire [15:0] dio_mem_wr_data;
 wire        dio_mem_wr_ack;
 wire        dio_dbg_ovf;        // sticky posted-write FIFO overflow (SignalTap observer)
+// MAS3507D output gain matrix (k573dio -> s573_hps_ext debug snapshot). These were
+// implicit 1-bit nets until 2026-09-28 (Quartus 10030 "no driver"): declared and wired.
+wire [19:0] dio_gain_ll;
+wire [19:0] dio_gain_rr;
+wire        dio_gain_stb;
 wire        dio_dbg_hi_write;   // sticky: game wrote ABOVE the real board 24 MiB (P4b PCM-ring guard)
 
 // 573 ATAPI <-> PSX DMA channel 5 (psx_patches/0023). All clk_1x, no CDC: the
@@ -2077,6 +2082,11 @@ assign tk_rd_req    = xtra_rd_req & ~xtra_rd_is_cass;
 assign tk_rd_addr   = {xtra_rd_addr[12:9] - cass_off, xtra_rd_addr[8:0]};
 assign xtra_rd_word = xtra_rd_is_cass ? cass_rd_word : tk_rd_word;
 assign xtra_rd_ack  = cass_rd_ack | tk_rd_ack;
+// (2026-09-28, job 130 black screen: this ack was missing -- Quartus tied the
+// undriven net to 0, the boot LOAD stalled on the cassette block in LO_X_WAIT, busy
+// never dropped and the CPU was held in reset forever. tools/build-573.ps1 now fails
+// a build on any "no driver" warning (10030) in rtl/.)
+assign xtra_wr_ack  = cass_wr_ack | tk_wr_ack;
 assign cass_wr_req  = xtra_wr_req & xtra_wr_is_cass;
 assign tk_wr_req    = xtra_wr_req & ~xtra_wr_is_cass;
 assign tk_wr_addr   = {xtra_wr_addr[12:9] - cass_off, xtra_wr_addr[8:0]};
@@ -2631,6 +2641,9 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .dio_mem_wr_ack (dio_mem_wr_ack),
    .dio_dbg_hi_write(dio_dbg_hi_write),
    .dio_dbg_ovf    (dio_dbg_ovf),
+   .dio_gain_ll    (dio_gain_ll),
+   .dio_gain_rr    (dio_gain_rr),
+   .dio_gain_stb   (dio_gain_stb),
    // MP3 descramble scheme select (MAME set_ddrsbm_fpga). P4b: driven
    // per-game by the HPS over the SPI mailbox (CMD_573_CTRL bit0 -- the HPS
    // knows the mounted game; ddrsbm needs 1). Zero until the forked-Main

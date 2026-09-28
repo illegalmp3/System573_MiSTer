@@ -84,7 +84,20 @@ slot-4 `.sav`, which the flash saver already restores at boot.
   save; AGE path fires for a never-quiet game; host clock semantics (set in reset, once after,
   later readings ignored, game's own clock write stands); ERASE zeroes the region.
   **RED under `TK_NV_NO_RESTORE=1`** (3 errors), GREEN by default. Full Icarus suite green.
-* Quartus job 130: rbf md5 `c48805d1…`, slack +0.283 setup / +0.058 hold, all corners met; firmware `out/MiSTer` md5 `290b9848…` (`out/deploy-20260928/`).
+* Quartus job 130 (rbf `c48805d1…`, DO NOT USE — see below); job 137 is the shipped one (md5 in `out/deploy-20260928/README.md`); firmware `out/MiSTer` md5 `290b9848…`.
+
+## Job 130 black screen (the first build of this)
+
+Ricky: "ddrextrm no longer boots" — Main's "Region Unknown → USA", then black, OSD alive.
+`emu.sv` drove every wire of the new extra-block mux except **`xtra_wr_ack`**; Quartus tied
+the undriven net to 0 (`Warning (10030)`, one line among ~20,000), the boot LOAD reached the
+cassette block, waited in `LO_X_WAIT` for an ack that never came, `busy` stayed high, and
+`flash_loading = busy & ~saving` held the CPU in reset for good. The bench had the line; the
+top level is not simulated, so nothing caught it before the card. Now `tools/build-573.ps1`
+fails a build on any 10030 whose file is under `rtl/` (the same scan also turned up the
+`dio_gain_*` hps_ext debug leg as implicit 1-bit nets since it was added — declared and
+wired). Nothing on the T7 was touched: the LOAD never finished, so nothing was written back.
+Rebuilt as job 137.
 
 ## Expected on the cabinet
 
