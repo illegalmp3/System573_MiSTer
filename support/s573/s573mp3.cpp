@@ -142,42 +142,98 @@ static uint32_t probe_sum_init = 0, probe_nz_init = 0;
 static int      probe_done = 0, ring_collides = 0;
 static uint32_t tone_phase = 0;
 
-static uint64_t now_us(void);   /* defined below; the log times its own commit */
+static uint64_t now_us(void);   /* defined below; the logger thread times its commits */
 
-/* Writes to both sinks: our SD-card log (when enabled) and stdout (which Main
- * usually has pointed at /dev/null -- harmless either way). */
+/* ---------------------------------------------------------------- the logger --
+ * MEASURED 2026-09-28 (ddrextrm, `poll:` attribution): the worst Main-loop gap in
+ * 540 of 545 seconds WAS this service's once-a-second heartbeat block -- 24 ms
+ * median, 82 ms p90, 1.69 s max -- and it was the LOG, not the SPI dumps: `logf`
+ * was unbuffered, so vfprintf issued the write() calls itself (dozens per line,
+ * the 2 KB pcprof-hist line most of all) against a FAT SD card, BEFORE the timed
+ * fflush+fsync that always reported 13-16 us because nothing was left to flush.
+ * A stalled Main loop cannot service evdev, so a keyboard tap's press and
+ * release reach the core microseconds apart and the 60 Hz game never sees it:
+ * the dropped arrows. The log is supposed to observe the system, not perturb it,
+ * so the file I/O moves to a worker thread: s573_log() formats the line and
+ * queues it (microseconds, no syscalls); the thread writes, fsyncs (the log
+ * still survives a power-off at the wall, with at most a few lines of lag) and
+ * mirrors it to stdout. A full queue drops the line and counts it. */
+#include <pthread.h>
+#define LOGQ_N    64
+#define LOGQ_LINE 4096
+static char            logq_buf[LOGQ_N][LOGQ_LINE];
+static uint16_t        logq_len[LOGQ_N];
+static unsigned        logq_head = 0, logq_tail = 0;   /* head = next write, tail = next read */
+static uint32_t        logq_dropped = 0;
+static pthread_mutex_t logq_mx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  logq_cv = PTHREAD_COND_INITIALIZER;
+static pthread_t       logq_thr;
+static int             logq_started = 0;
+
+static void *logger_main(void *arg)
+{
+    (void)arg;
+    char line[LOGQ_LINE];
+    for (;;) {
+        unsigned len;
+        pthread_mutex_lock(&logq_mx);
+        while (logq_head == logq_tail) pthread_cond_wait(&logq_cv, &logq_mx);
+        len = logq_len[logq_tail % LOGQ_N];
+        memcpy(line, logq_buf[logq_tail % LOGQ_N], len);
+        logq_tail++;
+        pthread_mutex_unlock(&logq_mx);
+
+        if (logf) {
+            uint64_t lt0 = now_us();
+            fwrite(line, 1, len, logf);
+            fflush(logf);
+            if (opt_log_fsync) fsync(fileno(logf));
+            {
+                uint32_t lus = (uint32_t)(now_us() - lt0);
+                if (lus > log_us_max) log_us_max = lus;   /* thread time, informational */
+                log_us_sum += lus;
+                log_writes++;
+            }
+        }
+        fwrite(line, 1, len, stdout);
+    }
+    return 0;
+}
+
 static void s573_log(const char *fmt, ...)
 {
     va_list ap;
-    if (logf) {
-        va_start(ap, fmt);
-        vfprintf(logf, fmt, ap);
-        va_end(ap);
-        /* Unbuffered gets each line into the kernel, but on FAT32 the metadata
-         * can still be uncommitted when the board is switched off at the wall --
-         * and switching it off at the wall is how this board gets tested, since
-         * there is no shell to reboot from. fsync per line makes the log survive
-         * that. At ~1 line/s it costs nothing; a log that vanishes on power-off
-         * would cost a whole test session. */
-        /* MEASURED 2026-09-17: Main's poll loop shows a 13-17 ms block every
-         * second (and 44-47 ms every other second) with nothing else running,
-         * which is the size and cadence of these commits to a FAT SD card. The
-         * log is supposed to observe the system, not perturb it, so time the
-         * commit and report it, and allow it to be relaxed for a run where the
-         * loop timing itself is the measurement (log_fsync=0). */
-        uint64_t lt0 = now_us();
-        fflush(logf);
-        if (opt_log_fsync) fsync(fileno(logf));
-        {
-            uint32_t lus = (uint32_t)(now_us() - lt0);
-            if (lus > log_us_max) log_us_max = lus;
-            log_us_sum += lus;
-            log_writes++;
-        }
-    }
+    char line[LOGQ_LINE];
+    int n;
     va_start(ap, fmt);
-    vprintf(fmt, ap);
+    n = vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
+    if (n < 0) return;
+    if (n >= (int)sizeof line) n = (int)sizeof line - 1;
+    if (!logq_started) {                  /* before the thread exists: direct, as before */
+        if (logf) { fwrite(line, 1, n, logf); fflush(logf); }
+        fwrite(line, 1, n, stdout);
+        return;
+    }
+    pthread_mutex_lock(&logq_mx);
+    if (logq_head - logq_tail >= LOGQ_N) {
+        logq_dropped++;
+    } else {
+        memcpy(logq_buf[logq_head % LOGQ_N], line, n);
+        logq_len[logq_head % LOGQ_N] = (uint16_t)n;
+        logq_head++;
+        pthread_cond_signal(&logq_cv);
+    }
+    pthread_mutex_unlock(&logq_mx);
+}
+
+static void logger_start(void)
+{
+    if (logq_started) return;
+    if (pthread_create(&logq_thr, NULL, logger_main, NULL) == 0) {
+        pthread_detach(logq_thr);
+        logq_started = 1;
+    }
 }
 
 /* Open the sink BEFORE anything that can fail. Appends, so a later core load
@@ -190,10 +246,12 @@ static void s573_open_log(void)
     if (!stat(S573_LOG_FILE, &st) && st.st_size > (4 << 20)) mode = "w";
     logf = fopen(S573_LOG_FILE, mode);
     if (logf) {
-        setvbuf(logf, NULL, _IONBF, 0);
+        /* fully buffered: the logger thread hands it whole lines and flushes each */
+        setvbuf(logf, NULL, _IOFBF, 8192);
         fprintf(logf, "\n===== s573mp3 session start =====\n");
         fflush(logf); fsync(fileno(logf));
     }
+    logger_start();
 }
 
 /* key=value lines, '#' comments. Absent file = diagnostics off. */
@@ -1007,12 +1065,12 @@ static void heartbeat(void)
         s573_log("s573mp3: poll: loop avg=%uus max=%uus over %u polls | decode avg=%uus "
                  "max=%uus over %u bursts, %u frames | log total=%uus max=%uus over %u writes "
                  "| ours avg=%uus max=%uus (before the worst gap: %uus) hb max=%uus "
-                 "| mp3_frames=%d mp3_budget_us=%d log_fsync=%d\n",
+                 "| logq dropped=%u | mp3_frames=%d mp3_budget_us=%d log_fsync=%d\n",
                  poll_gaps ? poll_gap_sum / poll_gaps : 0u, poll_gap_max, poll_gaps,
                  dec_bursts ? dec_us_sum / dec_bursts : 0u, dec_us_max, dec_bursts,
                  dec_frames_hb, lsum, lmax, lw,
                  ours_calls ? ours_us_sum / ours_calls : 0u, ours_us_max, gap_max_ours, hb_us_max,
-                 opt_frames, opt_budget_us, opt_log_fsync);
+                 logq_dropped, opt_frames, opt_budget_us, opt_log_fsync);
     }
     poll_gap_max = poll_gap_sum = poll_gaps = 0;
     ours_us_max = ours_us_sum = ours_calls = gap_max_ours = 0; hb_us_max = 0;

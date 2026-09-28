@@ -45,6 +45,23 @@ which DDR judges as a miss; both read as "dropped" from the pad.
    logging/dumps (suspects: 16 fsynced log lines a second, FAT cluster allocation as the
    log grows — the ~80 ms every ~10 s has that shape).
 
-## Result
+## Result (2026-09-28 log, `local/sdlog/s573mp3-20260928a.log`)
 
-_(pending the next cabinet log)_
+Still a dropped input in the third song (the guard alone is not enough: a press that
+arrives 80 ms late is a miss even if it is visible). The attribution is unambiguous:
+
+| | median | p90 | max |
+|---|---|---|---|
+| worst loop gap | 24.5 ms | 82 ms | 2.03 s |
+| our call before the worst gap | 24.1 ms | 82 ms | 1.69 s |
+| heartbeat block | 24.1 ms | 82 ms | 1.69 s |
+
+540 of 545 seconds: the worst gap **is** the heartbeat block. And inside it, the log:
+`logf` was `_IONBF`, so `vfprintf` issued the write() calls itself against the FAT SD
+card, dozens per line, *before* the timed `fflush+fsync` (which therefore always
+reported 13–16 µs — nothing left to flush). The SPI dumps are microseconds.
+
+**Fix (firmware `36f21ca4…`):** `s573_log()` now formats and queues; a logger thread
+writes, fsyncs and mirrors to stdout. Main's loop never touches the SD card. Dropped
+lines (queue of 64) are counted on the `poll:` line. Expect `hb max` to fall to the
+SPI cost (< 1 ms) and the worst loop gap with it.
