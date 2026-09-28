@@ -120,6 +120,14 @@ static uint32_t log_us_max = 0, log_us_sum = 0, log_writes = 0;
 static int   opt_budget_us = 0;   /* mp3_budget_us=N  0 = no time bound           */
 /* poll-loop and decode-burst timing, per heartbeat second */
 static uint32_t poll_gap_max = 0, poll_gap_sum = 0, poll_gaps = 0;
+/* Who owns the worst loop gap? ours_* = time spent INSIDE s573mp3_poll (this
+ * service); gap_max_ours = our time in the call that PRECEDED the worst gap; hb_*
+ * = the once-a-second heartbeat/dump block alone. If the loop's worst gap is
+ * much larger than ours, Main (or the kernel) is stalling between our calls --
+ * and a stalled Main loop coalesces a keyboard press+release into a
+ * microsecond pulse the 60 Hz game never samples (2026-09-27, dropped arrows). */
+static uint32_t ours_us_max = 0, ours_us_sum = 0, ours_calls = 0, ours_last_us = 0, gap_max_ours = 0;
+static uint32_t hb_us_max = 0;
 static uint32_t dec_us_max = 0, dec_us_sum = 0, dec_bursts = 0, dec_frames_hb = 0;
 static uint64_t poll_last_us = 0;
 /* CD read activity, fed by Main's block-device read path (s573_cd_trace, hooked
@@ -998,13 +1006,16 @@ static void heartbeat(void)
         log_us_max = log_us_sum = log_writes = 0;
         s573_log("s573mp3: poll: loop avg=%uus max=%uus over %u polls | decode avg=%uus "
                  "max=%uus over %u bursts, %u frames | log total=%uus max=%uus over %u writes "
+                 "| ours avg=%uus max=%uus (before the worst gap: %uus) hb max=%uus "
                  "| mp3_frames=%d mp3_budget_us=%d log_fsync=%d\n",
                  poll_gaps ? poll_gap_sum / poll_gaps : 0u, poll_gap_max, poll_gaps,
                  dec_bursts ? dec_us_sum / dec_bursts : 0u, dec_us_max, dec_bursts,
                  dec_frames_hb, lsum, lmax, lw,
+                 ours_calls ? ours_us_sum / ours_calls : 0u, ours_us_max, gap_max_ours, hb_us_max,
                  opt_frames, opt_budget_us, opt_log_fsync);
     }
     poll_gap_max = poll_gap_sum = poll_gaps = 0;
+    ours_us_max = ours_us_sum = ours_calls = gap_max_ours = 0; hb_us_max = 0;
     dec_us_max = dec_us_sum = dec_bursts = dec_frames_hb = 0;
 
     /* --- frame-time profile: one line per second, deltas only --- */
@@ -1151,7 +1162,17 @@ void s573_cd_trace(int disk, unsigned long long lba, int blks, int blksz)
 
 /* ---------------------------------------------------------------- the hook --
  * Register next to mdplus_poll()/psx_poll() in user_io_poll(). */
+static void s573mp3_poll_body(void);
 void s573mp3_poll(void)
+{
+    uint64_t w0 = now_us();
+    s573mp3_poll_body();
+    ours_last_us = (uint32_t)(now_us() - w0);
+    if (ours_last_us > ours_us_max) ours_us_max = ours_last_us;
+    ours_us_sum += ours_last_us; ours_calls++;
+}
+
+static void s573mp3_poll_body(void)
 {
     s573_ptrs_t p;
     uint64_t t;
@@ -1186,7 +1207,7 @@ void s573mp3_poll(void)
      * before the due check, because that is the loop itself, not our cadence. */
     if (poll_last_us) {
         uint32_t gap = (uint32_t)(t - poll_last_us);
-        if (gap > poll_gap_max) poll_gap_max = gap;
+        if (gap > poll_gap_max) { poll_gap_max = gap; gap_max_ours = ours_last_us; }
         poll_gap_sum += gap;
         poll_gaps++;
     }
@@ -1302,5 +1323,9 @@ void s573mp3_poll(void)
     }
 
     ctrl_exchange();
-    if (opt_hb) { ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump(); pcprof_dump(); }
+    if (opt_hb) {
+        uint64_t h0 = now_us();
+        ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump(); pcprof_dump();
+        { uint32_t hus = (uint32_t)(now_us() - h0); if (hus > hb_us_max) hb_us_max = hus; }
+    }
 }

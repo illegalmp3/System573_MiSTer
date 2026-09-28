@@ -682,6 +682,7 @@ reg         nvram_dirty = 0;   // game wrote the timekeeper -> request an OSD sa
 wire [19:0] joy;
 wire [19:0] joy_unmod;
 wire [19:0] joy2;
+wire [19:0] joy2_unmod;
 wire [19:0] joy3;
 wire [19:0] joy4;
 
@@ -728,7 +729,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5), .BLKSZ(3)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 
 	.joystick_0(joy_unmod),
-	.joystick_1(joy2),
+	.joystick_1(joy2_unmod),
 	.joystick_2(joy3),
 	.joystick_3(joy4),
 	.ps2_key(ps2_key),
@@ -796,7 +797,18 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5), .BLKSZ(3)) hps_io
 // blanks ALL game inputs while it is held, so the d-pad can pick a slot. With
 // savestates disabled that is a pure footgun -- holding a mapped button would
 // silently drop every JAMMA input mid-song -- so the blanking follows SS_ENABLE.
-assign joy = (SS_ENABLE & joy_unmod[16]) ? 20'b0 : joy_unmod;
+// Minimum press width on the game inputs (bits 11:0 = the JAMMA panel/button/
+// coin/service/test lines; 19:12 are core controls and pass straight through).
+// Main's loop stalls 25-83 ms in most gameplay seconds (2026-09-27 log), which can
+// deliver a keyboard tap's press and release microseconds apart; a real panel
+// closure is never shorter than a frame, so hold every press >= 32 ms from its
+// edge. Press edges are combinational (no added latency); long presses are
+// untouched. rtl/s573_press_hold.v, tb_s573_press_hold.
+wire [11:0] joy_held, joy2_held;
+s573_press_hold #(.W(12), .HOLD_MS(32)) u_hold_p1 (.clk(clk_1x), .rst(reset), .in(joy_unmod[11:0]),  .out(joy_held));
+s573_press_hold #(.W(12), .HOLD_MS(32)) u_hold_p2 (.clk(clk_1x), .rst(reset), .in(joy2_unmod[11:0]), .out(joy2_held));
+assign joy2 = {joy2_unmod[19:12], joy2_held};
+assign joy = (SS_ENABLE & joy_unmod[16]) ? 20'b0 : {joy_unmod[19:12], joy_held};
 
 assign sd_rd[0] = 0;
 assign sd_wr[0] = 0;
