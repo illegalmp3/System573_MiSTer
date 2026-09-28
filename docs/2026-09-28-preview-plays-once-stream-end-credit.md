@@ -60,3 +60,24 @@ PASS, 4 mutations RED. Deployed to `E:\MiSTer`, previous kept as `MiSTer.prev-20
 Select Music, stay on one song past the end of its preview: it should restart and keep
 looping until the stage screen. In the log, expect `song end … EXHAUSTION` followed within a
 second by `CFG epoch=N` lines carrying the same window and `PCM FLUSH (re-arm …)`.
+
+## Second round (12:34): only the first song looped
+
+Log `s573mp3-20260928c.log`: preview 1 (Graduation) ended, the game rewrote the same window
+(epoch +7 = start hi/lo, end hi/lo, key1/2/3, enables unchanged) → re-arm → looped. Previews
+2 and 3 ended with the tail credited (`cons=` = window length) and the game did nothing.
+
+The difference: previews 2 and 3 were reached by scrolling, which is a stop + new window
+(epoch N, flush) followed by the start (epoch N+3, `flags=000e`, same window) — and the new
+same-window rule made that second adoption a re-arm too, resetting `cons_bytes` to 0 **while
+it was already 0**. `s573_mp3_credit.v` rebaselines on an epoch change by adopting the first
+report that *differs* from the last one it saw, with zero credit; a restarted count equal to
+the last word is not a change, so it adopted the first real count (~418 bytes, the first
+frame) as the baseline instead. Those bytes were never credited, `cur` parked that far short
+of `mp3_end`, bit 12 stayed 1. Preview 1 had only one re-arm (fresh from a different window,
+last word ≠ 0) and escaped.
+
+Fix: `cons_ofs` — every re-arm offsets the reported credit word to one past the last word
+sent, so the fabric always sees a change to adopt; the deltas it sums are unchanged. Test
+T11 extended (re-arm with a zero count still changes the word, by exactly one, real bytes
+ride on top). Firmware `5f440fe0…`.

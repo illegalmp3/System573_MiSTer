@@ -112,6 +112,16 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
         /* Resetting the credit is safe: s573_mp3_credit rebaselines on the same
          * epoch change (it watches k573dio directly, not our report), so our
          * first post-change report is adopted with ZERO credit released. */
+        /* The fabric credit (s573_mp3_credit.v) rebaselines on the epoch change
+         * by ADOPTING THE FIRST REPORT THAT DIFFERS from the last one, with zero
+         * credit. If our restarted count (0) equals the word it last saw -- a
+         * re-arm while nothing had played yet, e.g. the second re-arm of a
+         * song-select stop+start pair -- it adopts the first REAL count instead
+         * and those bytes are never credited: cur parks short of mp3_end, bit 12
+         * never clears, the preview never restarts (2026-09-28c log: previews 2
+         * and 3 looped never, preview 1 once). So offset the reported word by
+         * one past the last one sent; the deltas the fabric sums are unchanged. */
+        c->cons_ofs     = (uint16_t)(s573_core_cons_word(c) + 1);
         c->cons_bytes   = 0;
         c->pulled_bytes = 0;
 #ifndef S573_MUT_APPLY_NOFLUSH
@@ -428,5 +438,5 @@ uint16_t s573_core_ctrl_word1(const s573_core_t *c)
 
 uint16_t s573_core_cons_word(const s573_core_t *c)
 {
-    return (uint16_t)(c->cons_bytes & 0xFFFFu);
+    return (uint16_t)((c->cons_bytes + c->cons_ofs) & 0xFFFFu);
 }

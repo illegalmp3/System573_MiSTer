@@ -181,11 +181,24 @@ int main(void)
     mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 1);
     (void)s573_core_apply_cfg(&c, &f, 1, 0);
     c.in_len = 900; c.in_pos = 400; c.cons_bytes = 77777;
-    mkcfg(&f, 0x9000, 0xA000, 4, 5, 6, FLAGS_PLAY, 2);
-    (void)s573_core_apply_cfg(&c, &f, 2, 0);
-    CHECKEQ(c.in_len, 0, "input window dropped");
-    CHECKEQ(c.in_pos, 0, "input cursor reset");
-    CHECKEQ(c.cons_bytes, 0, "credit restarted (fabric rebaselines in step)");
+    {
+        uint16_t last_sent = s573_core_cons_word(&c);
+        mkcfg(&f, 0x9000, 0xA000, 4, 5, 6, FLAGS_PLAY, 2);
+        (void)s573_core_apply_cfg(&c, &f, 2, 0);
+        CHECKEQ(c.in_len, 0, "input window dropped");
+        CHECKEQ(c.in_pos, 0, "input cursor reset");
+        CHECKEQ(c.cons_bytes, 0, "credit restarted (fabric rebaselines in step)");
+        CHECKEQ(s573_core_cons_word(&c), (uint16_t)(last_sent + 1), "first report = last sent + 1, so the fabric adopts it");
+    }
+    {   /* the case that broke previews 2 and 3: re-arm again with nothing played */
+        uint16_t before = s573_core_cons_word(&c);
+        mkcfg(&f, 0x9000, 0xA000, 4, 5, 6, FLAGS_PLAY, 9);
+        (void)s573_core_apply_cfg(&c, &f, 9, 0);
+        CHECK(s573_core_cons_word(&c) != before, "a re-arm with a zero count still changes the word");
+        CHECKEQ((uint16_t)(s573_core_cons_word(&c) - before), 1, "by exactly one");
+        c.cons_bytes = 418;
+        CHECKEQ((uint16_t)(s573_core_cons_word(&c) - before), 419, "and real bytes ride on top of it");
+    }
     CHECKEQ(c.desc.cur, 0x9000, "descrambler re-armed to the new window");
 
     /* ------------------------------------------------------------------ */
@@ -555,7 +568,7 @@ int main(void)
     CHECK(s573_core_should_stop(&c), "exhausted + drained -> stop");
     s573_core_song_end(&c);
     CHECKEQ(c.cons_bytes, 0x100u, "credit brought up to the whole window");
-    CHECKEQ(s573_core_cons_word(&c), 0x100u, "and that is what the mailbox reports");
+    CHECKEQ((uint16_t)(s573_core_cons_word(&c) - c.cons_ofs), 0x100u, "and that is what the mailbox reports (less the re-arm offset)");
     c.cons_bytes = 0x100 + 5;                     /* never credit backwards */
     s573_core_song_end(&c);
     CHECKEQ(c.cons_bytes, 0x105u, "an over-credit is left alone");

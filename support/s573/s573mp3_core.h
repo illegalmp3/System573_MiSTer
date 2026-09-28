@@ -217,6 +217,7 @@ typedef struct {
     s573_desc_t desc;
     uint32_t win_start, win_end;   /* the window the descrambler is armed to   */
     uint16_t flags_prev;           /* cfg flags of the previous adoption       */
+    uint16_t cons_ofs;             /* added to the reported credit word so a re-arm's first report differs */
     uint16_t key1, key2, key3;
     uint8_t  ddrsbm;
 
