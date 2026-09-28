@@ -16,7 +16,8 @@ module tb_m48t58;
 
     m48t58 #(.CLK_FREQ_HZ(1)) dut (
         .clk(clk), .rst(rst), .addr(addr), .din(din), .we(we), .dout(dout),
-        .nvram_we(nvram_we), .nvram_addr(nvram_addr), .nvram_din(nvram_din)
+        .nvram_we(nvram_we), .nvram_addr(nvram_addr), .nvram_din(nvram_din),
+        .set_valid(1'b0), .set_stb(1'b0), .set_data(56'd0)
     );
 
     always #5 clk = ~clk;

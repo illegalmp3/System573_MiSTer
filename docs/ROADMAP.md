@@ -162,6 +162,10 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > 25–83 ms every second; logging moved to a thread, plus a 32 ms press-width guard in RTL,
 > `2026-09-27-dropped-arrows-main-loop-stalls.md`). Select L/R and flash-install persistence
 > reported fixed by earlier commits.
+> Then NOTE 605 "RTC-RAM cleared" on every boot: the M48T58 timekeeper was never saved for
+> `.mgl` launches (the only save-back was the `.mra` upload). Its 8 KB now rides as a 9-block
+> region at the end of the slot-4 `.sav`, partial-saved 3 s after the game's last write, and
+> the clock is set from MiSTer's RTC (`2026-09-28-note605-timekeeper-persistence.md`).
 
 With both applied, the BIOS in the NVC sim **advances ~80 ms past the old 220.6 ms
 crash** through normal init (a large ROM→RAM copy) to 300 ms with **zero AdEL /

@@ -188,6 +188,26 @@ else:
                   'extern void s573mp3_poll(void);\nextern void s573_cd_trace(int disk, unsigned long long lba, int blks, int blksz);\n', 1)
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
     print('user_io.cpp: cd trace hook inserted')
+
+# ---- 4. let the slot-4 save GROW (2026-09-28, timekeeper region) ------------
+# user_io_file_mount() sets sd_image_cangrow[index] = (pre != 0); an .mgl type="s"
+# item mounts with pre=0, so a core write one block past EOF is clamped to zero
+# bytes and silently dropped. The 573 core appends the 9 KB M48T58 region to a
+# .sav made before it existed (rtl/s573_tk_nv.v); FileWriteAdv already refreshes
+# file->size after an append, so growth only needs the clamp lifted for the 573
+# core's slot 4. Gated on the core name inside s573_sav_cangrow().
+s = open(p, encoding='utf-8', errors='surrogateescape').read()
+if 's573_sav_cangrow' in s:
+    print('user_io.cpp: cangrow hook already present')
+else:
+    old = 'sd_image_cangrow[index] = (pre != 0);'
+    if s.count(old) != 1:
+        sys.exit('user_io.cpp: expected exactly one "sd_image_cangrow[index] = (pre != 0);"')
+    s = s.replace(old, 'sd_image_cangrow[index] = (pre != 0) || s573_sav_cangrow(index);   // System 573 slot-4 .sav may grow (gated inside)')
+    s = s.replace('extern void s573mp3_poll(void);\n',
+                  'extern void s573mp3_poll(void);\nextern int s573_sav_cangrow(int index);\n', 1)
+    open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
+    print('user_io.cpp: cangrow hook inserted')
 PYEOF
   say "graft OK"
 }

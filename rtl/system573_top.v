@@ -104,6 +104,11 @@ module system573_top #(
     output wire [7:0]  nvram_sav_dout,
     output wire        nvram_sav_rd_ok,
     output wire        nvram_written,
+    // M48T58 clock set from the host RTC (see m48t58.v set_*): BCD
+    // {year, month, date, day-of-week 1..7, hours, minutes, seconds}.
+    input  wire        rtc_set_valid,
+    input  wire        rtc_set_stb,
+    input  wire [55:0] rtc_set_data,
 
     // Security-cartridge image load (e.g. pnchmn2 gqa09ja.u1 / .u6), streamed in at
     // reset. cart_type selects the EEPROM model: 0 = X76F100, 1 = X76F041.
@@ -468,7 +473,8 @@ module system573_top #(
         .we(sel_rtc & exp1_we),
         .dout(rtc_dout),
         .nvram_we(nvram_we), .nvram_addr(nvram_addr), .nvram_din(nvram_din),
-        .sav_addr(nvram_sav_addr), .sav_dout(nvram_sav_dout), .sav_rd_ok(nvram_sav_rd_ok)
+        .sav_addr(nvram_sav_addr), .sav_dout(nvram_sav_dout), .sav_rd_ok(nvram_sav_rd_ok),
+        .set_valid(rtc_set_valid), .set_stb(rtc_set_stb), .set_data(rtc_set_data)
     );
 
     // Dirty strobe for the SD save-back: any game-side write into the timekeeper

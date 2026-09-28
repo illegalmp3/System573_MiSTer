@@ -50,6 +50,7 @@ module tb_system573_top;
         .dio_mem_wr_req(), .dio_mem_wr_addr(), .dio_mem_wr_data(),
         .dio_mem_wr_ack(1'b0), .dio_dbg_ovf(), .cfg_ddrsbm(1'b0), .chart_ofs_ms(5'd0),
         .nvram_we(1'b0), .nvram_addr(13'd0), .nvram_din(8'd0),
+        .rtc_set_valid(1'b0), .rtc_set_stb(1'b0), .rtc_set_data(56'd0),
         .sec_cart_type(2'd0),
         .sec_eep_we(1'b0), .sec_eep_addr(10'd0), .sec_eep_din(8'd0),
         .sec_ser_we(1'b0), .sec_ser_addr(3'd0), .sec_ser_din(8'd0)

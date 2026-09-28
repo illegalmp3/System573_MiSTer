@@ -109,21 +109,37 @@ module s573_flash_saver #(
     // LOAD reads. The parent clamps it to img_size so a legacy 16 MB .sav restores
     // the onboard flash and simply leaves the card region alone.
     input  wire [31:0] load_blocks,
-    // ONE EXTRA BLOCK after the flash image(s) (2026-09-16: the ZS01 cassette NVRAM,
-    // see s573_cass_nv.v). With xtra_en high a SAVE/ERASE writes one more 1 KB block at
-    // LBA = (card_en ? NUM_BLOCKS+CARD_BLOCKS : NUM_BLOCKS), and a LOAD that reaches that
-    // block (load_blocks includes it) hands its 512 words out instead of writing SDRAM.
+    // EXTRA BLOCKS after the flash image(s): the small non-flash NVRAMs ride in the
+    // same slot-4 file (2026-09-16 ONE block for the ZS01 cassette, s573_cass_nv.v;
+    // 2026-09-28 a 9-block region for the M48T58 timekeeper, s573_tk_nv.v -- NOTE 605
+    // "RTC-RAM cleared" on every ddrextrm boot). xtra_blocks (0..15) is how many 1 KB
+    // blocks follow the image(s): a SAVE/ERASE writes them at LBA n_base+k where
+    // n_base = (card_en ? NUM_BLOCKS+CARD_BLOCKS : NUM_BLOCKS), and a LOAD that reaches
+    // them (load_blocks includes them) hands their words out instead of writing SDRAM.
+    // The parent muxes the word ports by block: xtra_*_addr = {block k[3:0], word[8:0]}.
     // Both directions are word-at-a-time req/ack handshakes, so the source/sink sets its
-    // own latency. A SAVE fills the block from xtra_rd_*; an ERASE writes it as zeros.
-    input  wire        xtra_en,
+    // own latency. A SAVE fills a block from xtra_rd_*; an ERASE writes it as zeros.
+    input  wire [3:0]  xtra_blocks,
     output reg         xtra_rd_req = 1'b0,   // 1-cycle: present xtra_rd_word for xtra_rd_addr
-    output reg  [8:0]  xtra_rd_addr = 9'd0,
+    output reg  [12:0] xtra_rd_addr = 13'd0, // {extra block, word}
     input  wire [15:0] xtra_rd_word,
     input  wire        xtra_rd_ack,          // 1-cycle: xtra_rd_word is valid
     output reg         xtra_wr_req = 1'b0,   // 1-cycle: take xtra_wr_word for xtra_wr_addr
-    output reg  [8:0]  xtra_wr_addr = 9'd0,
+    output reg  [12:0] xtra_wr_addr = 13'd0, // {extra block, word}
     output reg  [15:0] xtra_wr_word = 16'd0,
     input  wire        xtra_wr_ack,          // 1-cycle: the word was consumed
+    // PARTIAL SAVE: rewrite ONLY the extra blocks from n_base+part_skip to the end of
+    // the file (the game writes its timekeeper during play -- settings, bookkeeping --
+    // and those few KB must reach the .sav without streaming the 16/48 MB flash). It
+    // runs while the game plays: nothing touches SDRAM (every block comes from the
+    // xtra source) and `saving` stays high so the parent's CPU reset hold (busy &
+    // ~saving) is not asserted. part_started pulses the cycle it begins (the parent
+    // clears its dirty flag THEN, so a write racing the snapshot re-arms a later
+    // save); part_done pulses on completion (no toast -- it is routine).
+    input  wire        part_trigger,   // 1-cycle or level: request a partial save
+    input  wire [3:0]  part_skip,      // extra blocks to leave alone at the front
+    output reg         part_started = 1'b0,
+    output reg         part_done    = 1'b0,
     output reg         busy = 1'b0,    // LEVEL: a SAVE or LOAD is in progress
     output reg         saving = 1'b0,  // LEVEL: a SAVE or ERASE is in progress (OSD status)
     output reg         save_done = 1'b0,   // 1-cycle: a SAVE just completed (toast)
@@ -168,7 +184,7 @@ module s573_flash_saver #(
     localparam [31:0] FLASH_BLK32 = NUM_BLOCKS;
     localparam [31:0] CARD_BLK32  = CARD_BLOCKS;
     wire [31:0] base_total = card_en ? (FLASH_BLK32 + CARD_BLK32) : FLASH_BLK32;
-    wire [31:0] save_total = base_total + (xtra_en ? 32'd1 : 32'd0);
+    wire [31:0] save_total = base_total + {28'd0, xtra_blocks};
 
     // Flat word index of block `lba`, word 0 = lba * 512. {lba, 9'b0}.
     // Burst `b` within a block covers words [b*8 .. b*8+7].
@@ -227,7 +243,13 @@ module s573_flash_saver #(
     reg [9:0]  word_cnt  = 10'd0;          // 0..511 within a block (load drain)
     reg        save_pending  = 1'b0;       // a SAVE was triggered while busy/idle
     reg        erase_pending = 1'b0;       // an ERASE was triggered while busy/idle
+    reg        part_pending  = 1'b0;       // a PARTIAL save was requested while busy/idle
+    reg        part_trigger_d = 1'b0;      // part_trigger is a LEVEL that drops a few cycles
+                                           // after part_started; latch its RISING edge only,
+                                           // or the tail of the level would queue a second save
+    wire       part_edge = part_trigger & ~part_trigger_d;
     reg        is_erase = 1'b0;            // the in-flight SAVE is an ERASE (stream zeros)
+    reg        is_part  = 1'b0;            // the in-flight SAVE is a PARTIAL (extra blocks only)
     reg        is_auto  = 1'b0;            // the in-flight SAVE was self-fired (auto-save)
     // TERMINAL BLOCK COUNT, LATCHED AT START. It must NOT be a live wire.
     //
@@ -252,7 +274,10 @@ module s573_flash_saver #(
     // whether this transfer carries one at all.
     reg [31:0] n_base  = 32'd0;
     reg        x_on    = 1'b0;
-    wire       at_xtra = x_on && (block_cnt == n_base);
+    wire       at_xtra = x_on && (block_cnt >= n_base);
+    // extra-block index of the current block (only meaningful when at_xtra)
+    wire [31:0] xtra_off = block_cnt - n_base;
+    wire [3:0]  xtra_blk = xtra_off[3:0];
 
 `ifdef SAVER_LIVE_NBLOCKS
     // RED reference for the mid-transfer re-mount test ONLY (never synthesised --
@@ -328,6 +353,8 @@ module s573_flash_saver #(
         auto_saved <= 1'b0;
         xtra_rd_req <= 1'b0;
         xtra_wr_req <= 1'b0;
+        part_started <= 1'b0;
+        part_done    <= 1'b0;
 
         // ---- AUTO-SAVE idle tracker (independent of the FSM clock-domain math) --
         // dirty on the first install write; the idle counter resets on EVERY write
@@ -356,6 +383,8 @@ module s573_flash_saver #(
         // during a load) so it's honored when we return to idle.
         if (save_trigger)  save_pending  <= 1'b1;
         if (erase_trigger) erase_pending <= 1'b1;
+        part_trigger_d <= part_trigger;
+        if (part_edge)     part_pending  <= 1'b1;
 
         if (reset) begin
             state         <= S_IDLE;
@@ -368,7 +397,9 @@ module s573_flash_saver #(
             wr_busy       <= 1'b0;
             save_pending  <= 1'b0;
             erase_pending <= 1'b0;
+            part_pending  <= 1'b0;
             is_erase      <= 1'b0;
+            is_part       <= 1'b0;
             is_auto       <= 1'b0;
             n_blocks      <= 32'd0;
             n_base        <= 32'd0;
@@ -376,6 +407,8 @@ module s573_flash_saver #(
             save_done     <= 1'b0;
             erase_done    <= 1'b0;
             auto_saved    <= 1'b0;
+            part_started  <= 1'b0;
+            part_done     <= 1'b0;
             idle_cnt      <= {IDLE_W{1'b0}};
             auto_dirty    <= 1'b0;
             auto_done     <= 1'b0;
@@ -393,6 +426,10 @@ module s573_flash_saver #(
                         // cleared on completion (SA_WR_ACKDONE), not here.
                         save_pending <= 1'b0;
                         is_erase     <= 1'b0;
+                        is_part      <= 1'b0;
+                        // a full SAVE rewrites the extra blocks too, so a pending
+                        // partial request is satisfied by it.
+                        part_pending <= 1'b0;
                         // is_auto only when NOTHING explicit asked: a self-fired
                         // auto-save. (Explicit save/OSD clears emu's flash_dirty
                         // itself, so it must NOT pulse auto_saved.) Latch auto_done
@@ -406,7 +443,7 @@ module s573_flash_saver #(
                         burst_cnt    <= 7'd0;
                         n_blocks     <= save_total;   // LATCH: see n_blocks above
                         n_base       <= base_total;
-                        x_on         <= xtra_en;
+                        x_on         <= (xtra_blocks != 4'd0);
                         state        <= SA_FILL_REQ;
                     end else if (erase_trigger || erase_pending) begin
                         // ERASE = a SAVE of zeros (mutually exclusive with save/
@@ -414,13 +451,14 @@ module s573_flash_saver #(
                         // next CD-ROM boot loads blank and re-installs clean.
                         erase_pending <= 1'b0;
                         is_erase      <= 1'b1;
+                        is_part       <= 1'b0;
                         busy          <= 1'b1;
                         saving        <= 1'b1;
                         block_cnt     <= 32'd0;
                         burst_cnt     <= 7'd0;
                         n_blocks      <= save_total;  // LATCH: see n_blocks above
                         n_base        <= base_total;
-                        x_on          <= xtra_en;
+                        x_on          <= (xtra_blocks != 4'd0);
                         state         <= SA_FILL_REQ;
                     end else if (load_arm && load_blocks != 32'd0) begin
                         // LOAD the saved image over the blank flash. load_blocks
@@ -434,8 +472,29 @@ module s573_flash_saver #(
                         block_cnt <= 32'd0;
                         n_blocks  <= load_blocks;
                         n_base    <= base_total;
-                        x_on      <= xtra_en;
+                        x_on      <= (xtra_blocks != 4'd0);
                         state     <= LO_RD_REQ;
+                    end else if (part_edge || part_pending) begin
+                        // PARTIAL save: the extra blocks from n_base+part_skip to the
+                        // end. LOWEST priority -- a LOAD that is armed must restore the
+                        // file BEFORE anything is written back over it (a partial save
+                        // of a still-blank timekeeper would destroy the saved one). If
+                        // part_skip covers the whole region there is nothing to write.
+                        part_pending <= 1'b0;
+                        if ({28'd0, xtra_blocks} > {28'd0, part_skip}) begin
+                            is_erase     <= 1'b0;
+                            is_part      <= 1'b1;
+                            is_auto      <= 1'b0;
+                            busy         <= 1'b1;
+                            saving       <= 1'b1;
+                            block_cnt    <= base_total + {28'd0, part_skip};
+                            burst_cnt    <= 7'd0;
+                            n_blocks     <= save_total;
+                            n_base       <= base_total;
+                            x_on         <= 1'b1;
+                            part_started <= 1'b1;
+                            state        <= SA_FILL_REQ;
+                        end
                     end
                 end
 
@@ -481,7 +540,7 @@ module s573_flash_saver #(
                     end
                 end
                 SA_X_REQ: begin
-                    xtra_rd_addr <= word_cnt[8:0];
+                    xtra_rd_addr <= {xtra_blk, word_cnt[8:0]};
                     xtra_rd_req  <= 1'b1;
                     state        <= SA_X_WAIT;
                 end
@@ -510,6 +569,8 @@ module s573_flash_saver #(
                             // real SAVE share this state but signal distinctly.
                             if (is_erase) begin
                                 erase_done <= 1'b1;
+                            end else if (is_part) begin
+                                part_done  <= 1'b1;   // routine: no toast, flash episode untouched
                             end else begin
                                 save_done  <= 1'b1;
                                 // a completed SAVE persisted the episode: clear the
@@ -575,7 +636,7 @@ module s573_flash_saver #(
 
                 // ---------------- LOAD: the extra block goes to its sink -------
                 LO_X_REQ: begin
-                    xtra_wr_addr <= word_cnt[8:0];
+                    xtra_wr_addr <= {xtra_blk, word_cnt[8:0]};
                     xtra_wr_word <= buf_mem[word_cnt[8:0]];
                     xtra_wr_req  <= 1'b1;
                     state        <= LO_X_WAIT;

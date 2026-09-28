@@ -144,7 +144,7 @@ MGL_HEAD = """<!--
 
   The .sav MUST exist before launch -- an .mgl type="s" item mounts with pre=0 and
   a missing file EJECTS the slot (docs/2026-09-12-flash-persistence-fixed.md).
-  tools/stage_573.py creates it at {savmb} MiB (+1 KB for a ZS01 cassette).
+  tools/stage_573.py creates it at {savmb} MiB (+1 KB for a ZS01 cassette, +9 KB timekeeper).
 
   After an install, WAIT for the "Flash saved" toast before cutting power. The game
   tells you to switch off at exactly the moment the auto-save has not fired yet
@@ -211,7 +211,12 @@ def main():
     # user_io.cpp clamps a write past EOF to zero bytes), so the block must already
     # be in the file.
     zs01 = any(chip_of(t, r) == "ZS01" for r in t["cassettes"])
-    sav_bytes = (sav_mb << 20) + (1024 if zs01 else 0)
+    # The M48T58 timekeeper (settings, bookkeeping) is NVRAM too and every title writes
+    # it; its 8 KB image rides as a 9-block region (1 KB header + 8 KB) after the
+    # cassette block (rtl/s573_tk_nv.v, 2026-09-28: ddrextrm NOTE 605 "RTC-RAM cleared"
+    # on every boot). Same rule: the region must already be in the file.
+    TK_BYTES = 9 * 1024
+    sav_bytes = (sav_mb << 20) + (1024 if zs01 else 0) + TK_BYTES
 
     print(f"== {t['romset']}: {t['desc']}")
     print(f"   machine config : {t['cfg']}   board: {'digital (k573dio)' if t['dio'] else 'analog'}")
@@ -232,7 +237,7 @@ def main():
             conv = "" if tr[0] == "MODE1_RAW" else "   <== MODE1/2048: needs cue+raw2352 conversion (see dsem)"
             print(f"   disc {d:<10}: TYPE:{tr[0]} SUBTYPE:{tr[1]} FRAMES:{tr[2]}{conv}")
     print(f"   save file      : {sav_bytes} B  ({'16 MB onboard flash + 32 MB card' if sav_mb == 48 else '16 MB onboard flash'}"
-          f"{' + 1 KB ZS01 cassette state' if zs01 else ''})")
+          f"{' + 1 KB ZS01 cassette state' if zs01 else ''} + 9 KB timekeeper)")
 
     if t["slot"] == "1":
         print("\n   *** SLOT 1 IS NOT MODELLED. rtl/s573_flash.v decodes slot 2 (banks 32-47)")
@@ -296,14 +301,18 @@ def main():
         sav = os.path.join(a.dest, a.romset + ".sav")
         if os.path.exists(sav):
             have = os.path.getsize(sav)
-            if zs01 and have == sav_mb << 20:
-                # a save from before the cassette block existed: APPEND the zero block
-                # (written bytes, see below). The flash image in front is untouched.
+            # a save from before the cassette block / timekeeper region existed: APPEND
+            # the missing zero bytes (written bytes, see below). The flash image in
+            # front is untouched, so the install is kept; a zero region is "nothing
+            # saved yet" to the core (header magic absent) and is filled on first save.
+            older = {sav_mb << 20: "cassette block + timekeeper region",
+                     (sav_mb << 20) + (1024 if zs01 else 0): "timekeeper region"}
+            if have in older and have < sav_bytes:
                 with open(sav, "ab") as f:
-                    f.write(bytes(1024))
+                    f.write(bytes(sav_bytes - have))
                     f.flush()
                     os.fsync(f.fileno())
-                print(f"   {a.romset}.sav extended by the 1 KB cassette block -> {sav_bytes} B (install kept)")
+                print(f"   {a.romset}.sav extended by the {older[have]} -> {sav_bytes} B (install kept)")
             elif have != sav_bytes:
                 print(f"   WARNING {a.romset}.sav is {have} B, expected {sav_bytes}")
             else:
@@ -321,6 +330,7 @@ def main():
                     f.write(blk)
                 if zs01:
                     f.write(bytes(1024))
+                f.write(bytes(TK_BYTES))
                 f.flush()
                 os.fsync(f.fileno())
             print(f"   {a.romset}.sav created, {sav_bytes} B of zeroes (written, not truncated)")

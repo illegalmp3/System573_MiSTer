@@ -56,7 +56,22 @@ module m48t58 #(
     // the RTC simply re-runs from reset -- documented, accepted.
     input  wire [12:0] sav_addr,
     output wire [7:0]  sav_dout,
-    output reg         sav_rd_ok
+    output reg         sav_rd_ok,
+    // CLOCK SET from the host (2026-09-28): MiSTer Main sends its wall clock to the
+    // core at start-up and once a minute (user_io.cpp send_rtc -> hps_io RTC, BCD).
+    // set_data = {year, month, date, day-of-week 1..7, hours, minutes, seconds}, all
+    // BCD, the M48T58 register order top-down. It is applied (a) at every set_stb
+    // while rst is high, so the clock is right the moment the CPU starts, and (b)
+    // ONCE at the first set_stb after rst falls (re-syncing the seconds the reset
+    // hold cost), unless the game is inside a WRITE freeze setting the clock
+    // itself. Never again until the next rst -- a clock the operator set in the
+    // test menu stands for the session, as it would with a battery. While rst is
+    // high and set_valid is low (no host clock seen yet) the clock resets to
+    // 2000-01-01 00:00:00 as before. MAME does the same at start (timekpr.cpp
+    // device_start loads the system time).
+    input  wire        set_valid,
+    input  wire        set_stb,      // 1-cycle: set_data is a fresh host reading
+    input  wire [55:0] set_data
 );
     localparam [12:0] RTC_BASE = 13'd8184;
     localparam integer DIVMAX  = (CLK_FREQ_HZ > 1) ? CLK_FREQ_HZ - 1 : 0;
@@ -70,8 +85,8 @@ module m48t58 #(
     // Read-freeze snapshot.
     reg [7:0] ssec, smin, shour, sdow, sdom, smonth, syear;
 
-    reg [31:0] divcnt;
-    reg        tick;
+    reg [31:0] divcnt = 32'd0;
+    reg        tick   = 1'b0;
 
     wire read_mode  = ctrl[6];
     wire write_mode = ctrl[7];
@@ -178,19 +193,58 @@ module m48t58 #(
     end
 
     reg [8:0] c_sec, c_min, c_hour, c_dom, c_dow, c_month;
+    reg       set_armed = 1'b1;       // apply the next host reading (once) after rst
+
+    // 1 Hz strobe. Free-running so the clock keeps time through the (long) core
+    // reset hold once a host reading has been applied.
+    always @(posedge clk) begin
+        if (divcnt >= DIVMAX[31:0]) begin divcnt <= 32'd0;          tick <= 1'b1; end
+        else                        begin divcnt <= divcnt + 32'd1; tick <= 1'b0; end
+    end
 
     always @(posedge clk) begin
         if (rst) begin
             ctrl  <= 8'h00;
-            tsec  <= 8'h00; tmin  <= 8'h00; thour  <= 8'h00;
-            tdow  <= 8'h01; tdom  <= 8'h01; tmonth <= 8'h01; tyear <= 8'h00;
             ssec  <= 8'h00; smin  <= 8'h00; shour  <= 8'h00;
             sdow  <= 8'h01; sdom  <= 8'h01; smonth <= 8'h01; syear <= 8'h00;
-            divcnt <= 32'd0; tick <= 1'b0;
+            set_armed <= 1'b1;
+            if (set_stb) begin
+                {tyear, tmonth, tdom, tdow, thour, tmin, tsec} <= set_data;
+            end else if (!set_valid) begin
+                tsec  <= 8'h00; tmin  <= 8'h00; thour  <= 8'h00;
+                tdow  <= 8'h01; tdom  <= 8'h01; tmonth <= 8'h01; tyear <= 8'h00;
+            end else if (tick) begin
+                // keep ticking from the last host reading while held in reset
+                c_sec = inc_field(tsec & 8'h7f, 8'h00, 8'h59);
+                tsec <= {1'b0, c_sec[6:0]};
+                if (c_sec[8]) begin
+                    c_min = inc_field(tmin, 8'h00, 8'h59);
+                    tmin <= c_min[7:0];
+                    if (c_min[8]) begin
+                        c_hour = inc_field(thour, 8'h00, 8'h23);
+                        thour <= c_hour[7:0];
+                        if (c_hour[8]) begin
+                            c_dow = inc_field(tdow, 8'h01, 8'h07);
+                            c_dom = inc_field(tdom, 8'h01, 8'h31);
+                            tdow <= c_dow[7:0];
+                            tdom <= c_dom[7:0];
+                            if (c_dom[8]) begin
+                                c_month = inc_field(tmonth, 8'h01, 8'h12);
+                                tmonth <= c_month[7:0];
+                                if (c_month[8])
+                                    tyear <= inc_field(tyear, 8'h00, 8'h99);
+                            end
+                        end
+                    end
+                end
+            end
         end else begin
-            // 1 Hz strobe.
-            if (divcnt >= DIVMAX[31:0]) begin divcnt <= 32'd0;          tick <= 1'b1; end
-            else                        begin divcnt <= divcnt + 32'd1; tick <= 1'b0; end
+            // First host reading after the reset hold: re-sync once (not while the
+            // game is setting the clock itself under a WRITE freeze).
+            if (set_stb && set_armed && !write_mode) begin
+                {tyear, tmonth, tdom, tdow, thour, tmin, tsec} <= set_data;
+                set_armed <= 1'b0;
+            end
 
             // Bus writes to the CLOCK registers (RTC top 8 bytes). The lower-NVRAM
             // array (ram[]) bus write + the ioctl image load live in the dedicated,
@@ -208,8 +262,9 @@ module m48t58 #(
                 endcase
             end
 
-            // Advance the oscillator (paused in write freeze or when stopped).
-            if (tick && !stopped && !write_mode) begin
+            // Advance the oscillator (paused in write freeze or when stopped; a host
+            // set in this same cycle takes the registers whole).
+            if (tick && !stopped && !write_mode && !(set_stb && set_armed)) begin
                 c_sec = inc_field(tsec & 8'h7f, 8'h00, 8'h59);
                 tsec <= {1'b0, c_sec[6:0]};
                 if (c_sec[8]) begin

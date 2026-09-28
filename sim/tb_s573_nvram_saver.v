@@ -86,7 +86,8 @@ module tb_s573_nvram_saver;
     m48t58 #(.CLK_FREQ_HZ(1)) nv (
         .clk(clk), .rst(rst), .addr(addr), .din(din), .we(we), .dout(dout),
         .nvram_we(nvram_we), .nvram_addr(nvram_addr), .nvram_din(nvram_din),
-        .sav_addr(sav_addr), .sav_dout(sav_dout), .sav_rd_ok(sav_rd_ok)
+        .sav_addr(sav_addr), .sav_dout(sav_dout), .sav_rd_ok(sav_rd_ok),
+        .set_valid(1'b0), .set_stb(1'b0), .set_data(56'd0)
     );
 
     always #5 clk = ~clk;

@@ -99,8 +99,9 @@ module tb_s573_flash_saver_card;
         .mem_q(mem_q), .mem_ready(mem_ready),
         .wr_req(wr_req), .wr_busy(wr_busy), .wr_addr(wr_addr),
         .wr_card(wr_card), .wr_data(wr_data), .wr_ack(wr_ack),
-        .xtra_en(1'b0), .xtra_rd_req(), .xtra_rd_addr(), .xtra_rd_word(16'd0), .xtra_rd_ack(1'b0),
-        .xtra_wr_req(), .xtra_wr_addr(), .xtra_wr_word(), .xtra_wr_ack(1'b0)
+        .xtra_blocks(4'd0), .xtra_rd_req(), .xtra_rd_addr(), .xtra_rd_word(16'd0), .xtra_rd_ack(1'b0),
+        .xtra_wr_req(), .xtra_wr_addr(), .xtra_wr_word(), .xtra_wr_ack(1'b0),
+        .part_trigger(1'b0), .part_skip(4'd0), .part_started(), .part_done()
     );
 
     // ---- SDRAM ch4 burst-read model (image-aware, bounds-checked) ------------

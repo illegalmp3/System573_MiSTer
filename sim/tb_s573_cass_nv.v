@@ -62,14 +62,14 @@ module tb_s573_cass_nv;
 
     // ---------------- NV glue ----------------
     wire xtra_en, x_rd_req, x_rd_ack, x_wr_req, x_wr_ack, restored;
-    wire [8:0] x_rd_addr, x_wr_addr; wire [15:0] x_rd_word, x_wr_word;
+    wire [12:0] x_rd_addr, x_wr_addr; wire [15:0] x_rd_word, x_wr_word;
     reg  [7:0] tb_dump_addr = 0; reg tb_dump = 0;
     wire [7:0] nv_dump_addr;
     assign dump_addr = tb_dump ? tb_dump_addr : nv_dump_addr;
     s573_cass_nv nv (
         .clk(clk), .rst(crst), .cart_type(2'd2), .xtra_en(xtra_en),
-        .xtra_rd_req(x_rd_req), .xtra_rd_addr(x_rd_addr), .xtra_rd_word(x_rd_word), .xtra_rd_ack(x_rd_ack),
-        .xtra_wr_req(x_wr_req), .xtra_wr_addr(x_wr_addr), .xtra_wr_word(x_wr_word), .xtra_wr_ack(x_wr_ack),
+        .xtra_rd_req(x_rd_req), .xtra_rd_addr(x_rd_addr[8:0]), .xtra_rd_word(x_rd_word), .xtra_rd_ack(x_rd_ack),
+        .xtra_wr_req(x_wr_req), .xtra_wr_addr(x_wr_addr[8:0]), .xtra_wr_word(x_wr_word), .xtra_wr_ack(x_wr_ack),
         .dump_addr(nv_dump_addr), .dump_data(dump_data),
         .load_we(N_we), .load_addr(N_addr), .load_data(N_data), .restored(restored)
     );
@@ -94,8 +94,9 @@ module tb_s573_cass_nv;
         .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din),
         .mem_req(mem_req), .mem_addr(mem_addr), .mem_card(mem_card), .mem_q(mem_q), .mem_ready(mem_ready),
         .wr_req(wr_req), .wr_busy(wr_busy), .wr_addr(wr_addr), .wr_card(wr_card), .wr_data(wr_data), .wr_ack(wr_ack),
-        .xtra_en(xtra_en), .xtra_rd_req(x_rd_req), .xtra_rd_addr(x_rd_addr), .xtra_rd_word(x_rd_word), .xtra_rd_ack(x_rd_ack),
-        .xtra_wr_req(x_wr_req), .xtra_wr_addr(x_wr_addr), .xtra_wr_word(x_wr_word), .xtra_wr_ack(x_wr_ack)
+        .xtra_blocks({3'd0, xtra_en}), .xtra_rd_req(x_rd_req), .xtra_rd_addr(x_rd_addr), .xtra_rd_word(x_rd_word), .xtra_rd_ack(x_rd_ack),
+        .xtra_wr_req(x_wr_req), .xtra_wr_addr(x_wr_addr), .xtra_wr_word(x_wr_word), .xtra_wr_ack(x_wr_ack),
+        .part_trigger(1'b0), .part_skip(4'd0), .part_started(), .part_done()
     );
 
     // SDRAM models (two images)

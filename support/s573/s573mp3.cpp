@@ -1224,6 +1224,21 @@ void s573_cd_trace(int disk, unsigned long long lba, int blks, int blksz)
         s573_log("s573mp3: cd rd disk=%d lba=%llu n=%d sz=%d\n", disk, lba, blks, blksz);
 }
 
+/* Called from user_io_file_mount() for every slot: may the mounted image GROW
+ * past its size? Main allows it only for pre-sized (pre != 0) images, and an
+ * .mgl type="s" item mounts with pre=0, so a core write one block past EOF is
+ * clamped to zero bytes and dropped. The 573 core keeps the M48T58 timekeeper
+ * (settings, bookkeeping -- ddrextrm NOTE 605 "RTC-RAM cleared", 2026-09-28) as
+ * a 9 KB region APPENDED to the slot-4 .sav after the flash image(s), so a save
+ * file made before that region existed must be allowed to grow. Slot 4 only;
+ * the CD image on slot 1 stays read-only. user_io_get_core_name() is valid at
+ * mount time (the .mgl is parsed after the core name is known); is_573() is the
+ * same gate the MP3 service uses. */
+int s573_sav_cangrow(int index)
+{
+    return (index == 4) && is_573();
+}
+
 /* ---------------------------------------------------------------- the hook --
  * Register next to mdplus_poll()/psx_poll() in user_io_poll(). */
 static void s573mp3_poll_body(void);

@@ -709,6 +709,7 @@ wire [15:0] joystick2_rumble;
 wire [15:0] joystick3_rumble;
 wire [15:0] joystick4_rumble;
 wire [32:0] RTC_time;
+wire [64:0] hps_rtc;    // Main's wall clock, BCD (send_rtc: sec,min,hour,date,month,year,wday,0x40); [64] toggles per update
 
 wire filter_on = (status[82:81] == 2'b00) ? 1'b0 : 1'b1;
 
@@ -768,6 +769,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5), .BLKSZ(3)) hps_io
 	.sd_buff_wr(sd_buff_wr),
 
 	.TIMESTAMP(RTC_time),
+	.RTC(hps_rtc),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -1902,6 +1904,85 @@ always @(posedge clk_1x) begin
 end
 
 // -----------------------------------------------------------------------------
+// M48T58 clock from the host (2026-09-28). Main sends its wall clock at core start
+// and once a minute (user_io.cpp send_rtc -> UIO_RTC 0x22 -> hps_io RTC[63:0], BCD:
+// [7:0] sec, [15:8] min, [23:16] hour, [31:24] date, [39:32] month, [47:40] year
+// (tm_year % 100), [55:48] wday 0=Sun, [63:56] 0x40; RTC[64] toggles per update).
+// Snapshot it on the toggle and hand the timekeeper a 1-cycle strobe; the M48T58 day
+// register is 1..7 (MAME timekpr.cpp: weekday + 1).
+// -----------------------------------------------------------------------------
+reg         hps_rtc_tog_d  = 1'b0;
+reg         rtc_set_valid  = 1'b0;
+reg         rtc_set_stb    = 1'b0;
+reg  [55:0] rtc_set_data   = 56'd0;
+always @(posedge clk_1x) begin
+   hps_rtc_tog_d <= hps_rtc[64];
+   rtc_set_stb   <= 1'b0;
+   if (hps_rtc[64] != hps_rtc_tog_d) begin
+      rtc_set_data  <= {hps_rtc[47:40], hps_rtc[39:32], hps_rtc[31:24],
+                        5'd0, hps_rtc[50:48] + 3'd1,
+                        hps_rtc[23:16], hps_rtc[15:8], hps_rtc[7:0]};
+      rtc_set_valid <= 1'b1;
+      rtc_set_stb   <= 1'b1;
+   end
+end
+
+// -----------------------------------------------------------------------------
+// M48T58 NVRAM persistence for .mgl launches (s573_tk_nv, 2026-09-28, ddrextrm NOTE
+// 605 "RTC-RAM cleared" on every boot). The ioctl upload above only ever fires from
+// the .mra path; an .mgl launch has no save-back at all, so the game's settings and
+// bookkeeping vanished with the power. The 8 KB image now rides as a 9-block region
+// (header + image) at the END of the slot-4 .sav, after the flash image(s) and the
+// cassette block: s573_flash_saver's extra-block mux below routes region block 0 to
+// u_cass_nv (when a ZS01 is fitted) and the rest to u_tk_nv. u_tk_nv asks the saver
+// for a PARTIAL save (its blocks only, no SDRAM traffic, no CPU reset) 3 s after the
+// game last wrote the timekeeper, or every 30 s while it keeps writing.
+// -----------------------------------------------------------------------------
+wire        tk_rd_req, tk_rd_ack, tk_wr_req, tk_wr_ack;
+wire [12:0] tk_rd_addr, tk_wr_addr;
+wire [15:0] tk_rd_word, tk_wr_word;
+wire [12:0] tk_sav_addr;
+wire        tk_load_we;
+wire [12:0] tk_load_addr;
+wire [7:0]  tk_load_data;
+wire        tk_save_req;
+wire        tk_restored;
+wire        saver_part_started;
+wire        saver_part_done;
+wire        saver_reset = RESET | status[0] | flash_download | seceep_download | nvram_download;
+s573_tk_nv u_tk_nv (
+   .clk          (clk_1x),
+   .rst          (saver_reset),
+   .xtra_rd_req  (tk_rd_req),
+   .xtra_rd_addr (tk_rd_addr),
+   .xtra_rd_word (tk_rd_word),
+   .xtra_rd_ack  (tk_rd_ack),
+   .xtra_wr_req  (tk_wr_req),
+   .xtra_wr_addr (tk_wr_addr),
+   .xtra_wr_word (tk_wr_word),
+   .xtra_wr_ack  (tk_wr_ack),
+   .sav_addr     (tk_sav_addr),
+   .sav_dout     (nvram_sav_dout),
+   .sav_rd_ok    (nvram_sav_rd_ok),
+   .load_we      (tk_load_we),
+   .load_addr    (tk_load_addr),
+   .load_data    (tk_load_data),
+   .nv_written   (nvram_written & ~reset),
+   .save_req     (tk_save_req),
+   .save_started (saver_part_started),
+   .restored     (tk_restored)
+);
+// m48t58 save read port: the ioctl upload packer (.mra path) and u_tk_nv (partial
+// save) never run at once -- Main is single-threaded and the OSD is closed during
+// play -- but give the upload the port whenever it is active.
+wire [12:0] nvram_sav_addr_m = nvram_upload ? nvram_sav_addr : tk_sav_addr;
+// m48t58 load port: the ioctl index-3 download and the saved-image restore never
+// overlap (nvram_download resets the saver and u_tk_nv).
+wire        nvram_we_m   = nvram_we | tk_load_we;
+wire [12:0] nvram_addr_m = tk_load_we ? tk_load_addr : nvram_addr;
+wire [7:0]  nvram_din_m  = tk_load_we ? tk_load_data : nvram_din;
+
+// -----------------------------------------------------------------------------
 // 573 SECURITY CARTRIDGE image load (Feature A). Two WIDE(1) ioctl channels:
 //   index 4 = EEPROM image (.u1): the X76F041 (548 B) / X76F100 (112 B) / ZS01
 //             (4116 B) secure-serial-flash NVRAM, streamed into s573_seccart's
@@ -1981,8 +2062,26 @@ end
 // -----------------------------------------------------------------------------
 wire        cass_xtra_en;
 wire        cass_rd_req, cass_rd_ack, cass_wr_req, cass_wr_ack;
-wire [8:0]  cass_rd_addr, cass_wr_addr;
 wire [15:0] cass_rd_word, cass_wr_word;
+// The saver's extra-block ports, {region block, word}. Region block 0 is the cassette
+// when a ZS01 is fitted; the timekeeper region (header + 8 image blocks) follows.
+wire        xtra_rd_req, xtra_rd_ack, xtra_wr_req, xtra_wr_ack;
+wire [12:0] xtra_rd_addr, xtra_wr_addr;
+wire [15:0] xtra_rd_word, xtra_wr_word;
+wire [3:0]  cass_off    = cass_xtra_en ? 4'd1 : 4'd0;
+wire [3:0]  xtra_blocks = cass_off + 4'd9;
+wire        xtra_rd_is_cass = cass_xtra_en && (xtra_rd_addr[12:9] == 4'd0);
+wire        xtra_wr_is_cass = cass_xtra_en && (xtra_wr_addr[12:9] == 4'd0);
+assign cass_rd_req  = xtra_rd_req & xtra_rd_is_cass;
+assign tk_rd_req    = xtra_rd_req & ~xtra_rd_is_cass;
+assign tk_rd_addr   = {xtra_rd_addr[12:9] - cass_off, xtra_rd_addr[8:0]};
+assign xtra_rd_word = xtra_rd_is_cass ? cass_rd_word : tk_rd_word;
+assign xtra_rd_ack  = cass_rd_ack | tk_rd_ack;
+assign cass_wr_req  = xtra_wr_req & xtra_wr_is_cass;
+assign tk_wr_req    = xtra_wr_req & ~xtra_wr_is_cass;
+assign tk_wr_addr   = {xtra_wr_addr[12:9] - cass_off, xtra_wr_addr[8:0]};
+assign tk_wr_word   = xtra_wr_word;
+assign cass_wr_word = xtra_wr_word;
 wire [7:0]  sec_dump_addr;
 wire [7:0]  sec_dump_data;
 wire        sec_nv_wr;          // 1-cycle: a cassette WRITE changed persisted state
@@ -1992,15 +2091,15 @@ wire [7:0]  cass_load_data;
 wire        cass_restored;
 s573_cass_nv u_cass_nv (
    .clk          (clk_1x),
-   .rst          (RESET | status[0] | flash_download | seceep_download),
+   .rst          (saver_reset),
    .cart_type    (sec_cart_type),
    .xtra_en      (cass_xtra_en),
    .xtra_rd_req  (cass_rd_req),
-   .xtra_rd_addr (cass_rd_addr),
+   .xtra_rd_addr (xtra_rd_addr[8:0]),
    .xtra_rd_word (cass_rd_word),
    .xtra_rd_ack  (cass_rd_ack),
    .xtra_wr_req  (cass_wr_req),
-   .xtra_wr_addr (cass_wr_addr),
+   .xtra_wr_addr (xtra_wr_addr[8:0]),
    .xtra_wr_word (cass_wr_word),
    .xtra_wr_ack  (cass_wr_ack),
    .dump_addr    (sec_dump_addr),
@@ -2072,7 +2171,7 @@ assign card_en = status[107] | card_from_save;
 // actually holds, clamped to that -- so an existing Tier-1/2 16 MB .sav still
 // restores the onboard flash with the card enabled instead of running off the end
 // of the file, and it leaves the card region alone.
-wire [31:0] saver_save_blocks = (card_en ? 32'd49152 : 32'd16384) + (cass_xtra_en ? 32'd1 : 32'd0);
+wire [31:0] saver_save_blocks = (card_en ? 32'd49152 : 32'd16384) + {28'd0, xtra_blocks};
 wire [31:0] saver_file_blocks = flash_save_size[41:10];          // img_size / 1024
 wire [31:0] saver_load_blocks = (saver_file_blocks > saver_save_blocks)
                                 ? saver_save_blocks : saver_file_blocks;
@@ -2153,7 +2252,8 @@ always @(posedge clk_1x) begin
    // This makes the RISK-R1 guard hold for BOTH orderings instead of just one.
    // Same for the cassette .u1 (index 4): it overwrites any cassette state a LOAD
    // already restored, so the LOAD must run (again) after it.
-   if (flash_download | seceep_download) flash_load_taken <= 1'b0;
+   // And the timekeeper .22h (index 3): same reason, same fix (2026-09-28).
+   if (flash_download | seceep_download | nvram_download) flash_load_taken <= 1'b0;
 
    // edge -> 1-cycle save pulse. Saving clears dirty so a single OSD open does
    // not re-save unchanged flash on the next open.
@@ -2180,7 +2280,7 @@ end
 // core load, never during gameplay, so this can never interrupt a SAVE.
 s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .clk          (clk_1x),
-   .reset        (RESET | status[0] | flash_download | seceep_download),
+   .reset        (saver_reset),
    .save_trigger (flash_save_trigger),
    .erase_trigger(flash_erase_trigger),
    .flash_wr_ack (saver_activity),     // install-activity strobe (flash OR cassette write) -> arms the auto-save
@@ -2190,15 +2290,19 @@ s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .erase_done   (saver_erase_done),   // 1-cycle: an ERASE completed (toast)
    .load_arm     (flash_load_arm),
    .card_en      (card_en),
-   .xtra_en      (cass_xtra_en),
-   .xtra_rd_req  (cass_rd_req),
-   .xtra_rd_addr (cass_rd_addr),
-   .xtra_rd_word (cass_rd_word),
-   .xtra_rd_ack  (cass_rd_ack),
-   .xtra_wr_req  (cass_wr_req),
-   .xtra_wr_addr (cass_wr_addr),
-   .xtra_wr_word (cass_wr_word),
-   .xtra_wr_ack  (cass_wr_ack),
+   .xtra_blocks  (xtra_blocks),
+   .xtra_rd_req  (xtra_rd_req),
+   .xtra_rd_addr (xtra_rd_addr),
+   .xtra_rd_word (xtra_rd_word),
+   .xtra_rd_ack  (xtra_rd_ack),
+   .xtra_wr_req  (xtra_wr_req),
+   .xtra_wr_addr (xtra_wr_addr),
+   .xtra_wr_word (xtra_wr_word),
+   .xtra_wr_ack  (xtra_wr_ack),
+   .part_trigger (tk_save_req),
+   .part_skip    (cass_off),
+   .part_started (saver_part_started),
+   .part_done    (saver_part_done),
    .load_blocks  (saver_load_blocks),
    .busy         (saver_busy),
    .saving       (saver_saving),
@@ -2546,13 +2650,16 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .flash_wr_data  (flash_wr_data),
    .flash_wr_ack   (flash_wr_ack),
    .flash_dbg      (flash_dbg),
-   .nvram_we       (nvram_we),
-   .nvram_addr     (nvram_addr),
-   .nvram_din      (nvram_din),
-   .nvram_sav_addr (nvram_sav_addr),
+   .nvram_we       (nvram_we_m),
+   .nvram_addr     (nvram_addr_m),
+   .nvram_din      (nvram_din_m),
+   .nvram_sav_addr (nvram_sav_addr_m),
    .nvram_sav_dout (nvram_sav_dout),
    .nvram_sav_rd_ok(nvram_sav_rd_ok),
    .nvram_written  (nvram_written),
+   .rtc_set_valid  (rtc_set_valid),
+   .rtc_set_stb    (rtc_set_stb),
+   .rtc_set_data   (rtc_set_data),
    .sec_cart_type  (sec_cart_type),
    .sec_eep_we     (sec_eep_we_m),
    .sec_eep_addr   (sec_eep_addr_m),
