@@ -106,9 +106,11 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
          * The first implementation of this deferred unconditionally and measured
          * INERT: ddrsbm delivers the new window and stream_en=1 in ONE adoption,
          * so the deferral cancelled the intent every single time. */
-        /* FLUSH_DEFER now means "flush with the live gap", not "wait": the
-         * deferral left the old preview's whole tail playing on the song-select
-         * screen. */
+        /* FLUSH_DEFER means "the reader is live": the caller must stop the
+         * fabric first and collapse behind where it actually stopped. Neither
+         * waiting (left the whole old tail playing) nor a fixed 1024-beat gap
+         * (a poll stall let the reader overtake it; the elastic buffer kept
+         * 11.6 ms of the old song with no stop edge) was correct -- 2026-09-27. */
         act |= S573_ACT_FLUSH;
         if (drain_before) act |= S573_ACT_FLUSH_DEFER;
 #endif

@@ -94,7 +94,7 @@ extern "C" {
  * as a full ring of replay. Park THIS far ahead instead, zeroed: up to 46 ms
  * of silence instead of the old preview's 1.5 s tail. Upstream deferred the
  * flush in this case, having measured that the case never occurred; it does. */
-#define S573_LIVE_GAP_BEATS  1024u
+#define S573_LIVE_GAP_BEATS  1024u   /* retired 2026-09-27: the live case now stops the reader first */
 
 /* minimp3 emits 1152 samples per MPEG-1 Layer III frame. */
 #define S573_FRAME_SAMPLES   1152u
@@ -280,7 +280,8 @@ void     s573_core_pq_reset(s573_core_t *c);
 
 /* Collapse the ring to empty-relative-to-the-fabric: park our writer `gap`
  * beats ahead of where the fabric has read to, so nothing already-decoded
- * replays. gap=1 for a parked reader; S573_LIVE_GAP_BEATS for a live one.
+ * replays. gap=1 -- the caller stops the fabric reader first when it was live
+ * (2026-09-27), so the snapshot it collapses against is the frozen one.
  * Returns the number of beats dropped. */
 uint32_t s573_core_ring_collapse(s573_core_t *c, uint32_t gap);
 

@@ -1244,10 +1244,45 @@ void s573mp3_poll(void)
          * the writer one beat ahead would advertise one beat of whatever DDR3
          * happens to hold -- so skip it until there is a real window. */
         if ((act & S573_ACT_FLUSH) && f.mp3_end > f.mp3_start) {
-            /* live reader -> park well ahead of it, zeroed; parked -> one beat */
-            pcm_ring_collapse((act & S573_ACT_FLUSH_DEFER) ? "re-arm, drain live"
-                                                          : "re-arm",
-                              (act & S573_ACT_FLUSH_DEFER) ? S573_LIVE_GAP_BEATS : 1u);
+            if (act & S573_ACT_FLUSH_DEFER) {
+                /* The reader was LIVE when this window arrived (song-select scroll:
+                 * the game re-arms while the previous preview still plays). MAME
+                 * k573fpga.cpp update_mp3_decode_state() -> mas3507d reset_playback()
+                 * discards every decoded-but-unplayed sample at that instant. The
+                 * fabric can do the same, but only on a drain_en 1->0 edge
+                 * (rtl/s573_mp3_pcm.v STOP FLUSH; rtl/s573_pcm_ring.v rd_en) -- so
+                 * STOP IT FIRST, then read back where it actually froze, then park
+                 * the writer one beat ahead of THAT. The previous scheme parked
+                 * 1024 zeroed beats ahead of a stale snapshot while the reader kept
+                 * running: any poll stall > 46 ms (decode bursts reach 68 ms, log
+                 * fsync) let the reader overtake the park point and replay the old
+                 * song; and with no stop edge the elastic buffer kept its 11.6 ms
+                 * of the old preview. Both are the "previous preview plays briefly"
+                 * report (2026-09-27). Cost: 2-9 extra SPI exchanges, microseconds.
+                 * If the new config keeps the stream enabled, ctrl_flags still
+                 * carries DRAIN_EN and the poll's closing ctrl_exchange() re-raises
+                 * it AFTER decode_some() has prefilled the ring -- a clean 0->1
+                 * start on fresh data, the same path a normal song start takes. */
+                uint16_t want = core.ctrl_flags;
+                s573_ptrs_t q;
+                uint16_t rd0;
+                int tries = 0;
+                core.ctrl_flags = (uint16_t)(want & ~S573_CTRL_DRAIN_EN);
+                ctrl_exchange();                       /* drain_en 1->0: fabric flush */
+                ptrs_exchange(&q); rd0 = q.fab_pcm_rd;
+                do {                                   /* one in-flight beat may land */
+                    ptrs_exchange(&q);
+                    if (q.fab_pcm_rd == rd0) break;
+                    rd0 = q.fab_pcm_rd;
+                } while (++tries < 8);
+                core.pcm_rd = rd0;
+                s573_core_advance_played(&core, rd0);
+                pcm_ring_collapse(tries ? "re-arm, reader stopped (settled late)"
+                                        : "re-arm, reader stopped", 1u);
+                core.ctrl_flags = want;
+            } else {
+                pcm_ring_collapse("re-arm", 1u);       /* reader parked long ago */
+            }
             mp3dec_init(&mp3d);
         }
         if (act & S573_ACT_SCHEME_BAD)
