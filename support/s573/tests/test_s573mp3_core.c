@@ -521,6 +521,45 @@ int main(void)
         free(dio); free(full); free(ref); free(out);
     }
 
+    /* ------------------------------------------------------------------ */
+    GROUP("a rewrite of the SAME window is a re-arm (the preview restart), an enable edge is not");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 1);
+    (void)s573_core_apply_cfg(&c, &f, 1, 0);
+    c.desc.cur = 0x2000;                          /* pretend it played out */
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_STOP, 2);
+    act = s573_core_apply_cfg(&c, &f, 2, 1);      /* epoch +1, enables moved: a stop */
+    CHECK(!(act & S573_ACT_FLUSH), "epoch +1 with the enables moving = a bare stop, no re-arm");
+    CHECKEQ(c.desc.cur, 0x2000, "descrambler position untouched by the stop");
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_STOP, 7);
+    act = s573_core_apply_cfg(&c, &f, 7, 0);      /* epoch +5, enables unchanged: setup writes */
+    CHECK(act & S573_ACT_FLUSH, "same window, epoch +5, enables unchanged -> re-arm");
+    CHECKEQ(c.desc.cur, 0x1000, "descrambler rewound to the start of the window");
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 8);
+    act = s573_core_apply_cfg(&c, &f, 8, 0);      /* epoch +1, enables moved: play */
+    CHECK(!(act & S573_ACT_FLUSH) && (act & S573_ACT_DRAIN_ON), "then the play edge just starts it");
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 12);
+    act = s573_core_apply_cfg(&c, &f, 12, 1);     /* epoch +4, enables unchanged, mid-drain */
+    CHECK((act & S573_ACT_FLUSH) && (act & S573_ACT_FLUSH_DEFER), "same window rewritten while playing -> live re-arm");
+    mkcfg(&f, 0x1000, 0x2000, 1, 2, 3, FLAGS_PLAY, 13);
+    act = s573_core_apply_cfg(&c, &f, 13, 1);     /* epoch +1, enables unchanged: one setup write (or the OSD bit) */
+    CHECK(act & S573_ACT_FLUSH, "epoch +1 with the enables unchanged is still a setup write");
+
+    /* ------------------------------------------------------------------ */
+    GROUP("song end credits the undecodable tail so the fabric's cur reaches mp3_end");
+    s573_core_init(&c);
+    mkcfg(&f, 0x1000, 0x1100, 1, 2, 3, FLAGS_PLAY, 1);
+    (void)s573_core_apply_cfg(&c, &f, 1, 0);
+    c.cons_bytes = 0x100 - 185;                   /* what the logs showed: short by the tail */
+    c.desc.cur = 0x1100; c.in_len = c.in_pos = 0; c.pcm_wr = c.pcm_rd = 3;
+    CHECK(s573_core_should_stop(&c), "exhausted + drained -> stop");
+    s573_core_song_end(&c);
+    CHECKEQ(c.cons_bytes, 0x100u, "credit brought up to the whole window");
+    CHECKEQ(s573_core_cons_word(&c), 0x100u, "and that is what the mailbox reports");
+    c.cons_bytes = 0x100 + 5;                     /* never credit backwards */
+    s573_core_song_end(&c);
+    CHECKEQ(c.cons_bytes, 0x105u, "an over-credit is left alone");
+
     printf("\n%d groups, %d failures\n", groups, fails);
     if (fails) { printf("RESULT: FAIL\n"); return 1; }
     printf("RESULT: PASS\n");

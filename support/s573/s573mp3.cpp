@@ -1381,6 +1381,7 @@ static void s573mp3_poll_body(void)
      * on an enable edge here would mean the music never stops. */
     if (s573_core_should_stop(&core)) {
         core.ctrl_flags &= (uint16_t)~S573_CTRL_DRAIN_EN;
+        s573_core_song_end(&core);            /* credit the tail: cur -> mp3_end, bit12 -> 0 */
         s573_log("s573mp3: song end -- window exhausted (cur=%08x end=%08x) and "
                "ring drained, DRAIN OFF via EXHAUSTION\n",
                core.desc.cur, core.desc.mp3_end);

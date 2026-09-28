@@ -216,6 +216,7 @@ typedef struct {
     /* ---- descrambler + window ---- */
     s573_desc_t desc;
     uint32_t win_start, win_end;   /* the window the descrambler is armed to   */
+    uint16_t flags_prev;           /* cfg flags of the previous adoption       */
     uint16_t key1, key2, key3;
     uint8_t  ddrsbm;
 
@@ -291,6 +292,9 @@ uint32_t s573_core_ring_collapse(s573_core_t *c, uint32_t gap);
  * (docs/2026-07-31-mp3-audio-WORKING.md). */
 int      s573_core_window_exhausted(const s573_core_t *c);
 int      s573_core_should_stop(const s573_core_t *c);
+/* Call once when should_stop fires: credit the un-decodable tail so the fabric's
+ * cur reaches mp3_end and 0xae bit 12 clears (the game's end-of-stream signal). */
+void     s573_core_song_end(s573_core_t *c);
 /* "the decoder was offered what is left and could not use it". Only takes
  * effect once the window is exhausted, so a mid-song sync loss (bytes not
  * loaded yet) can never cut a song short. */

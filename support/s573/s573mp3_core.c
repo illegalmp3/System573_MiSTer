@@ -70,6 +70,21 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
            || (cfg->mp3_end   != c->win_end)
            || (cfg->key1 != c->key1) || (cfg->key2 != c->key2)
            || (cfg->key3 != c->key3);
+    /* A re-arm can also carry the SAME window: MAME update_mp3_decode_state()
+     * re-inits (cur <- start) on ANY setup-register write, whatever the value,
+     * and k573dio.v pulses reload (epoch +1 per write) the same way. A song
+     * select restarting its preview rewrites the identical start/end/keys. The
+     * epoch tells the two apart: an enable-only change is exactly one write to
+     * 0xae (+1); a setup sequence is at least two writes (start hi+lo), so an
+     * epoch that moved by more than one, or that moved with the enables
+     * unchanged, carries a setup write. (2026-09-28, previews playing once.) */
+    if (c->have_cfg && !rearmed) {
+        uint16_t delta = (uint16_t)(authoritative_epoch - c->cfg_epoch);
+        int en_now  = (cfg->flags & (S573_CFG_CTRL13 | S573_CFG_CTRL14));
+        int en_prev = c->flags_prev & (S573_CFG_CTRL13 | S573_CFG_CTRL14);
+        if (delta > 1 || (delta == 1 && en_now == en_prev)) rearmed = 1;
+    }
+    c->flags_prev = cfg->flags;
 
     /* word0's echo is cfg_epoch[7:0] BY DESIGN. Compared against the low byte of
      * the 16-bit epoch it is a torn-read detector; compared against the 16-bit
@@ -201,6 +216,22 @@ uint32_t s573_core_ring_collapse(s573_core_t *c, uint32_t gap)
 int s573_core_window_exhausted(const s573_core_t *c)
 {
     return c->have_cfg && (c->desc.cur >= c->desc.mp3_end);
+}
+
+void s573_core_song_end(s573_core_t *c)
+{
+    /* The fabric's stream position `cur` (k573_mp3stream) advances only on the
+     * consumption credit we report, and 0xae bit 12 ("still streaming", MAME
+     * get_fpga_ctrl: cur < end) clears only when cur reaches mp3_end. The
+     * credit follows PLAYED audio, and a window never ends on a frame boundary:
+     * the undecodable tail (185-368 bytes in every logged exhaustion) was never
+     * credited, cur parked short of mp3_end, bit 12 stayed 1 and the game never
+     * saw its preview end -- so it never restarted it. MAME's update_stream()
+     * walks mp3_cur_addr to mp3_cur_end_addr regardless of what the decoder
+     * makes of the bytes; credit the remainder now that the audio has drained. */
+    uint32_t len = c->win_end - c->win_start;
+    if (c->have_cfg && c->win_end > c->win_start && c->cons_bytes < len)
+        c->cons_bytes = len;
 }
 
 int s573_core_should_stop(const s573_core_t *c)
