@@ -155,6 +155,7 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > 30 fps (DecDCTvlc at CPI 3.3). The BIOS-mirror crash is 0005's (the mirror got tags
 > without data); the boot regression without 0004 is in
 > `docs/2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md`.
+> **Confirmed on the cabinet the same day: ddrextrm at 60 fps with full-speed video.**
 
 With both applied, the BIOS in the NVC sim **advances ~80 ms past the old 220.6 ms
 crash** through normal init (a large ROM→RAM copy) to 300 ms with **zero AdEL /

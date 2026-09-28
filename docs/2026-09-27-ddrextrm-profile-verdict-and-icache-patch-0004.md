@@ -181,3 +181,9 @@ and the `80073800` (DecDCTvlc) share to drop from 25 % to ~10 %; `mdec_mb` shoul
 * The 573 EXP1 access timing (flash reads for the movie slots, 60 k/s, `0x800bf000` bin
   ≈4 % — the digital-board/flash helper code) is modelled by the PSX core's `ext_waitcnt`
   from the game's own delay-register writes; unverified against a real board, small.
+
+## 7. Cabinet result (2026-09-27, 17:17 PT)
+
+Ricky, with the deployed rbf: **"DDR Extreme now displays 60 fps arrows and full speed video."**
+Tier-3 issues #1–#3 (arrow frame rate, video speed) closed by this change. The
+`s573mp3.log` on the card holds the confirming `FRAMES=`/`pcprof:` lines for the record.
