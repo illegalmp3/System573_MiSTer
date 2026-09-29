@@ -382,6 +382,11 @@ static uint16_t prof[7], prof_prev[7];
  * MDEC decoding. Run B showed the 573-side counters at ~0%, so the frame time is
  * being lost in here. */
 static uint16_t profg[7], profg_prev[7];
+/* words31..35: k573dio DRAM-port activity (0 on older RTL). 31 0xb4 pushes,
+ * 32 words drained to DDR3, 33 0xb4 reads, 34 pointer writes -- cumulative,
+ * diffed per second; 35 = {ovf sticky, half-full sticky, wf_cnt[10:0], 000}. */
+static uint16_t dio[5], dio_prev[4];
+static int dio_have_prev = 0;
 static int      prof_have_prev = 0, profg_have_prev = 0;
 /* zs01 packet-engine observability (STATUS words 6/7/8; rtl/zs01.v dbg). The engine
  * is multi-cycle and the real host neither clock-stretches nor waits, so 'did the
@@ -633,6 +638,8 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
         prof[i]     = spi_w(0);   /* words17..23: the 573-side profile (0 on older RTL) */
     for (int i = 0; i < 7; i++)
         profg[i]    = spi_w(0);   /* words24..30: the PSX-side profile (0 on older RTL) */
+    for (int i = 0; i < 5; i++)
+        dio[i]      = spi_w(0);   /* words31..35: k573dio DRAM-port counters (0 on older RTL) */
     DisableIO();
 }
 
@@ -1125,6 +1132,29 @@ static void heartbeat(void)
                          g[6], 100.0 * g[6] / (33868800.0 / 2171.0),
                          g[0], g[1], g[2], g[3], g[4], g[5], g[6]);
         }
+    }
+
+    {
+        /* The DIO DRAM port, per second. ddr3mj (2026-09-28) streams each song
+         * into DRAM WHILE it plays and only the first 6 sectors ever arrived:
+         * pushes == drains says the writes reach DDR3 (so the game stopped
+         * issuing them); pushes > drains, or ovf, says the posted-write FIFO
+         * dropped them (starved behind the PSX master). Reads/pointer writes
+         * show a verify-and-retry loop if there is one. */
+        unsigned dd[4];
+        int anyd = 0;
+        for (int i = 0; i < 4; i++) {
+            dd[i] = dio_have_prev ? (unsigned)(uint16_t)(dio[i] - dio_prev[i]) : 0u;
+            if (dio[i]) anyd = 1;
+            dio_prev[i] = dio[i];
+        }
+        dio_have_prev = 1;
+        if (anyd || (dio[4] & 0xc000))
+            s573_log("s573mp3: dio: b4 pushes=%u/s drained=%u/s reads=%u/s ptr_writes=%u/s | "
+                     "wfifo=%u/1024%s%s\n",
+                     dd[0], dd[1], dd[2], dd[3], (unsigned)((dio[4] >> 3) & 0x7ff),
+                     (dio[4] & 0x8000) ? " *** OVERFLOWED (writes DROPPED) ***" : "",
+                     (dio[4] & 0x4000) ? " (reached half full)" : "");
     }
 
     if (sf & 0x0008) s573_log("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");

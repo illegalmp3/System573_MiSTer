@@ -911,6 +911,7 @@ s573_hps_ext hps_ext
 	.sec_cnt_dbg(sec_cnt_dbg16),
 	.prof_dbg(prof_dbg112),
 	.profg_dbg(profg_dbg112),
+	.dio_dbg(dio_dbg_cnt),
 	.pcprof_addr(pcprof_addr), .pcprof_data(pcprof_data), .pcprof_samples(pcprof_samples),
 	.pcprof_ram_hi(pcprof_ram_hi), .pcprof_bios(pcprof_bios), .pcprof_other(pcprof_other),
 	.sec_trace_addr(sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),
@@ -1820,6 +1821,7 @@ wire [19:0] dio_gain_ll;
 wire [19:0] dio_gain_rr;
 wire        dio_gain_stb;
 wire        dio_dbg_hi_write;   // sticky: game wrote ABOVE the real board 24 MiB (P4b PCM-ring guard)
+wire [79:0] dio_dbg_cnt;        // DIO DRAM-port activity counters -> HPS STATUS words 31..35 (ddr3mj loader question)
 
 // 573 ATAPI <-> PSX DMA channel 5 (psx_patches/0023). All clk_1x, no CDC: the
 // dma.vhd consume strobe is ce-qualified, atapi.v free-runs on the same clock.
@@ -2700,6 +2702,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .dio_mem_wr_ack (dio_mem_wr_ack),
    .dio_dbg_hi_write(dio_dbg_hi_write),
    .dio_dbg_ovf    (dio_dbg_ovf),
+   .dio_dbg_cnt    (dio_dbg_cnt),
    .dio_gain_ll    (dio_gain_ll),
    .dio_gain_rr    (dio_gain_rr),
    .dio_gain_stb   (dio_gain_stb),

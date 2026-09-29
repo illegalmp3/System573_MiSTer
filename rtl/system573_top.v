@@ -87,6 +87,7 @@ module system573_top #(
     // sticky DIO posted-write FIFO overflow (fault observer, never silent)
     output wire        dio_dbg_ovf,
     output wire        dio_dbg_hi_write,  // game wrote above real-board DRAM (P4b ring guard)
+    output wire [79:0] dio_dbg_cnt,       // {wfifo_state, adr_writes, b4_reads, b4_drains, b4_pushes} (HPS STATUS 31..35)
     // MP3 descramble scheme (MAME set_ddrsbm_fpga); emu.sv ties 0 until P4
     input  wire        cfg_ddrsbm,
     input  wire [4:0]  chart_ofs_ms,   // OSD 573 Chart Offset, signed ms -> k573dio
@@ -465,6 +466,8 @@ module system573_top #(
         .mem_wr_data(dio_mem_wr_data), .mem_wr_ack(dio_mem_wr_ack),
         .dbg_wfifo_ovf(dio_dbg_ovf),
         .dbg_dio_hi_write(dio_dbg_hi_write),
+        .dbg_b4_pushes(dio_dbg_cnt[15:0]), .dbg_b4_drains(dio_dbg_cnt[31:16]), .dbg_b4_reads(dio_dbg_cnt[47:32]),
+        .dbg_adr_writes(dio_dbg_cnt[63:48]), .dbg_wfifo_state(dio_dbg_cnt[79:64]),
         // P4b option (c): the descramble config the HPS mirrors, plus its
         // epoch and the position echo. Previously all left open.
         .crypto_key1(dio_key1), .crypto_key2(dio_key2), .crypto_key3(dio_key3),
