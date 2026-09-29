@@ -27,6 +27,15 @@ Sizes then decide the HANDLING:
                        game code and the DS2401 cross-check. Left unpadded, emu's size
                        rule would infer X76F100 and the game would see the wrong
                        response-to-reset.
+
+TWO-CASSETTE TITLES (ksys573.cpp Note 3; cassxzi / cassyyi configs) get ONE launcher:
+the game cassette is the .u1 as above, and the .cas CASSETTE PACK (tools/
+make_cas_pack.py: game .u6 + install .u6 + install .u1) takes the .u6's place at
+index 5. The core holds both cassettes and the OSD "573 Cassette" option (Auto =
+follow Boot Device) puts the right one in the slot -- the same swap the operator
+makes on a real cabinet. Needs a core built from rtl/s573_cass_pack.v or later; on
+an older core the pack's first 8 bytes are still the game .u6, so the launcher then
+behaves like the old *_console.mgl (play only).
 """
 import argparse, os, re, shutil, subprocess, sys, tempfile, zipfile
 
@@ -145,7 +154,7 @@ MGL_HEAD = """<!--
   The .sav MUST exist before launch -- an .mgl type="s" item mounts with pre=0 and
   a missing file EJECTS the slot (docs/2026-09-12-flash-persistence-fixed.md).
   tools/stage_573.py creates it at {savmb} MiB (+1 KB for a ZS01 cassette, +9 KB timekeeper).
-
+{packnote}
   After an install, WAIT for the "Flash saved" toast before cutting power. The game
   tells you to switch off at exactly the moment the auto-save has not fired yet
   (it needs ~9 s of flash quiet, then streams {savmb} MiB).
@@ -155,11 +164,21 @@ MGL_HEAD = """<!--
   <setname>System573</setname>
   <file delay="1" type="f" index="0" path="573bios.bin"/>
   <file delay="1" type="f" index="4" path="{u1}"/>
-  <file delay="1" type="f" index="5" path="{u6}"/>
+  <file delay="1" type="f" index="5" path="{pack}"/>
   <file delay="2" type="s" index="1" path="{chd}"/>
   <file delay="3" type="s" index="4" path="{sav}"/>
   <reset delay="1"/>
 </mistergamedescription>
+"""
+
+
+PACK_NOTE = """
+  TWO CASSETTES, ONE LAUNCHER: index 5 is the .cas pack (game .u6 + install .u6 +
+  install .u1, rtl/s573_cass_pack.v). The core holds both cassettes; OSD "573
+  Cassette" = Auto follows Boot Device (CD-ROM -> the {ichip} INSTALL cassette,
+  Flash ROM -> the {gchip} GAME cassette), or force Game / Install. Install: set
+  Boot Device = CD-ROM, launch, let it install, wait for "Flash saved". Play: set
+  Boot Device = Flash ROM, launch. (Replaces the old {rom}_install / {rom}_console pair.)
 """
 
 
@@ -172,27 +191,34 @@ def write_launchers(t, mgldir, sav_mb, disc_name, dtype, frames):
     conv = "" if dtype == "MODE1_RAW" else "   <== MODE1/2048: ships as cue+raw2352, NOT the CHD"
     roles = sorted(t["cassettes"])
     two = len(roles) > 1
-    out = []
-    for role in roles:
-        install = (role != "game")
-        stem = f"{rom}_install" if install else (f"{rom}_console" if two else rom)
-        note = ("  (the INSTALL cassette -- swapped for the game cassette on a real cabinet;"
-                " two launchers, one physical slot)" if two else "")
-        txt = MGL_HEAD.format(
-            rom=rom, desc=t["desc"], phase="INSTALL" if install else "PLAY",
-            cfg=t["cfg"], board="digital (k573dio)" if t["dio"] else "analog (GX700-PWB(F))",
-            cardline=cardline, chip=chip_of(t, role), casnote=note,
-            disc=disc_name, dtype=dtype, frames=frames, convnote=conv,
-            osdcard=osdcard, cab=cab,
-            boot="CD-ROM" if install else ("Flash ROM" if two else "CD-ROM to install, Flash ROM after"),
-            savmb=sav_mb,
-            u1=f"{rom}_install.u1" if install else f"{rom}.u1",
-            u6=f"{rom}_install.u6" if install else f"{rom}.u6",
-            chd=(f"{rom}.cue" if dtype == "MODE1" else f"{rom}.chd"), sav=f"{rom}.sav")
-        fp = os.path.join(mgldir, stem + ".mgl")
-        open(fp, "w").write(txt)
-        out.append(os.path.basename(fp))
-    return out
+    if two and set(roles) != {"game", "install"}:
+        sys.exit(f"{rom}: cassette roles {roles} -- only game+install is supported")
+    gchip = chip_of(t, "game")
+    if two:
+        ichip = chip_of(t, "install")
+        # The install X76F041 lives in the core's eeprom041, which must therefore not
+        # be the GAME chip; the driver never pairs two X76F041s (cassxzi = ZI game,
+        # cassyyi = YI game) -- refuse rather than stage something the core cannot hold.
+        if ichip == "ZS01" or (ichip == "X76F041" and gchip == "X76F041"):
+            sys.exit(f"{rom}: install {ichip} + game {gchip} is not a driver config the core holds")
+        casnote = f"  + {ichip} INSTALL cassette in {rom}.cas (one launcher, OSD 573 Cassette selects)"
+        packnote = PACK_NOTE.format(ichip=ichip, gchip=gchip, rom=rom)
+    else:
+        casnote, packnote = "", ""
+    txt = MGL_HEAD.format(
+        rom=rom, desc=t["desc"], phase="INSTALL + PLAY" if two else "PLAY",
+        cfg=t["cfg"], board="digital (k573dio)" if t["dio"] else "analog (GX700-PWB(F))",
+        cardline=cardline, chip=gchip, casnote=casnote,
+        disc=disc_name, dtype=dtype, frames=frames, convnote=conv,
+        osdcard=osdcard, cab=cab,
+        boot="CD-ROM to install, Flash ROM after",
+        savmb=sav_mb, packnote=packnote,
+        u1=f"{rom}.u1",
+        pack=f"{rom}.cas" if two else f"{rom}.u6",
+        chd=(f"{rom}.cue" if dtype == "MODE1" else f"{rom}.chd"), sav=f"{rom}.sav")
+    fp = os.path.join(mgldir, rom + ".mgl")
+    open(fp, "w").write(txt)
+    return [os.path.basename(fp)]
 
 def main():
     ap = argparse.ArgumentParser()
@@ -264,25 +290,35 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         with zipfile.ZipFile(zp) as z:
             names = set(z.namelist())
-            for role, parts in sorted(t["cassettes"].items()):
-                stem = a.romset if role == "game" else f"{a.romset}_install"
-                fn, sz = parts["eeprom"]
-                if fn not in names:
-                    sys.exit(f"{fn} not in {zp}")
-                z.extract(fn, tmp)
-                u1_out = os.path.join(a.dest, stem + ".u1")
-                if chip_of(t, role) == "ZS01":
-                    u6n = parts["id"][0]
-                    subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "stage_zs01_u1.py"),
-                                           zp, "--u1", fn, "--u6", u6n, "-o", u1_out])
-                else:
-                    shutil.copyfile(os.path.join(tmp, fn), u1_out)
-                    print(f"   {stem}.u1 <- {fn} ({sz} B, {chip_of(t, role)}, as-is)")
-                u6n = parts["id"][0]
-                if u6n in names:
-                    z.extract(u6n, tmp)
-                    shutil.copyfile(os.path.join(tmp, u6n), os.path.join(a.dest, stem + ".u6"))
-                    print(f"   {stem}.u6 <- {u6n}")
+            game = t["cassettes"]["game"]
+            fn, sz = game["eeprom"]
+            if fn not in names:
+                sys.exit(f"{fn} not in {zp}")
+            z.extract(fn, tmp)
+            u1_out = os.path.join(a.dest, a.romset + ".u1")
+            u6n = game["id"][0]
+            if chip_of(t, "game") == "ZS01":
+                subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "stage_zs01_u1.py"),
+                                       zp, "--u1", fn, "--u6", u6n, "-o", u1_out])
+            else:
+                shutil.copyfile(os.path.join(tmp, fn), u1_out)
+                print(f"   {a.romset}.u1 <- {fn} ({sz} B, {chip_of(t, 'game')}, as-is)")
+            if u6n not in names:
+                sys.exit(f"{u6n} not in {zp}")
+            z.extract(u6n, tmp)
+            shutil.copyfile(os.path.join(tmp, u6n), os.path.join(a.dest, a.romset + ".u6"))
+            print(f"   {a.romset}.u6 <- {u6n}")
+            if "install" in t["cassettes"]:
+                inst = t["cassettes"]["install"]
+                # the .cas pack: game .u6 + install .u6 + install .u1 (tools/make_cas_pack.py
+                # checks the sizes against the driver's ROM_REGION lengths)
+                subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "make_cas_pack.py"), zp,
+                                       "--game-u6", u6n, "--install-u1", inst["eeprom"][0],
+                                       "--install-u6", inst["id"][0],
+                                       "-o", os.path.join(a.dest, a.romset + ".cas")])
+                for stale in (f"{a.romset}_install.u1", f"{a.romset}_install.u6"):
+                    if os.path.exists(os.path.join(a.dest, stale)):
+                        print(f"   ({stale} from the old two-launcher staging is no longer used; left in place)")
         for d in t["discs"]:
             src = os.path.join(DUMPS, d + ".chd")
             if not os.path.exists(src):

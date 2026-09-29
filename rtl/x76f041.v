@@ -244,9 +244,17 @@ module x76f041 #(
     // Read address: one cycle ahead of the protocol read consumer. During a
     // program-only check the burst owns it; otherwise it tracks doff(bytec) so
     // data_rdata == data[doff(bytec)] by the time the read FSM shifts it out.
+    // NOTE (2026-09-28, tb_s573_seccart_dual): this is a CONTINUOUS assignment, and
+    // a simulator only re-evaluates it when the function's ARGUMENTS change --
+    // doff(bytec) reads `command`/`address` from inside its body, so after the
+    // address byte was latched the sim kept the STALE offset for the first data byte
+    // (rd_addr sat at the previous command's address until bytec moved; the byte came
+    // out as 00). Synthesis sees through the function and builds the right logic, so
+    // hardware was never affected -- but the sim must not lie, so every input is an
+    // explicit argument here (doffb is the same arithmetic with explicit inputs).
     wire [8:0] rd_addr_next = (brst_state == BRST_CHECK)
                             ? doffb(brst_cmd0, brst_addr, {4'd0, brst_idx})
-                            : doff(bytec);
+                            : doffb(command[0], address, bytec);
 
     // ----- RAM port: the ONLY place data[] is read or written (block-RAM cell) -----
     always @(posedge clk) begin

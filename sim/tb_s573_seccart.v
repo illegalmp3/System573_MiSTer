@@ -62,6 +62,8 @@ module tb_s573_seccart;
         .latch_we(latch_we), .d_latch(dl), .io0_dir(1'b0),
         .load_eep_we(1'b0), .load_eep_addr(10'd0), .load_eep_data(8'd0),
         .load_ser_we(1'b0), .load_ser_addr(3'd0), .load_ser_data(8'd0),
+        // second (install) cassette + restore flag: not used by this bench
+        .load_eep_zs01_only(1'b0), .inst_sel(1'b0), .inst_type(1'b0), .load_ieep_we(1'b0), .load_ieep_addr(10'd0), .load_ieep_data(8'd0), .load_iser_we(1'b0), .load_iser_addr(3'd0), .load_iser_data(8'd0),
         .sec_io0(sec_io0), .sec_in(sec_in), .sec_drdy(sec_drdy), .sec_irdy(sec_irdy)
     );
 
@@ -80,6 +82,8 @@ module tb_s573_seccart;
         .latch_we(1'b1), .d_latch(dl2), .io0_dir(1'b0),
         .load_eep_we(e_load_we), .load_eep_addr(e_load_addr), .load_eep_data(e_load_data),
         .load_ser_we(s_load_we), .load_ser_addr(s_load_addr), .load_ser_data(s_load_data),
+        // second (install) cassette + restore flag: not used by this bench
+        .load_eep_zs01_only(1'b0), .inst_sel(1'b0), .inst_type(1'b0), .load_ieep_we(1'b0), .load_ieep_addr(10'd0), .load_ieep_data(8'd0), .load_iser_we(1'b0), .load_iser_addr(3'd0), .load_iser_data(8'd0),
         .sec_io0(sec_io0_2), .sec_in(sec_in_2), .sec_drdy(sec_drdy_2), .sec_irdy(sec_irdy_2)
     );
 
@@ -113,6 +117,8 @@ module tb_s573_seccart;
         .latch_we(1'b1), .d_latch(dl3), .io0_dir(io0_3),
         .load_eep_we(e3_we), .load_eep_addr(e3_addr), .load_eep_data(e3_data),
         .load_ser_we(s3_we), .load_ser_addr(s3_addr), .load_ser_data(s3_data),
+        // second (install) cassette + restore flag: not used by this bench
+        .load_eep_zs01_only(1'b0), .inst_sel(1'b0), .inst_type(1'b0), .load_ieep_we(1'b0), .load_ieep_addr(10'd0), .load_ieep_data(8'd0), .load_iser_we(1'b0), .load_iser_addr(3'd0), .load_iser_data(8'd0),
         .sec_io0(sec_io0_3), .sec_in(sec_in_3), .sec_drdy(sec_drdy_3), .sec_irdy(sec_irdy_3)
     );
 

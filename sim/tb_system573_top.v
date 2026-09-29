@@ -53,7 +53,9 @@ module tb_system573_top;
         .rtc_set_valid(1'b0), .rtc_set_stb(1'b0), .rtc_set_data(56'd0),
         .sec_cart_type(2'd0),
         .sec_eep_we(1'b0), .sec_eep_addr(10'd0), .sec_eep_din(8'd0),
-        .sec_ser_we(1'b0), .sec_ser_addr(3'd0), .sec_ser_din(8'd0)
+        .sec_ser_we(1'b0), .sec_ser_addr(3'd0), .sec_ser_din(8'd0),
+        // second (install) cassette + restore flag: not used by this bench
+        .sec_eep_zs01_only(1'b0), .sec_inst_sel(1'b0), .sec_inst_type(1'b0), .sec_ieep_we(1'b0), .sec_ieep_addr(10'd0), .sec_ieep_din(8'd0), .sec_iser_we(1'b0), .sec_iser_addr(3'd0), .sec_iser_din(8'd0)
     );
 
     always #5 clk = ~clk;

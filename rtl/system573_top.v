@@ -119,6 +119,16 @@ module system573_top #(
     input  wire        sec_ser_we,    // DS2401 (.u6, 8-byte serial image) byte write
     input  wire [2:0]  sec_ser_addr,
     input  wire [7:0]  sec_ser_din,
+    input  wire        sec_eep_zs01_only, // 1 = sec_eep_* is the ZS01 NVRAM restore, not the .u1
+    // The second (INSTALL) cassette -- MAME cassxzi/cassyyi titles (s573_seccart.v).
+    input  wire        sec_inst_sel,   // 1 = the install cassette is in the slot
+    input  wire        sec_inst_type,  // install EEPROM: 0 = X76F100, 1 = X76F041
+    input  wire        sec_ieep_we,    // install EEPROM image byte write (0..547)
+    input  wire [9:0]  sec_ieep_addr,
+    input  wire [7:0]  sec_ieep_din,
+    input  wire        sec_iser_we,    // install cassette DS2401 serial byte write (0..7)
+    input  wire [2:0]  sec_iser_addr,
+    input  wire [7:0]  sec_iser_din,
     // ZS01 cassette NVRAM persistence (s573_cass_nv in emu.sv): dump port + change strobe
     input  wire [7:0]  sec_dump_addr,
     output wire [7:0]  sec_dump_data,  // 2-clock latency
@@ -309,6 +319,10 @@ module system573_top #(
         .io0_dir(sec_io0_dir),
         .load_eep_we(sec_eep_we), .load_eep_addr(sec_eep_addr), .load_eep_data(sec_eep_din),
         .load_ser_we(sec_ser_we), .load_ser_addr(sec_ser_addr), .load_ser_data(sec_ser_din),
+        .load_eep_zs01_only(sec_eep_zs01_only),
+        .inst_sel(sec_inst_sel), .inst_type(sec_inst_type),
+        .load_ieep_we(sec_ieep_we), .load_ieep_addr(sec_ieep_addr), .load_ieep_data(sec_ieep_din),
+        .load_iser_we(sec_iser_we), .load_iser_addr(sec_iser_addr), .load_iser_data(sec_iser_din),
         .sec_dbg(sec_dbg), .sec_cs_n(sec_cs_n), .sec_rst_line(sec_rst_line), .sec_rtr_edges(sec_rtr_edges),
         .sec_scl_line(sec_scl_line), .sec_sda_line(sec_sda_line), .sec_ds_line(sec_ds_line),
         .sec_zs01_state(sec_zs01_state),

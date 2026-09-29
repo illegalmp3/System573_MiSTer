@@ -416,8 +416,22 @@ parameter CONF_STR = {
 	// reached the chip and hypbbc2p stuck at "-3N" (read pw stayed 0). The unit sim missed it
 	// because the TB drives the load port directly, bypassing CONF_STR delivery.
 	"F4,U1,Load Security Cassette;",
-	"F5,U6,Load Cart Serial;",
+	// F5 takes EITHER the 8-byte .u6 (DS2401 serial, single-cassette titles) OR a
+	// .cas "cassette pack" for MAME's TWO-cassette titles (cassxzi / cassyyi:
+	// ddr3ma/ddr3mp/ddr4m-class, ddrs2k, dsfdct, dsfdr): {game .u6, install .u6,
+	// install .u1}. Both cassettes are then held at once and the OSD "573 Cassette"
+	// option says which is in the slot -- ONE launcher instead of an install pair
+	// (Main parses at most six .mgl items and the launchers use all six, so the
+	// second cassette rides in this file). The decode below is on ioctl_index[5:0]
+	// so the extension sub-index of .cas does not matter.
+	"F5,U6CAS,Load Cart Serial / Pack;",
 	"O[93],573 Boot Device,Flash ROM,CD-ROM;",
+	// Which of the two cassettes is in the slot (no effect unless a .cas pack with an
+	// install cassette was loaded). Auto = follow "573 Boot Device": CD-ROM -> the
+	// INSTALL cassette, Flash ROM -> the GAME cassette, i.e. exactly the swap the
+	// operator makes on a real cabinet (ksys573.cpp header Note 3). Change it before
+	// launching / then reset: the game reads the cassette at boot.
+	"O[110:109],573 Cassette,Auto,Game,Install;",
 	"O[94],573 Flash Debug,Off,On;",
 	// The DIO board's MP3 descrambler is per-TITLE, not per-board: the game uploads
 	// its own bitstream to the board's Xilinx XCS40XL at boot, and the seven known
@@ -921,7 +935,7 @@ always @(posedge clk_1x) begin
 	flash_download   <= ioctl_download & (ioctl_index == 2);   // 573 onboard flash (16 MB)
 	nvram_download   <= ioctl_download & (ioctl_index == 3);   // 573 M48T58 NVRAM (8 KB)
 	seceep_download  <= ioctl_download & (ioctl_index == 4);   // security cart EEPROM (.u1: 548 B x76f041 / 112 B x76f100 / 4116 B zs01)
-	secser_download  <= ioctl_download & (ioctl_index == 5);   // security cart DS2401 serial (.u6: 8 B)
+	secser_download  <= ioctl_download & (ioctl_index[5:0] == 6'd5); // cart serial (.u6: 8 B) or .cas pack (F5 ext sub-index ignored)
 	cdinfo_download  <= ioctl_download & (ioctl_index == 251);
 	code_download    <= ioctl_download & (ioctl_index == 255);
 	nvram_upload     <= ioctl_upload   & (ioctl_index == 3);   // 573 M48T58 NVRAM save-back (8 KB)
@@ -2029,23 +2043,56 @@ s573_seccart_loader #(.AW(13)) seceep_loader (
    .max_addr   (sec_eep_max)
 );
 
-wire        sec_ser_we;
-wire [2:0]  sec_ser_addr;
-wire [7:0]  sec_ser_din;
+// Index 5 is either the 8-byte .u6 or a .cas CASSETTE PACK carrying the second
+// (install) cassette of a two-cassette title -- layout, size rule and the reason
+// it shares this file are in rtl/s573_cass_pack.v, which splits the stream.
+wire        pack_we;
+wire [9:0]  pack_addr;
+wire [7:0]  pack_din;
 wire        secser_nv_hi;
-wire [2:0]  sec_ser_max;
-s573_seccart_loader #(.AW(3)) secser_loader (
+wire [9:0]  pack_max;
+s573_seccart_loader #(.AW(10)) secser_loader (
    .clk        (clk_1x),
    .load_en    (secser_download),
    .ioctl_wr   (ioctl_wr),
-   .ioctl_addr (ioctl_addr[2:0]),
+   .ioctl_addr (ioctl_addr[9:0]),
    .ioctl_dout (ioctl_dout),
-   .byte_we    (sec_ser_we),
-   .byte_addr  (sec_ser_addr),
-   .byte_data  (sec_ser_din),
+   .byte_we    (pack_we),
+   .byte_addr  (pack_addr),
+   .byte_data  (pack_din),
    .nv_hi      (secser_nv_hi),
-   .max_addr   (sec_ser_max)
+   .max_addr   (pack_max)
 );
+wire        sec_ser_we, sec_iser_we, sec_ieep_we;
+wire [2:0]  sec_ser_addr, sec_iser_addr;
+wire [7:0]  sec_ser_din, sec_iser_din, sec_ieep_din;
+wire [9:0]  sec_ieep_addr;
+wire        inst_present;   // a .cas pack with an install cassette was loaded
+wire        inst_type;      // 0 = X76F100, 1 = X76F041
+s573_cass_pack u_cass_pack (
+   .clk          (clk_1x),
+   .download     (secser_download),
+   .byte_we      (pack_we),
+   .byte_addr    (pack_addr),
+   .byte_data    (pack_din),
+   .max_addr     (pack_max),
+   .ser_we       (sec_ser_we),
+   .ser_addr     (sec_ser_addr),
+   .ser_data     (sec_ser_din),
+   .iser_we      (sec_iser_we),
+   .iser_addr    (sec_iser_addr),
+   .iser_data    (sec_iser_din),
+   .ieep_we      (sec_ieep_we),
+   .ieep_addr    (sec_ieep_addr),
+   .ieep_data    (sec_ieep_din),
+   .inst_present (inst_present),
+   .inst_type    (inst_type)
+);
+// The cassette in the slot. "573 Cassette": 0 = Auto (follow Boot Device: CD-ROM
+// boot -> install cassette), 1 = Game, 2 = Install. Never the install cassette
+// unless the pack carried one.
+wire [1:0] cass_mode = status[110:109];
+wire       inst_sel  = inst_present & ((cass_mode == 2'd2) | ((cass_mode == 2'd0) & status[93]));
 
 // Infer the cart type from the loaded EEPROM size (highest byte index written).
 // Latched after the EEPROM download deasserts so the threshold sees the final
@@ -2702,6 +2749,15 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .sec_ser_we     (sec_ser_we),
    .sec_ser_addr   (sec_ser_addr),
    .sec_ser_din    (sec_ser_din),
+   .sec_eep_zs01_only (cass_load_we),   // the .sav restore goes to the ZS01 only
+   .sec_inst_sel   (inst_sel),
+   .sec_inst_type  (inst_type),
+   .sec_ieep_we    (sec_ieep_we),
+   .sec_ieep_addr  (sec_ieep_addr),
+   .sec_ieep_din   (sec_ieep_din),
+   .sec_iser_we    (sec_iser_we),
+   .sec_iser_addr  (sec_iser_addr),
+   .sec_iser_din   (sec_iser_din),
    // System 573 inputs are ACTIVE-LOW (JAMMA convention: idle = high, pressed =
    // low). MiSTer `joy` is active-high, so invert at this boundary. Tying these to
    // 0 (the prior wiring) read as "held" -> the BIOS saw TEST/SERVICE pressed and

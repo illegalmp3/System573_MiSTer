@@ -47,6 +47,8 @@ module tb_zs01_cmd;
         .latch_we(1'b1), .d_latch(dl), .io0_dir(io0),
         .load_eep_we(L_we), .load_eep_addr(L_addr), .load_eep_data(L_data),
         .load_ser_we(S_we), .load_ser_addr(S_addr), .load_ser_data(S_data),
+        // second (install) cassette + restore flag: not used by this bench
+        .load_eep_zs01_only(1'b0), .inst_sel(1'b0), .inst_type(1'b0), .load_ieep_we(1'b0), .load_ieep_addr(10'd0), .load_ieep_data(8'd0), .load_iser_we(1'b0), .load_iser_addr(3'd0), .load_iser_data(8'd0),
         .sec_dbg(sec_dbg), .sec_cs_n(), .sec_rst_line(), .sec_scl_line(),
         .sec_sda_line(), .sec_ds_line(), .sec_zs01_state(), .sec_rtr_edges(),
         .sec_in_rtr(), .sec_rtr_emit(),

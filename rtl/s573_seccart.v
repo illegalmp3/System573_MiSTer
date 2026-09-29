@@ -28,6 +28,11 @@
 //     (active-low) control bit 6 -- exposed here as io0_dir -- not from D0.
 // Writing the data latch sets DRDY.
 //
+// A SECOND cassette (the "install" cassette of MAME's cassxzi / cassyyi configs) can
+// be held alongside the game cassette and put in the slot with inst_sel -- see the
+// port comments. It has its own DS2401 and its own X76F100 model; an install
+// X76F041 uses eeprom041 (never the game chip in those configs).
+//
 // The cartridge EEPROM contents and the DS2401 serial can be LOADED at boot from the
 // host ioctl stream (the real game's .u1 / .u6 dumps) instead of relying on the
 // compile-time params. The EEPROM image (548 B x76f041 / 112 B x76f100 / 140 B-plus-
@@ -67,6 +72,31 @@ module s573_seccart #(
     input  wire        load_ser_we,
     input  wire [2:0]  load_ser_addr,
     input  wire [7:0]  load_ser_data,
+    // 1 = this load_eep byte is the ZS01 NVRAM RESTORE from the slot-4 .sav
+    // (s573_cass_nv), not the .u1 download: route it to the ZS01 ONLY. Without
+    // this the restore also lands in the X76 models' low addresses, which is
+    // harmless for a single cassette but would overwrite the INSTALL cassette
+    // image held in eeprom041 (see the second cassette below).
+    input  wire        load_eep_zs01_only,
+
+    // ---- the SECOND (install) cassette ----
+    // MAME ksys573.cpp Note 3 / cassxzi + cassyyi: some titles ship TWO cassettes
+    // for ONE physical slot -- an "install" cassette used while installing from CD
+    // and a "game" cassette afterwards (the operator swaps them and resets). The
+    // driver's install option is always KONAMI573_CASSETTE_XI (X76F041 + DS2401) or
+    // _YI (X76F100 + DS2401), never a ZS01. Both images are held here at once and
+    // inst_sel says which cassette is in the slot (emu.sv derives it from the OSD
+    // "573 Cassette" option). The install X76F100 has its own model (inst100); the
+    // install X76F041 lives in eeprom041, which no dual-cassette config uses for its
+    // GAME cassette (cassxzi = ZI game, cassyyi = YI game).
+    input  wire        inst_sel,        // 1 = the INSTALL cassette is in the slot
+    input  wire        inst_type,       // install EEPROM: 0 = X76F100, 1 = X76F041
+    input  wire        load_ieep_we,    // install EEPROM image byte (548 B x76f041 / 132 B x76f100)
+    input  wire [9:0]  load_ieep_addr,
+    input  wire [7:0]  load_ieep_data,
+    input  wire        load_iser_we,    // install cassette DS2401 serial (8 B)
+    input  wire [2:0]  load_iser_addr,
+    input  wire [7:0]  load_iser_data,
 
     // read-back toward the ASIC status words
     output wire [63:0] sec_dbg,     // ZS01 engine observability -> HPS STATUS 6..9
@@ -113,7 +143,10 @@ module s573_seccart #(
     // The ZS01 cannot see its own chip-select decision, and "which model is even
     // selected" is the question its dbg bus cannot answer alone. Stamp it here.
     wire [63:0] zs01_dbg;
-    assign sec_dbg = {eff_type, zs01_dbg[61:0]};
+    // The stamp is the type of the cassette IN THE SLOT (the install cassette's
+    // when it is selected), so HPS STATUS word 9 says which one the game is talking to.
+    wire [1:0] slot_type = inst_sel ? {1'b0, inst_type} : eff_type;
+    assign sec_dbg = {slot_type, zs01_dbg[61:0]};
     wire eeprom_cs = d_q[2];
     assign sec_cs_n = eeprom_cs;   // live CS out, for the read-back capture in system573_top
     assign sec_rst_line = d_q[3];  // live RST out (same)
@@ -121,31 +154,60 @@ module s573_seccart #(
     assign sec_sda_line = d_q[0];
     assign sec_ds_line  = d_q[4];  // 1 = the host is pulling the 1-Wire line low
     assign sec_zs01_state = zs01_dbg[34:32];   // dbg[35:32] = state
-    wire sel041    = (eff_type == 2'd1);
-    wire sel_zs01  = (eff_type == 2'd2);
+    // Which model is in the slot. The GAME cassette (inst_sel=0) is eff_type as
+    // before; the INSTALL cassette (inst_sel=1) is inst100 (X76F100) or eeprom041
+    // (X76F041). Exactly one of the four is selected at any time.
+    wire sel100    = ~inst_sel & (eff_type == 2'd0);
+    wire sel041    = inst_sel ? inst_type : (eff_type == 2'd1);
+    wire sel_zs01  = ~inst_sel & (eff_type == 2'd2);
+    wire sel100i   = inst_sel & ~inst_type;
+
+    // The .u1 download (not the ZS01 NVRAM restore) -- what the X76 models may take.
+    wire game_eep_we = load_eep_we & ~load_eep_zs01_only;
 
     x76f100 #(.READ_PASSWORD(READ_PASSWORD), .WRITE_PASSWORD(WRITE_PASSWORD)) eeprom100 (
         .clk(clk), .rst(rst),
-        .cs((sel041 || sel_zs01) ? 1'b1 : eeprom_cs), .sec_rst(d_q[3]),
+        .cs(sel100 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
         .scl(d_q[1]), .sda_i(d_q[0]), .sda_o(sda100_o),
-        // All three models are loaded unconditionally (cart_type may still be settling
-        // as the image streams in); each consumes only the bytes it understands. The
-        // x76f100 image is <=132 B so it takes the low 10 addr bits; higher addresses
+        // All three game models are loaded unconditionally (cart_type may still be
+        // settling as the image streams in); each consumes only the bytes it understands.
+        // The x76f100 image is <=132 B so it takes the low 10 addr bits; higher addresses
         // (a 548-B F041 / 4116-B ZS01 .u1) wrap harmlessly into its unused body and the
         // read-back mux ignores eeprom100 anyway for those cart types.
-        .load_we(load_eep_we), .load_addr(load_eep_addr[9:0]), .load_data(load_eep_data)
+        .load_we(game_eep_we), .load_addr(load_eep_addr[9:0]), .load_data(load_eep_data)
     );
 
+    // eeprom041 holds EITHER the game X76F041 (.u1 download, single-cassette titles
+    // such as dsem / pnchmn2) OR the install X76F041 (the .cas pack). Once an install
+    // image large enough to be an X76F041 (past the 132-B X76F100 size) has been
+    // loaded, the .u1 stream is shut out of it -- so the result does not depend on
+    // the order the two files arrive in (a later 4116-B ZS01 .u1 would otherwise
+    // wrap its low 10 bits over the install image).
+    reg inst041_loaded = 1'b0;
+    always @(posedge clk) begin
+        if (load_ieep_we && load_ieep_addr >= 10'd256) inst041_loaded <= 1'b1;
+    end
+    wire        e041_we   = load_ieep_we | (game_eep_we & ~inst041_loaded);
+    wire [9:0]  e041_addr = load_ieep_we ? load_ieep_addr : load_eep_addr[9:0];
+    wire [7:0]  e041_data = load_ieep_we ? load_ieep_data : load_eep_data;
     x76f041 eeprom041 (
         .clk(clk), .rst(rst),
         .cs(sel041 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
         .scl(d_q[1]), .sda_i(d_q[0]), .sda_o(sda041_o),
-        // All three models are loaded unconditionally (cart_type may still be settling
-        // as the image streams in); each only consumes the bytes it understands. The
-        // x76f041 takes the low 10 addr bits (its image is <=548 B); for a ZS01 .u1
+        // The x76f041 takes the low 10 addr bits (its image is <=548 B); for a ZS01 .u1
         // (4116 B) the high addresses wrap harmlessly into its unused data RAM and the
         // mux ignores eeprom041 anyway.
-        .load_we(load_eep_we), .load_addr(load_eep_addr[9:0]), .load_data(load_eep_data)
+        .load_we(e041_we), .load_addr(e041_addr), .load_data(e041_data)
+    );
+
+    // The install X76F100 (cassyyi titles: ddr3ma-class, ddrs2k, dsfdct). Loaded only
+    // from the install pack; an X76F041-sized pack leaves its first 132 B here unused.
+    wire sda100i_o;
+    x76f100 inst100 (
+        .clk(clk), .rst(rst),
+        .cs(sel100i ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
+        .scl(d_q[1]), .sda_i(d_q[0]), .sda_o(sda100i_o),
+        .load_we(load_ieep_we), .load_addr(load_ieep_addr), .load_data(load_ieep_data)
     );
 
     // ZS01 SDA-in (host -> chip). PROVEN from the game's own code (2026-09-14):
@@ -192,14 +254,26 @@ module s573_seccart #(
     );
     assign zs01_nv_wr = sel_zs01 & zs01_nv_wr_raw;
 
-    wire eeprom_sda_o = sel_zs01 ? sda_zs01_o : (sel041 ? sda041_o : sda100_o);
+    wire eeprom_sda_o = sel_zs01 ? sda_zs01_o :
+                        sel041   ? sda041_o   :
+                        sel100i  ? sda100i_o  : sda100_o;
 
-    // ----- board DS2401 on D4 (open-drain, pulled up) -----
-    wire ds_pd;
+    // ----- cassette DS2401 on D4 (open-drain, pulled up) -----
+    // Each cassette carries its own DS2401 (MAME k573cass.cpp: the _XI/_YI/_ZI
+    // devices each own one; ksys573.cpp loads "cassette:game:id" and
+    // "cassette:install:id" separately -- ddr4m's gca33aa.u6 vs gea33aa.u6 differ).
+    // Two slaves, both listening; only the selected cassette's pull-down reaches
+    // the wire.
+    wire ds_pd_game, ds_pd_inst;
+    wire ds_pd   = inst_sel ? ds_pd_inst : ds_pd_game;
     wire ds_line = ~(d_q[4] | ds_pd);         // D4=1 pulls the 1-wire line low
     ds2401 #(.SERIAL(DS_SERIAL), .CLK_FREQ_HZ(DS_CLK_HZ)) board_id (
-        .clk(clk), .rst(rst), .dq_in(ds_line), .dq_pd(ds_pd),
+        .clk(clk), .rst(rst), .dq_in(ds_line), .dq_pd(ds_pd_game),
         .load_we(load_ser_we), .load_addr(load_ser_addr), .load_data(load_ser_data)
+    );
+    ds2401 #(.SERIAL(DS_SERIAL), .CLK_FREQ_HZ(DS_CLK_HZ)) inst_id (
+        .clk(clk), .rst(rst), .dq_in(ds_line), .dq_pd(ds_pd_inst),
+        .load_we(load_iser_we), .load_addr(load_iser_addr), .load_data(load_iser_data)
     );
 
     assign sec_io0  = eeprom_sda_o;
