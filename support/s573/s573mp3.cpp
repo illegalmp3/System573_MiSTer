@@ -75,12 +75,20 @@
 #define S573_FRAMES_PER_POLL   12
 #define S573_POLL_US           5000       /* ~5 ms, as MD+ */
 #define S573_MAX_FRAME_BYTES   1441       /* MPEG-1 L3 worst case */
+/* minimp3 decodes a frame only when the header of the NEXT one is in the buffer
+ * too (mp3d_match_frame / the continuation check in mp3dec_decode_frame), and
+ * when it cannot it wipes its whole state -- bit reservoir and synthesis
+ * filter -- before scanning (memset(dec) in mp3dec_decode_frame). Handing it a
+ * torn frame therefore costs the frame AND a click. So a frame is offered only
+ * when a worst-case frame plus a header fits in what we hold, except at the
+ * window's end where nothing more will come. */
+#define S573_DECODE_MIN        (S573_MAX_FRAME_BYTES + 4)
 
 static int                 inited      = 0;
 static int                 gave_up     = 0;
 static volatile uint8_t   *dio_map     = 0;
 static s573_core_t         core;
-static mp3dec_t            mp3d;
+static mp3dec_t            mp3d, mp3d_saved;   /* mp3d_saved: see S573_DECODE_MIN */
 static uint64_t            next_due_us = 0;
 
 /* Opt-in diagnostics. Two switches, because on a console with no SSH the
@@ -899,58 +907,69 @@ static void decode_some(void)
         if (opt_tone) { push_tone(); continue; }
 
         avail = core.in_len - core.in_pos;
-        if (avail < S573_MAX_FRAME_BYTES) {
+        if (avail < S573_DECODE_MIN) {
             s573_core_refill(&core, (const uint8_t *)dio_map);
             avail = core.in_len - core.in_pos;
+            if (avail < S573_DECODE_MIN && !s573_core_window_exhausted(&core)) {
+                /* Waiting: for the loader (the watermark held the pull), for
+                 * the lead bound, or for the rest of a frame. Not an idle
+                 * event -- IDLE is a RECURRING per-no-frame-decode event
+                 * (k573dio derives mpeg IDLE from its cadence) and it means
+                 * the STREAM ENDED, so it is only sent when the window really
+                 * is exhausted. And NOT a decode attempt: a torn frame would
+                 * cost minimp3 its reservoir (see S573_DECODE_MIN) -- that
+                 * was the "skips like a scratched CD" of 2026-09-29, one
+                 * lost frame and a click at every watermark hold. */
+                if (!avail) report_decode_stall("input starved, waiting");
+                break;
+            }
             if (!avail) {
-                if (s573_core_window_exhausted(&core)) {
-                    /* window spent. IDLE is a RECURRING per-no-frame-decode
-                     * event (k573dio derives mpeg IDLE from its cadence), and
-                     * it means the STREAM ENDED -- so it is only sent when the
-                     * window really is exhausted, never while we are waiting
-                     * for the loader or the lead bound. */
-                    core.frame_idle_cnt++;
-                } else {
-                    report_decode_stall("input starved, waiting");
-                }
+                /* window spent and every byte consumed: the honest end */
+                core.frame_idle_cnt++;
                 break;
             }
         }
 
+        /* minimp3 leaves frame_offset untouched when it finds no whole frame
+         * (it then reports frame_bytes == avail, the bytes it scanned -- not
+         * 0), and that scan has already wiped its state, so keep a copy to put
+         * back: the same bytes are read again next poll and the frame that
+         * follows them must still have its reservoir. */
+        info.frame_offset = -1;
+        mp3d_saved = mp3d;
         samples = mp3dec_decode_frame(&mp3d, core.in_buf + core.in_pos,
                                       (int)avail, pcm, &info);
-        if (!info.frame_bytes) {
-            report_decode_stall("no MPEG sync found");
-            /* no frame header in what we hold: need more input, or the tail is
-             * short. Not progress -- do not spin on it. */
-            core.frame_idle_cnt++;
-            /* If the window is ALREADY exhausted there will never be more
-             * input, so this is the truncated final frame and the song has
-             * really ended. Without this the residue holds should_stop()
-             * closed forever and only an explicit fpga_ctrl bit14 clear can
-             * ever stop the audio (hardware 2026-09-14, dsfdr: zero
-             * EXHAUSTION events in a 589 s session). No-op mid-song. */
-            s573_core_mark_tail_spent(&core);
+        if (info.frame_offset < 0) {
+            mp3d = mp3d_saved;
+            if (s573_core_no_frame(&core, (const uint8_t *)dio_map)) {
+                /* the window is spent: what was left is the truncated final
+                 * frame, now consumed, and the song may end (should_stop).
+                 * Without this the residue held should_stop() closed forever
+                 * and only an explicit fpga_ctrl bit14 clear could stop the
+                 * audio (hardware 2026-09-14, dsfdr). */
+                report_decode_stall("truncated tail at the window end");
+                core.frame_idle_cnt++;
+            } else {
+                /* The bytes are NOT LOADED YET (the game streams the song in
+                 * while it plays -- measured: the BIOS POST's memory-test
+                 * fill was there instead), or a frame head whose rest the
+                 * next pull brings. The pull is undone exactly and the same
+                 * DRAM is read again next poll, when the loader has caught up.
+                 * Never a skip: skipping a frame head desynchronises the
+                 * stream. */
+                report_decode_stall("bytes not loaded yet -- rewinding the pull");
+            }
             break;
         }
+        core.in_pos += (uint32_t)info.frame_bytes;
         if (!samples) {
-            if (s573_core_skip_hits_new_bytes(&core, (uint32_t)info.frame_bytes)) {
-                /* The scan found no frame and ran into the bytes the last pull
-                 * fetched: they were NOT LOADED YET (the game streams the song
-                 * in while it plays -- measured: the BIOS POST's memory-test
-                 * fill was there instead). Do not skip them -- undo the pull
-                 * exactly and try again next poll, when the loader has caught
-                 * up. Not an idle event either: the stream has not ended. */
-                report_decode_stall("bytes not loaded yet -- rewinding the pull");
-                s573_core_rewind_pull(&core, (const uint8_t *)dio_map);
-                break;
-            }
-            /* a genuine skip wholly inside old bytes (ID3 etc.): rare here */
+            /* a frame minimp3 located and consumed but made no audio from: the
+             * first frame(s) of a stream whose bit reservoir reaches back
+             * before the window (L3_restore_reservoir), or one it rejected.
+             * The bytes are real; their credit rides with the next frame. */
             s573_core_carry_bytes(&core, (uint32_t)info.frame_bytes);
-            core.in_pos += (uint32_t)info.frame_bytes;
             continue;
         }
-        core.in_pos += (uint32_t)info.frame_bytes;
 
         if (info.hz != 44100 && !warned_hz) {
             warned_hz = 1;
@@ -1054,6 +1073,18 @@ static void ring_watch(void)
     }
 }
 
+/* The loader watermark's input: the DIO write pointer, HPS STATUS words 32/33,
+ * read with the rest of the status block. */
+static uint64_t wp_next_refresh_us = 0;
+static void refresh_write_ptr(void)
+{
+    uint16_t sf, ur, bl;
+    status_exchange(&sf, &ur, &bl);
+    s573_core_set_write_ptr(&core, (uint32_t)dio[1] | ((uint32_t)(dio[2] & 0x1ff) << 16),
+                            dio_ptr_reported(), (uint32_t)now_us());
+    wp_next_refresh_us = now_us() + 20000ull;
+}
+
 static void heartbeat(void)
 {
     static uint64_t next = 0;
@@ -1064,7 +1095,8 @@ static void heartbeat(void)
     next = t + 1000000ull;
 
     status_exchange(&sf, &ur, &bl);
-    s573_core_set_write_ptr(&core, (uint32_t)dio[1] | ((uint32_t)(dio[2] & 0x1ff) << 16), dio_ptr_reported());
+    s573_core_set_write_ptr(&core, (uint32_t)dio[1] | ((uint32_t)(dio[2] & 0x1ff) << 16), dio_ptr_reported(), (uint32_t)now_us());
+    wp_next_refresh_us = now_us() + 20000ull;
     s573_log("s573mp3: rst=%u ack=%u cfg=%u have=%u | in=%u/%u cons=%u "
            "| dec=%u played=%u q=%u idle=%u | wr=%u rd=%u free=%u "
            "| ctrl=%04x flags=%04x underrun=%u buf=%u | flush=%u drop=%u torn=%u "
@@ -1150,9 +1182,9 @@ static void heartbeat(void)
          * each song into DRAM while it plays; 24 sectors/s reached DDR3 with the
          * FIFO never past 1, so the watermark is the whole fix). */
         if (dio_ptr_seen || (dio[0] & 0xc000))
-            s573_log("s573mp3: dio: wp=%07x limit=%07x holds=%u | wfifo=%u/1024%s%s\n",
+            s573_log("s573mp3: dio: wp=%07x limit=%07x holds=%u lifts=%u | wfifo=%u/1024%s%s\n",
                      (unsigned)dio[1] | ((unsigned)(dio[2] & 0x1ff) << 16),
-                     (unsigned)s573_core_loaded_limit(&core), (unsigned)core.wp_holds,
+                     (unsigned)s573_core_loaded_limit(&core), (unsigned)core.wp_holds, (unsigned)core.wp_lifts,
                      (unsigned)((dio[0] >> 3) & 0x7ff),
                      (dio[0] & 0x8000) ? " *** OVERFLOWED (writes DROPPED) ***" : "",
                      (dio[0] & 0x4000) ? " (reached half full)" : "");
@@ -1360,11 +1392,19 @@ static void s573mp3_poll_body(void)
         mp3cfg_exchange(&f);
         act = s573_core_apply_cfg(&core, &f, p.cfg_epoch, drain_before);
 
+        /* A re-arm trusts the write pointer afresh -- so read it NOW, not up
+         * to 20 ms ago: 3rd Mix writes its first six sectors and arms in one
+         * burst, and a pointer from before that burst is the previous
+         * window's resting place. Past the new window's end that reads as
+         * "fully loaded" and the first pull runs into unwritten DRAM. */
+        if (act & S573_ACT_FLUSH) refresh_write_ptr();
+
         s573_log("s573mp3: CFG epoch=%u flags=%04x start=%08x end=%08x "
-               "keys=%04x/%04x/%04x ddrsbm=%u gain=%05x/%05x seen=%u%s%s\n",
+               "keys=%04x/%04x/%04x ddrsbm=%u gain=%05x/%05x seen=%u wp=%07x/%s%s%s\n",
                p.cfg_epoch, f.flags, f.mp3_start, f.mp3_end,
                f.key1, f.key2, f.key3, core.ddrsbm,
                f.gain_ll, f.gain_rr, f.gain_seen,
+               core.wp, core.wp_valid ? "ok" : "unreported",
                (act & S573_ACT_DRAIN_ON)  ? " DRAIN ON"  : "",
                (act & S573_ACT_DRAIN_OFF) ? " DRAIN OFF via ENABLES" : "");
 
@@ -1425,17 +1465,8 @@ static void s573mp3_poll_body(void)
      * hold the first pull a second behind the loader. 20 ms is 0.5 sector at
      * the game's 24 sectors/s and one STATUS exchange per 20 ms is noise
      * against the 1 ms poll loop. */
-    if (core.have_cfg && (core.ctrl_flags & S573_CTRL_DRAIN_EN)) {
-        static uint64_t next_wp = 0;
-        uint64_t t = now_us();
-        if (t >= next_wp) {
-            uint16_t sf2, ur2, bl2;
-            next_wp = t + 20000ull;
-            status_exchange(&sf2, &ur2, &bl2);
-            s573_core_set_write_ptr(&core, (uint32_t)dio[1] | ((uint32_t)(dio[2] & 0x1ff) << 16), dio_ptr_reported());
-        }
-        decode_some();
-    }
+    if (core.have_cfg && now_us() >= wp_next_refresh_us) refresh_write_ptr();
+    if (core.have_cfg && (core.ctrl_flags & S573_CTRL_DRAIN_EN)) decode_some();
 
     /* The honest song end. The enables are a START gate only: ddrsbm asserts
      * fpga_ctrl[14:13] once and never clears them for a song change, so waiting

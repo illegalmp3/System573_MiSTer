@@ -92,6 +92,17 @@ int s573_desc_streaming(const s573_desc_t *s);
 /* Total bytes an N-byte window will produce: 2N-1 for an N-word window. */
 uint32_t s573_desc_stream_len(uint32_t mp3_start, uint32_t mp3_end);
 
+/* Put the stream at output byte `idx` of the armed window (0 = the byte a fresh
+ * reload would emit first), as if idx bytes had been pulled since the reload.
+ * The key schedule is a function of the WORD INDEX alone -- key1's low 15 bits
+ * rotate with period 15, key2 rotates on a key1 bit pattern (so a fixed number
+ * of times per key1 period), key3 counts words; ddrsbm rotates key1 with period
+ * 16 -- so the state at any word is reached in at most 30 steps, never by
+ * replaying the window. The same DRAM is re-read for the odd byte's word. The
+ * service uses this to undo a pull EXACTLY, whatever the pull had fetched.
+ * idx past the stream's end clamps to the end. */
+void s573_desc_seek(s573_desc_t *s, const uint8_t *dram, uint32_t idx);
+
 #ifdef __cplusplus
 }
 #endif

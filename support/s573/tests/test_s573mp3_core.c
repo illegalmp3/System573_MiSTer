@@ -510,13 +510,13 @@ int main(void)
          * bytes) out of it, then hit the fill. */
         n = s573_core_refill(&c, dio);
         CHECK(n > 0, "second pull");
-        CHECK(s573_core_skip_hits_new_bytes(&c, 3000), "the scan reaches the new bytes");
         memcpy(out + streamed_len, c.in_buf, 400); streamed_len += 400;
         c.in_pos = 400;
-        s573_core_rewind_pull(&c, dio);
+        CHECKEQ(s573_core_no_frame(&c, dio), 0, "no frame in the rest: not the end, so a rewind");
         CHECKEQ(c.rewinds, 1, "rewound once");
         CHECKEQ(c.in_len, 0, "buffer emptied after consuming into the new bytes");
         CHECKEQ(c.pulled_bytes, streamed_len, "pull credit == exactly what was kept");
+        CHECKEQ(c.desc.byte_counter, streamed_len, "the descrambler agrees");
 
         /* the loader catches up */
         memcpy(dio, full, 0x10000);
@@ -598,21 +598,20 @@ int main(void)
         one_shot_len = (uint32_t)s573_desc_pull(&one, full, ref, 0x10000);
 
         s573_core_init(&c);
-        /* the pointer parked at the window start from some earlier write: a
-         * pointer that has not MOVED since the re-arm must not gate anything */
-        s573_core_set_write_ptr(&c, 0x0, 1);
-        mkcfg(&f, START, END, 0x6546, 0, 0, FLAGS_PLAY, 1);
-        (void)s573_core_apply_cfg(&c, &f, 1, 0);
-        CHECKEQ(s573_core_loaded_limit(&c), END, "pointer unmoved since the re-arm: no watermark");
-
-        /* six sectors land, pointer at sector 7 */
+        /* THE HARDWARE ORDER: the game writes six sectors, THEN arms the window
+         * and starts playback -- so at the re-arm the pointer already sits at
+         * sector 7 and has just stopped moving. It must gate from the first pull
+         * (2026-09-29: treating an unmoved pointer as stale left the gate off at
+         * every re-arm). */
         wp = 6 * 2048;
         memcpy(dio, full, wp);
-        s573_core_set_write_ptr(&c, wp, 1);
-        CHECKEQ(s573_core_loaded_limit(&c), wp, "watermark = the pointer (sector-aligned)");
-        s573_core_set_write_ptr(&c, wp + 700, 1);           /* mid-sector: only complete sectors count */
+        s573_core_set_write_ptr(&c, wp, 1, 1000000u);
+        mkcfg(&f, START, END, 0x6546, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        CHECKEQ(s573_core_loaded_limit(&c), wp, "watermark = the pointer (sector-aligned) from the re-arm on");
+        s573_core_set_write_ptr(&c, wp + 700, 1, 1010000u);   /* mid-sector: only complete sectors count */
         CHECKEQ(s573_core_loaded_limit(&c), wp, "a half-written sector is not loaded");
-        s573_core_set_write_ptr(&c, wp, 1);
+        s573_core_set_write_ptr(&c, wp, 1, 1020000u);
 
         /* pull everything the watermark allows, "decoding" it all */
         for (i = 0; i < 100; i++) {
@@ -625,11 +624,11 @@ int main(void)
         CHECK(c.wp_holds > 0, "and the watermark is what held the pull");
         CHECKEQ(memcmp(out, ref, streamed_len), 0, "those bytes are the real stream");
 
-        /* the loader keeps writing, a sector at a time, and we keep up */
+        /* the loader keeps writing, a sector every 42 ms, and we keep up */
         while (wp < END) {
             memcpy(dio + wp, full + wp, 2048);
             wp += 2048;
-            s573_core_set_write_ptr(&c, wp < END ? wp : END + 0x1000, 1);   /* past the end: moved on */
+            s573_core_set_write_ptr(&c, wp < END ? wp : END - 1, 1, 1020000u + wp * 20u);   /* rests at end-1 */
             for (i = 0; i < 100; i++) {
                 n = s573_core_refill(&c, dio);
                 if (!n) break;
@@ -641,12 +640,224 @@ int main(void)
         CHECKEQ(memcmp(out, ref, one_shot_len), 0,
                 "byte-identical: nothing from the fill ever reached the decoder");
 
+        CHECKEQ(c.wp_lifts, 0u, "a moving loader never looked stale");
+
         /* a pointer outside the window (the 4th Mix preload case) gates nothing */
-        s573_core_set_write_ptr(&c, 0x00400000, 1);
+        s573_core_set_write_ptr(&c, 0x00400000, 1, 5000000u);
         CHECKEQ(s573_core_loaded_limit(&c), END, "pointer outside the window: no watermark");
-        s573_core_set_write_ptr(&c, 0x100, 0);
+        s573_core_set_write_ptr(&c, 0x100, 0, 5000000u);
         CHECKEQ(s573_core_loaded_limit(&c), END, "older bitstream, no pointer: no watermark");
+
+        /* a preload title whose parked pointer happens to sit INSIDE the window:
+         * it holds the pull, does not move, and after S573_WP_STALE_US the gate
+         * is lifted for the window -- but not one poll sooner */
+        s573_core_init(&c);
+        memcpy(dio, full, 0x10000);
+        s573_core_set_write_ptr(&c, 0x2000, 1, 9000000u);
+        mkcfg(&f, START, END, 0x6546, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        streamed_len = 0;
+        for (i = 0; i < 100; i++) {                       /* drains the 0x2000 it allows */
+            n = s573_core_refill(&c, dio);
+            if (!n) break;
+            streamed_len += c.in_len; c.in_pos = c.in_len;
+        }
+        CHECKEQ(streamed_len, 0x2000u, "held at the parked pointer");
+        s573_core_set_write_ptr(&c, 0x2000, 1, 9000000u + S573_WP_STALE_US - 1u);
+        CHECKEQ(s573_core_refill(&c, dio), 0u, "still held one microsecond short of stale");
+        CHECKEQ(c.wp_lifted, 0u, "not lifted yet");
+        s573_core_set_write_ptr(&c, 0x2000, 1, 9000000u + S573_WP_STALE_US);
+        (void)s573_core_refill(&c, dio);                   /* this hold declares it stale */
+        CHECKEQ(c.wp_lifted, 1u, "stale after S573_WP_STALE_US without movement");
+        CHECK(s573_core_refill(&c, dio) > 0, "and the pull runs on past it");
+        CHECKEQ(s573_core_loaded_limit(&c), END, "gate lifted for the rest of the window");
         free(dio); free(full); free(ref); free(out);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("s573_desc_seek lands on the same key state and bytes as stepping there");
+    {
+        /* both key schedules, even and odd positions, the last byte, past it */
+        static const uint32_t idxs[] = { 0, 1, 2, 3, 14, 15, 16, 29, 30, 31, 44, 45, 46,
+                                         60, 61, 100, 101, 2047, 2048, 2049, 4093, 4094, 4095, 9999 };
+        uint32_t i, k, m;
+        uint8_t *dio = (uint8_t *)malloc(0x2000);
+        uint8_t *ref = (uint8_t *)malloc(0x2000);
+        uint8_t  out[64];
+        for (i = 0; i < 0x2000; i++) dio[i] = (uint8_t)(i * 97 + (i >> 5) + 3);
+        for (m = 0; m < 2; m++) {
+            const uint32_t START = 0x100, END = 0x100 + 4096;      /* 2048 words: 4095 stream bytes */
+            s573_desc_t one, seek;
+            uint32_t len;
+            s573_desc_init(&one, START, END, 0xA5C3, 0x3C5A, 0x0077, (int)m);
+            len = (uint32_t)s573_desc_pull(&one, dio, ref, 0x2000);
+            CHECKEQ(len, 4095u, "2N-1 bytes");
+            for (k = 0; k < sizeof idxs / sizeof idxs[0]; k++) {
+                uint32_t idx = idxs[k], want = idx > len ? len : idx, n;
+                s573_desc_init(&seek, START, END, 0xA5C3, 0x3C5A, 0x0077, (int)m);
+                /* disturb the live state: a seek must not depend on it */
+                (void)s573_desc_pull(&seek, dio, out, 37);
+                s573_desc_seek(&seek, dio, idx);
+                CHECKEQ(seek.byte_counter, want, "byte_counter == idx (clamped)");
+                n = (uint32_t)s573_desc_pull(&seek, dio, out, 64);
+                if (want == len) CHECKEQ(n, 0u, "seek to the end: nothing more");
+                else {
+                    uint32_t exp = len - want < 64 ? len - want : 64;
+                    CHECKEQ(n, exp, "bytes available after the seek");
+                    CHECKEQ(memcmp(out, ref + want, n), 0, "and they are the stepped stream's bytes");
+                }
+            }
+            /* the closed form over a long run: every position of a 15*16*3 stretch */
+            for (k = 0; k < 720; k += 7) {
+                s573_desc_init(&seek, START, END, 0xA5C3, 0x3C5A, 0x0077, (int)m);
+                s573_desc_seek(&seek, dio, k);
+                (void)s573_desc_pull(&seek, dio, out, 4);
+                CHECKEQ(memcmp(out, ref + k, 4), 0, "closed-form key advance == stepping");
+            }
+        }
+        free(dio); free(ref);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("a held low byte is ONE byte at the watermark, not a way past it (ddr3mj 2026-09-29)");
+    {
+        /* The pull count reaches the watermark on an odd byte: the descrambler
+         * has read the last loaded word and holds its low byte. The next pull
+         * may hand out that byte and nothing else. The first cut of the gate
+         * skipped the whole check while a byte was held, and every window in
+         * the log stalled at exactly 6 sectors + one pull (0x3a7x). */
+        uint32_t i, n, wp = 6 * 2048, total = 0;
+        uint8_t *dio = (uint8_t *)malloc(0x10000);
+        for (i = 0; i < 0x10000; i++) dio[i] = (uint8_t)(i * 131 + (i >> 3));
+        s573_core_init(&c);
+        s573_core_set_write_ptr(&c, wp, 1, 1000000u);
+        mkcfg(&f, 0, 0x8000, 0x6546, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        /* consume in odd steps so a pull ends on an odd count */
+        for (i = 0; i < 100; i++) {
+            n = s573_core_refill(&c, dio);
+            if (!n) break;
+            total += n;
+            c.in_pos = c.in_len;
+            if (total == wp - 1) break;                   /* stop one byte short */
+            if (c.in_len > 3) { /* leave room so the next pull is small */ }
+        }
+        /* force the exact shape: pulled = wp-1 (odd), a byte held */
+        s573_core_init(&c);
+        s573_core_set_write_ptr(&c, wp, 1, 1000000u);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        c.in_pos = c.in_len = 0;
+        {   /* pull wp-1 bytes in one go by bounding the room via in_len */
+            uint32_t want = wp - 1, got = 0;
+            while (got < want) {
+                uint32_t room = want - got;
+                c.in_pos = c.in_len = 0;
+                if (room > S573_IN_BUF) room = S573_IN_BUF;
+                c.in_len = S573_IN_BUF - room;            /* fake occupancy to bound the pull */
+                n = s573_core_refill(&c, dio);
+                CHECK(n == room, "bounded pull");
+                got += n;
+            }
+        }
+        CHECKEQ(c.pulled_bytes, wp - 1, "an odd byte count pulled");
+        CHECKEQ(c.desc.cur, wp, "the descrambler has read the last loaded word");
+        CHECKEQ(c.desc.hold_valid, 1u, "and holds its low byte");
+        c.in_pos = c.in_len = 0;
+        CHECKEQ(s573_core_refill(&c, dio), 1u, "the next pull is that one byte");
+        c.in_pos = c.in_len = 0;
+        CHECKEQ(s573_core_refill(&c, dio), 0u, "then the watermark holds");
+        CHECK(c.wp_holds > 0, "counted as a hold");
+        CHECKEQ(c.pulled_bytes, wp, "never a byte past the loader");
+        free(dio);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("junk that reached the buffer before the loader is read AGAIN after a rewind, never kept");
+    {
+        /* The 2026-09-29 stall: the first pulls of a window ran past the loader
+         * (no fresh pointer yet), the decoder consumed the real frames and left
+         * the junk tail unconsumed; the rewind kept that tail as "old bytes" and
+         * every later attempt found no frame across the old/new junction. Now a
+         * rewind discards everything unconsumed and seeks back, so the same DRAM
+         * is re-read once the loader has written it -- the stream comes out
+         * byte-identical to a one-shot descramble. */
+        uint32_t i, n, one_shot_len, streamed_len = 0;
+        uint8_t *dio  = (uint8_t *)malloc(0x10000);
+        uint8_t *full = (uint8_t *)malloc(0x10000);
+        uint8_t *ref  = (uint8_t *)malloc(0x10000);
+        uint8_t *out  = (uint8_t *)malloc(0x10000);
+        const uint32_t START = 0x0, END = 0x8000, LOADED = 0x3200;   /* not a pull multiple: the boundary falls inside a buffer */
+        s573_desc_t one;
+        for (i = 0; i < 0x10000; i++) full[i] = (uint8_t)(i * 131 + (i >> 3));
+        for (i = 0; i < 0x10000; i += 2) { uint16_t w = (uint16_t)(0x3940 + i / 2); dio[i] = (uint8_t)w; dio[i+1] = (uint8_t)(w >> 8); }
+        memcpy(dio, full, LOADED);
+        s573_desc_init(&one, START, END, 0x6546, 0, 0, 1);
+        one_shot_len = (uint32_t)s573_desc_pull(&one, full, ref, 0x10000);
+
+        s573_core_init(&c);                           /* no pointer: the pull is not gated */
+        mkcfg(&f, START, END, 0x6546, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        /* pulls until the buffer straddles the loaded boundary; "decode" up to
+         * 3 bytes short of it, leaving the junk (and 3 real bytes) unconsumed */
+        while (c.pulled_bytes <= LOADED) {
+            n = s573_core_refill(&c, dio);
+            CHECK(n > 0, "pull");
+            if (c.pulled_bytes <= LOADED) { memcpy(out + streamed_len, c.in_buf, c.in_len); streamed_len += c.in_len; c.in_pos = c.in_len; }
+        }
+        {
+            uint32_t real_here = LOADED - (c.pulled_bytes - c.in_len);   /* real bytes in this buffer */
+            CHECK(real_here > 3 && real_here < c.in_len, "the boundary falls inside the buffer");
+            c.in_pos = real_here - 3;
+            memcpy(out + streamed_len, c.in_buf, c.in_pos); streamed_len += c.in_pos;
+        }
+        /* one more pull on top (compacts the junk-laden tail to the front, adds
+         * more junk): now the junk is OLD bytes, the shape that kept it forever */
+        n = s573_core_refill(&c, dio);
+        CHECK(n > 0, "the pull after the junction");
+        CHECKEQ(c.in_pos, 0u, "compacted");
+        CHECKEQ(s573_core_no_frame(&c, dio), 0, "no frame across the junction: rewind");
+        CHECKEQ(c.in_len, 0u, "nothing kept");
+        CHECKEQ(c.pulled_bytes, streamed_len, "position = the first unconsumed byte");
+        /* still not loaded: the retry finds junk again and rewinds again, same place */
+        n = s573_core_refill(&c, dio);
+        CHECK(n > 0, "retry pulls");
+        CHECKEQ(s573_core_no_frame(&c, dio), 0, "rewind again");
+        CHECKEQ(c.pulled_bytes, streamed_len, "same place");
+        /* the loader lands */
+        memcpy(dio, full, 0x10000);
+        for (i = 0; i < 100; i++) {
+            n = s573_core_refill(&c, dio);
+            if (!n) break;
+            memcpy(out + streamed_len, c.in_buf, c.in_len); streamed_len += c.in_len;
+            c.in_pos = c.in_len;
+        }
+        CHECKEQ(streamed_len, one_shot_len, "same total length as a one-shot descramble");
+        CHECKEQ(memcmp(out, ref, one_shot_len), 0, "byte-identical: the junk was re-read as real bytes");
+        free(dio); free(full); free(ref); free(out);
+    }
+
+    /* ------------------------------------------------------------------ */
+    GROUP("no frame at the spent window = the truncated tail, consumed so the song can end");
+    {
+        uint8_t *dio = (uint8_t *)malloc(0x10000);
+        uint32_t i, n;
+        for (i = 0; i < 0x10000; i++) dio[i] = (uint8_t)(i * 131 + (i >> 3));
+        s573_core_init(&c);
+        mkcfg(&f, 0x1000, 0x1200, 1, 2, 3, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        n = s573_core_refill(&c, dio);
+        CHECKEQ(n, 0x1FFu, "the whole (2N-1) window in one pull");
+        CHECK(s573_core_window_exhausted(&c), "exhausted");
+        c.in_pos = 0x1FF - 200;                            /* 200 undecodable tail bytes */
+        c.pcm_wr = c.pcm_rd = 5;
+        CHECK(!s573_core_should_stop(&c), "the tail holds the stop while unconsumed");
+        CHECKEQ(s573_core_no_frame(&c, dio), 1, "no frame in it: it is the tail");
+        CHECKEQ(c.in_pos, c.in_len, "consumed");
+        CHECKEQ(c.tail_spent, 1u, "tail spent");
+        CHECKEQ(c.pq_pending_bytes, 200u, "its bytes ride the (nonexistent) next frame's credit");
+        CHECKEQ(c.rewinds, 0u, "no rewind at the end");
+        CHECK(s573_core_should_stop(&c), "so the song can end");
+        free(dio);
     }
 
     printf("\n%d groups, %d failures\n", groups, fails);

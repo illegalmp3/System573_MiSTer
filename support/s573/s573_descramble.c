@@ -183,3 +183,67 @@ size_t s573_desc_pull(s573_desc_t *s, const uint8_t *dram, uint8_t *dst, size_t 
     }
     return n;
 }
+
+/* ---- seek: the key schedule as a function of the word index ---------------- */
+
+/* Advance the key schedule by n words without touching data. Mirrors
+ * s573_desc_step's key updates exactly (verified against stepping in the host
+ * suite, T24): in decrypt_default key1[14:0] rotates left once per word (period
+ * 15, bit 15 pinned), key2 rotates left once per word in which
+ * key1[14] ^ key1[15] was set BEFORE key1 moved (so R times per key1 period, R
+ * counted once from the seed), key3 counts words; in ddrsbm only key1 moves, a
+ * 16-bit rotate (period 16). */
+static void s573_desc_advance_keys(s573_desc_t *s, uint32_t n)
+{
+    if (s->ddrsbm) {
+        uint32_t r = n & 15u;
+        s->key1 = (uint16_t)(r ? ((s->key1 << r) | (s->key1 >> (16u - r))) : s->key1);
+        return;
+    }
+    {
+        uint32_t periods = n / 15u, rem = n % 15u, i;
+        uint16_t k1 = s->key1, k2 = s->key2, k3 = s->key3;
+        uint32_t rots = 0;
+        /* rotations of key2 in one key1 period, from this phase */
+        for (i = 0; i < 15u; i++) {
+            if (((k1 >> 14) ^ (k1 >> 15)) & 1u) rots++;
+            k1 = (uint16_t)((k1 & 0x8000u) | ((k1 & 0x3FFFu) << 1) | ((k1 >> 14) & 1u));
+        }
+        /* k1 is back at the phase it started from */
+        if (periods) {
+            uint32_t r = (uint32_t)((uint64_t)periods * rots) & 15u;
+            if (r) k2 = (uint16_t)((k2 << r) | (k2 >> (16u - r)));
+            k3 = (uint16_t)(k3 + 15u * periods);
+        }
+        for (i = 0; i < rem; i++) {
+            if (((k1 >> 14) ^ (k1 >> 15)) & 1u) k2 = (uint16_t)((k2 << 1) | (k2 >> 15));
+            k1 = (uint16_t)((k1 & 0x8000u) | ((k1 & 0x3FFFu) << 1) | ((k1 >> 14) & 1u));
+            k3 = (uint16_t)(k3 + 1u);
+        }
+        s->key1 = k1; s->key2 = k2; s->key3 = k3;
+    }
+}
+
+void s573_desc_seek(s573_desc_t *s, const uint8_t *dram, uint32_t idx)
+{
+    uint32_t len = s573_desc_stream_len(s->mp3_start, s->mp3_end);
+    uint32_t words;
+
+    if (idx > len) idx = len;
+    words = idx >> 1;                        /* whole words already emitted */
+    s573_desc_reload(s);                     /* seeds, cur = start, no hold */
+    s573_desc_advance_keys(s, words);
+    s->cur          = s->mp3_start + words * 2u;
+    s->byte_counter = idx;
+    if (idx & 1u) {
+        /* the high byte of word `words` is out; its low byte is held unless
+         * this is the last word, which has none (the 2N-1 rule) -- then idx
+         * == len and the stream is parked at its end */
+        uint32_t a   = s->cur & ~1u;
+        int      last = (s->cur + 2u) >= s->mp3_end;
+        uint16_t src = (uint16_t)((uint16_t)dram[a] | ((uint16_t)dram[a + 1] << 8));
+        uint16_t v   = s573_desc_step(s, src);
+        if (!last) { s->hold = (uint8_t)(v & 0xFFu); s->hold_valid = 1; }
+        s->cur += 2u;
+    }
+}

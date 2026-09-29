@@ -106,7 +106,8 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
         c->in_len     = 0;
         c->in_pos     = 0;
         c->tail_spent = 0;
-        c->wp_arm     = c->wp;      /* the watermark counts only from here on */
+        c->wp_lifted  = 0;          /* the watermark is trusted afresh for this window */
+        c->wp_seen_at = c->now_us;  /* ... and its stale clock starts now */
         /* decoded audio that never played is discarded with the ring, so its
          * queue entries must go too or they would credit the NEW song */
         s573_core_pq_reset(c);
@@ -282,10 +283,12 @@ int s573_core_may_decode(const s573_core_t *c)
     return s573_core_pcm_free(c) >= S573_FRAME_BEATS;
 }
 
-void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid)
+void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid, uint32_t now_us)
 {
+    if (wp != c->wp || !c->wp_valid) c->wp_seen_at = now_us;
     c->wp       = wp;
     c->wp_valid = (uint8_t)(valid ? 1 : 0);
+    c->now_us   = now_us;
 }
 
 uint32_t s573_core_loaded_limit(const s573_core_t *c)
@@ -294,9 +297,11 @@ uint32_t s573_core_loaded_limit(const s573_core_t *c)
 #ifdef S573_MUT_NO_WP_GATE
     return c->desc.mp3_end;              /* the pre-2026-09-28 behaviour */
 #endif
-    if (!c->wp_valid) return c->desc.mp3_end;
-    if (c->wp < c->desc.mp3_start || c->wp >= c->desc.mp3_end) return c->desc.mp3_end;
-    if (c->wp == c->wp_arm) return c->desc.mp3_end;   /* parked there before the re-arm: stale */
+    if (!c->wp_valid || c->wp_lifted) return c->desc.mp3_end;
+    if (c->wp < c->desc.mp3_start) return c->desc.mp3_end;
+    /* at (or past) the end: the whole window has been written. The pointer of a
+     * fully streamed window rests at mp3_end - 1 (the odd last byte), hence -2. */
+    if (c->wp + 2u >= c->desc.mp3_end) return c->desc.mp3_end;
     /* the game writes whole 2 KB sectors, one pointer write each (24/s on
      * ddr3mj); only COMPLETE sectors below the pointer are certainly there --
      * the pointer moves with every posted 0xb4 write, ahead of the DDR3 drain */
@@ -304,6 +309,10 @@ uint32_t s573_core_loaded_limit(const s573_core_t *c)
     if (lim < c->desc.mp3_start) lim = c->desc.mp3_start;
     return lim;
 }
+
+#ifdef S573_MUT_KEEP_TAIL
+static uint32_t mut_snap_in_len;
+#endif
 
 uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio)
 {
@@ -330,37 +339,63 @@ uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio)
      * can hold. Without this, a stretch the decoder cannot sync to costs the
      * whole window: each failed decode pulled more, and the stream ran off the
      * end while the game was still waiting to hear the first bar. */
-    if (c->pulled_bytes - c->cons_bytes >= S573_PULL_LEAD_MAX) {
-        c->pull_stalls++;
-        return 0;
+    /* lead = pulled - played. A rewind cycle over garbage can leave the credit
+     * ahead of the pull (2026-09-29 log: lead=4294964858, stalls climbing,
+     * every pull refused for the rest of the window); a negative lead is zero
+     * lead, never a 4 GB one. */
+    {
+        uint32_t lead = (c->pulled_bytes >= c->cons_bytes) ? c->pulled_bytes - c->cons_bytes : 0u;
+        if (lead >= S573_PULL_LEAD_MAX) {
+            c->pull_stalls++;
+            return 0;
+        }
+        if (room > S573_PULL_LEAD_MAX - lead)
+            room = S573_PULL_LEAD_MAX - lead;
     }
-
-    if (room > S573_PULL_LEAD_MAX - (c->pulled_bytes - c->cons_bytes))
-        room = S573_PULL_LEAD_MAX - (c->pulled_bytes - c->cons_bytes);
 
     /* THE LOADER WATERMARK: never pull DRAM the game has not written yet (see
      * s573mp3_core.h). One descrambled byte per DRAM byte (the last word's low
      * byte is the only exception, and it sits at mp3_end), so the byte distance
      * to the watermark bounds the pull directly. */
     lim = s573_core_loaded_limit(c);
-    if (c->desc.cur >= lim && !c->desc.hold_valid) {
-        c->wp_holds++;
-        return 0;
+    {
+        /* bytes the descrambler can still emit from DRAM below the watermark:
+         * the words up to it, plus the low byte it is holding from a word it
+         * has ALREADY read. That held byte is one byte, not a licence to read
+         * on: the first cut of this gate skipped the whole check while a byte
+         * was held, and at cur == lim (an odd pull count) the next pull ran
+         * 2.6 KB past the loader -- the exact stall position in every ddr3mj
+         * window of the 2026-09-29 log (0x3a7x = 6 sectors + one pull). */
+        uint32_t loaded = (c->desc.cur < lim ? lim - c->desc.cur : 0u)
+                        + (c->desc.hold_valid ? 1u : 0u);
+#ifdef S573_MUT_HOLD_SKIP
+        /* the 2026-09-29 bug: a held byte waived the whole watermark check */
+        if (c->desc.hold_valid) loaded = room;
+#endif
+        if (loaded == 0) {
+            if (lim < c->desc.mp3_end) {
+                c->wp_holds++;
+                /* a pointer that holds us but has not moved in S573_WP_STALE_US
+                 * is not a loader at work -- it is where some earlier write
+                 * parked (a preload title). Lift the gate for this window; a
+                 * re-arm trusts it again. */
+                if (!c->wp_lifted &&
+                    (uint32_t)(c->now_us - c->wp_seen_at) >= S573_WP_STALE_US) {
+                    c->wp_lifted = 1;
+                    c->wp_lifts++;
+                }
+            }
+            return 0;                      /* nothing certainly there (or the window is spent) */
+        }
+        if (room > loaded) room = loaded;
     }
-    if (c->desc.cur < lim && room > lim - c->desc.cur)
-        room = lim - c->desc.cur;
 
-    /* snapshot BEFORE the pull, so it can be undone exactly */
-    c->snap_desc    = c->desc;
-    c->snap_in_len  = c->in_len;
-    c->snap_pulled  = c->pulled_bytes;
-    c->snap_pending = c->pq_pending_bytes;
-    c->snap_valid   = 1;
-
+#ifdef S573_MUT_KEEP_TAIL
+    mut_snap_in_len = c->in_len;
+#endif
     got = (uint32_t)s573_desc_pull(&c->desc, dio, c->in_buf + c->in_len, room);
     c->in_len        += got;
     c->pulled_bytes  += got;
-    if (!got) c->snap_valid = 0;
     /* NOTE: pulling does NOT credit. The credit is paid out in
      * s573_core_advance_played(), as the audio those bytes became is actually
      * drained, so `cur` -- and therefore the game's 0xae bit12 guard and its
@@ -370,7 +405,6 @@ uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio)
 
 void s573_core_pq_reset(s573_core_t *c)
 {
-    c->snap_valid = 0;
     c->pq_head = c->pq_tail = 0;
     c->pq_part = 0;
     c->pq_pending_bytes = 0;
@@ -434,37 +468,60 @@ uint32_t s573_core_advance_played(s573_core_t *c, uint16_t fab_rd)
     return done;
 }
 
-int s573_core_skip_hits_new_bytes(const s573_core_t *c, uint32_t skip)
-{
-    return c->snap_valid && (c->in_pos + skip > c->snap_in_len);
-}
-
 void s573_core_rewind_pull(s573_core_t *c, const uint8_t *dio)
 {
-    if (!c->snap_valid) return;
+    uint32_t unconsumed, idx;
 
-    c->desc             = c->snap_desc;
-    c->pulled_bytes     = c->snap_pulled;
-    c->pq_pending_bytes = c->snap_pending;
-
-    if (c->in_pos > c->snap_in_len) {
-        /* Real frames were decoded out of the new bytes before the scan hit
-         * the unloaded region. They are queued and will play; they must NOT
-         * be pulled again. Advance the descrambler past exactly that many
-         * bytes into a scratch buffer, emitting nothing. */
-        uint8_t  scratch[S573_IN_BUF];
-        uint32_t consumed = c->in_pos - c->snap_in_len;
-        uint32_t n = (uint32_t)s573_desc_pull(&c->desc, dio, scratch, consumed);
-        c->pulled_bytes += n;
-        c->in_len = 0;
-        c->in_pos = 0;
-    } else {
-        /* nothing new was consumed: drop the new bytes, keep the old
-         * unconsumed tail (a partial frame whose rest is not loaded yet) */
-        c->in_len = c->snap_in_len;
+    if (c->in_pos > c->in_len) c->in_pos = c->in_len;
+    /* pulled_bytes is the stream index just past the last byte in in_buf (it
+     * counts every byte the descrambler emitted since the re-arm, and every
+     * rewind puts it back the same way), so the first unconsumed byte is that
+     * many bytes short of it. Frames already decoded stay decoded: they are
+     * queued and will play, and the seek lands right after them. */
+    unconsumed = c->in_len - c->in_pos;
+#ifdef S573_MUT_KEEP_TAIL
+    /* the 2026-09-29 bug: undo only the newest pull and KEEP the older
+     * unconsumed tail -- which, when that tail was itself fetched ahead of
+     * the loader, kept its junk in the buffer for the rest of the window */
+    if (c->in_pos <= mut_snap_in_len) {
+        idx = c->pulled_bytes - (c->in_len - mut_snap_in_len);
+        s573_desc_seek(&c->desc, dio, idx);
+        c->pulled_bytes = idx;
+        c->in_len       = mut_snap_in_len;
+        c->rewinds++;
+        return;
     }
-    c->snap_valid = 0;
+#endif
+    idx        = c->pulled_bytes - unconsumed;
+    s573_desc_seek(&c->desc, dio, idx);
+    c->pulled_bytes = idx;
+    c->in_len       = 0;
+    c->in_pos       = 0;
     c->rewinds++;
+}
+
+int s573_core_no_frame(s573_core_t *c, const uint8_t *dio)
+{
+    if (c->in_pos > c->in_len) c->in_pos = c->in_len;
+    if (s573_core_window_exhausted(c)) {
+        /* The window is spent and what is left holds no whole frame: the
+         * truncated final frame (185-368 bytes in every logged exhaustion;
+         * windows never end on a frame boundary). Consume it so the stop test
+         * sees an empty buffer, and credit it with the next frame -- there is
+         * none, so s573_core_song_end() brings cur up to mp3_end instead. */
+        s573_core_carry_bytes(c, c->in_len - c->in_pos);
+        c->in_pos     = c->in_len;
+        c->tail_spent = 1;
+        return 1;
+    }
+    /* Not the end: the bytes are not loaded yet (the game streams the song in
+     * behind its own playback), or a frame's head whose rest the next pull
+     * brings. Either way they must be READ AGAIN, not skipped: skipping a
+     * frame head as junk desynchronises the stream (the "scratched CD" skip of
+     * 2026-09-29, when a watermark hold left a partial frame in the buffer and
+     * the old not-loaded test let it be consumed as a skip). */
+    s573_core_rewind_pull(c, dio);
+    return 0;
 }
 
 uint16_t s573_core_ctrl_word1(const s573_core_t *c)

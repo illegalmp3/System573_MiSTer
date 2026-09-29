@@ -116,6 +116,10 @@ extern "C" {
  * 48 KB is ~3 s at 128 kbps, comfortably more than the ring's 1.486 s, so it
  * never throttles healthy playback; it only bounds a runaway. */
 #define S573_PULL_LEAD_MAX   49152u
+/* a write pointer inside the window that has not moved for this long while it
+ * holds a pull is a preload title's parked pointer, not a loader: 12 sectors of
+ * the 3rd Mix loader's 42 ms cadence */
+#define S573_WP_STALE_US     500000u
 
 /* ---- one CMD_573_PTRS exchange, as read back ---- */
 typedef struct {
@@ -188,7 +192,7 @@ typedef struct {
     uint32_t pulled_bytes;    /* stream bytes pulled since the re-arm          */
     uint32_t pull_stalls;     /* times the lead bound held the pull back       */
 
-    /* ---- pull snapshot, so a pull into not-yet-loaded memory can be undone ----
+    /* ---- the pull rewind, so a pull into not-yet-loaded memory can be undone ----
      * The game streams a song into DIO RAM WHILE it plays. Real DIO silicon
      * fetches on demand and cannot outrun that loader; we can, and on hardware
      * 2026-09-12 we did: 48 KB into the window we read the BIOS POST's memory
@@ -197,12 +201,17 @@ typedef struct {
      * would ever re-read them. Deadlock at lead=49152 until the game gave up.
      * The descrambler is deterministic and resumable (the spike proved chunked
      * pulls are byte-identical), so a pull can be rewound EXACTLY and retried
-     * next poll, by which time the loader has caught up. */
-    s573_desc_t snap_desc;
-    uint32_t snap_in_len;
-    uint32_t snap_pulled;
-    uint16_t snap_pending;
-    uint8_t  snap_valid;
+     * next poll, by which time the loader has caught up.
+     *
+     * A rewind discards EVERYTHING the decoder has not consumed and seeks the
+     * descrambler back to the first unconsumed byte (s573_desc_seek), so the
+     * next pull re-reads that DRAM. The first version kept the buffer's old
+     * unconsumed tail and only undid the newest pull -- but when that tail had
+     * itself been fetched from DRAM the loader had not reached (the first pulls
+     * of a window, before the watermark had a fresh pointer), the junk copy
+     * lived in the buffer forever: every retry found no frame across the
+     * old/new junction, rewound to the same place, and the song was dead
+     * after its first half second (ddr3mj 2026-09-29, 4 of 6 windows). */
     uint32_t rewinds;         /* pulls undone because the bytes were not there */
 
     /* ---- the LOADER WATERMARK (2026-09-28, ddr3mj) ----
@@ -216,13 +225,26 @@ typedef struct {
      * 10,656 with 0 played). The fabric now reports the DIO write pointer
      * (STATUS words 36/37): while it sits INSIDE the armed window and has moved
      * since the re-arm, the game is still writing this window and nothing past
-     * the last COMPLETE sector below it is pulled. Outside the window (or never
-     * moved since the re-arm) the window is taken as fully loaded -- the 4th
-     * Mix/Extreme preload case, where the pointer points at something else. */
+     * the last COMPLETE sector below it is pulled. Outside the window, or at its
+     * end, the window is taken as fully loaded -- the 4th Mix/Extreme preload
+     * case, where the pointer points at something else.
+     * A pointer that sits inside the window but does not MOVE is ambiguous: the
+     * 3rd Mix loader between two sectors (42 ms apart), or a preload title whose
+     * last write happened to land in this window long ago. The first version
+     * called an unmoved pointer stale and lifted the gate -- but the game
+     * writes its six sectors BEFORE it arms the window, so at every re-arm the
+     * pointer had just stopped, the gate was off, and the first pull ran into
+     * unwritten DRAM exactly as before (2026-09-29 log, holds=0 at every
+     * STALL). Now the pointer is trusted from the re-arm on, and only a pointer
+     * that has not moved for S573_WP_STALE_US while it holds a pull is declared
+     * stale (gate lifted for the rest of the window). */
     uint32_t wp;              /* the DIO write pointer, as last reported        */
-    uint32_t wp_arm;          /* its value when the window was (re-)armed       */
+    uint32_t wp_seen_at;      /* now_us of the last CHANGE of wp               */
+    uint32_t now_us;          /* the clock set_write_ptr was last called with   */
     uint8_t  wp_valid;        /* the fabric reports it (0 on older bitstreams)  */
+    uint8_t  wp_lifted;       /* declared stale for this window                 */
     uint32_t wp_holds;        /* pulls held back by the watermark (observability)*/
+    uint32_t wp_lifts;        /* windows whose gate was lifted as stale         */
 
     /* ---- playback queue: turns drained beats into frames+bytes played ---- */
     struct { uint16_t beats; uint16_t bytes; } pq[S573_PQ_LEN];
@@ -327,27 +349,28 @@ int      s573_core_may_decode(const s573_core_t *c);
 
 /* Feed the DIO write pointer (fabric STATUS words 36/37) before each poll's
  * decode. valid=0 means the bitstream does not report it: no gating. */
-void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid);
+void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid, uint32_t now_us);
 
 /* The loader watermark: how far into the DRAM window the pull may read. Returns
  * mp3_end when the pointer says nothing about this window. */
 uint32_t s573_core_loaded_limit(const s573_core_t *c);
 
 /* Top up in_buf from the DIO window, compacting what minimp3 has not consumed.
- * `dio` points at the mmap of S573_DIO_PHYS. Returns bytes added. Takes the
- * pull snapshot first. */
+ * `dio` points at the mmap of S573_DIO_PHYS. Returns bytes added. */
 uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio);
 
-/* Did the decoder's scan of [in_pos, in_pos+skip) reach into the bytes the
- * LAST refill pulled? If so those bytes held no frame and were probably not
- * loaded yet. */
-int      s573_core_skip_hits_new_bytes(const s573_core_t *c, uint32_t skip);
-
-/* Undo the last refill EXACTLY: the descrambler, the pull credit and the input
- * length go back to before it, minus any bytes real frames consumed out of it
- * (the descrambler is advanced past those without re-emitting them, so nothing
- * plays twice). Next poll re-pulls the same region. */
+/* Discard every byte the decoder has not consumed and put the descrambler and
+ * the pull credit back at the first of them (an exact seek, s573_desc_seek).
+ * Frames already decoded stay decoded; next poll re-reads the DRAM from there,
+ * so bytes that were junk when fetched are fetched again once loaded. */
 void     s573_core_rewind_pull(s573_core_t *c, const uint8_t *dio);
+
+/* The decoder found no whole frame in [in_pos, in_len) (minimp3 reports that as
+ * frame_offset untouched and frame_bytes == the bytes offered, never 0).
+ * Returns 1 when the window is spent, so those bytes were its truncated tail
+ * and are now consumed (tail_spent, the song may end); 0 when the pull was
+ * rewound to be read again once the loader has written it. */
+int      s573_core_no_frame(s573_core_t *c, const uint8_t *dio);
 
 /* The 16-bit words to send in the down direction. */
 uint16_t s573_core_ctrl_word1(const s573_core_t *c);   /* {sync, idle}         */
