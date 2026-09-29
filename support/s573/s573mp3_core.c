@@ -106,6 +106,7 @@ int s573_core_apply_cfg(s573_core_t *c, const s573_cfg_t *cfg,
         c->in_len     = 0;
         c->in_pos     = 0;
         c->tail_spent = 0;
+        c->wp_arm     = c->wp;      /* the watermark counts only from here on */
         /* decoded audio that never played is discarded with the ring, so its
          * queue entries must go too or they would credit the NEW song */
         s573_core_pq_reset(c);
@@ -281,9 +282,32 @@ int s573_core_may_decode(const s573_core_t *c)
     return s573_core_pcm_free(c) >= S573_FRAME_BEATS;
 }
 
+void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid)
+{
+    c->wp       = wp;
+    c->wp_valid = (uint8_t)(valid ? 1 : 0);
+}
+
+uint32_t s573_core_loaded_limit(const s573_core_t *c)
+{
+    uint32_t lim;
+#ifdef S573_MUT_NO_WP_GATE
+    return c->desc.mp3_end;              /* the pre-2026-09-28 behaviour */
+#endif
+    if (!c->wp_valid) return c->desc.mp3_end;
+    if (c->wp < c->desc.mp3_start || c->wp >= c->desc.mp3_end) return c->desc.mp3_end;
+    if (c->wp == c->wp_arm) return c->desc.mp3_end;   /* parked there before the re-arm: stale */
+    /* the game writes whole 2 KB sectors, one pointer write each (24/s on
+     * ddr3mj); only COMPLETE sectors below the pointer are certainly there --
+     * the pointer moves with every posted 0xb4 write, ahead of the DDR3 drain */
+    lim = c->wp & ~0x7FFu;
+    if (lim < c->desc.mp3_start) lim = c->desc.mp3_start;
+    return lim;
+}
+
 uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio)
 {
-    uint32_t keep, room, got;
+    uint32_t keep, room, got, lim;
 
     /* Defensive, and not theoretical: an in_pos past in_len would make the
      * unsigned difference below wrap and memmove ~4 GiB. The caller never does
@@ -313,6 +337,18 @@ uint32_t s573_core_refill(s573_core_t *c, const uint8_t *dio)
 
     if (room > S573_PULL_LEAD_MAX - (c->pulled_bytes - c->cons_bytes))
         room = S573_PULL_LEAD_MAX - (c->pulled_bytes - c->cons_bytes);
+
+    /* THE LOADER WATERMARK: never pull DRAM the game has not written yet (see
+     * s573mp3_core.h). One descrambled byte per DRAM byte (the last word's low
+     * byte is the only exception, and it sits at mp3_end), so the byte distance
+     * to the watermark bounds the pull directly. */
+    lim = s573_core_loaded_limit(c);
+    if (c->desc.cur >= lim && !c->desc.hold_valid) {
+        c->wp_holds++;
+        return 0;
+    }
+    if (c->desc.cur < lim && room > lim - c->desc.cur)
+        room = lim - c->desc.cur;
 
     /* snapshot BEFORE the pull, so it can be undone exactly */
     c->snap_desc    = c->desc;

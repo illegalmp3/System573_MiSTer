@@ -382,11 +382,10 @@ static uint16_t prof[7], prof_prev[7];
  * MDEC decoding. Run B showed the 573-side counters at ~0%, so the frame time is
  * being lost in here. */
 static uint16_t profg[7], profg_prev[7];
-/* words31..35: k573dio DRAM-port activity (0 on older RTL). 31 0xb4 pushes,
- * 32 words drained to DDR3, 33 0xb4 reads, 34 pointer writes -- cumulative,
- * diffed per second; 35 = {ovf sticky, half-full sticky, wf_cnt[10:0], 000}. */
-static uint16_t dio[5], dio_prev[4];
-static int dio_have_prev = 0;
+/* words31..33: k573dio (0 on older RTL). 31 = posted-write FIFO {ovf sticky,
+ * half-full sticky, wf_cnt[10:0], 000}; 32/33 = the DRAM WRITE pointer lo/hi,
+ * the loader watermark (s573_core_loaded_limit). */
+static uint16_t dio[3];
 static int      prof_have_prev = 0, profg_have_prev = 0;
 /* zs01 packet-engine observability (STATUS words 6/7/8; rtl/zs01.v dbg). The engine
  * is multi-cycle and the real host neither clock-stretches nor waits, so 'did the
@@ -615,6 +614,16 @@ static void pcprof_dump(void)
     }
 }
 
+/* Does this bitstream report the DIO write pointer (STATUS words 36/37)? An
+ * older one returns 0 there; a real pointer is never 0 once the game has
+ * written anything, and the loader gate is off until it is seen non-zero. */
+static int dio_ptr_seen = 0;
+static int dio_ptr_reported(void)
+{
+    if (dio[1] | (dio[2] & 0x1ff)) dio_ptr_seen = 1;
+    return dio_ptr_seen;
+}
+
 static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflvl)
 {
     *flags    = spi_uio_cmd_cont(CMD_573_STATUS);
@@ -638,8 +647,8 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
         prof[i]     = spi_w(0);   /* words17..23: the 573-side profile (0 on older RTL) */
     for (int i = 0; i < 7; i++)
         profg[i]    = spi_w(0);   /* words24..30: the PSX-side profile (0 on older RTL) */
-    for (int i = 0; i < 5; i++)
-        dio[i]      = spi_w(0);   /* words31..35: k573dio DRAM-port counters (0 on older RTL) */
+    for (int i = 0; i < 3; i++)
+        dio[i]      = spi_w(0);   /* words31..33: k573dio FIFO state + DRAM write pointer (0 on older RTL) */
     DisableIO();
 }
 
@@ -1055,6 +1064,7 @@ static void heartbeat(void)
     next = t + 1000000ull;
 
     status_exchange(&sf, &ur, &bl);
+    s573_core_set_write_ptr(&core, (uint32_t)dio[1] | ((uint32_t)(dio[2] & 0x1ff) << 16), dio_ptr_reported());
     s573_log("s573mp3: rst=%u ack=%u cfg=%u have=%u | in=%u/%u cons=%u "
            "| dec=%u played=%u q=%u idle=%u | wr=%u rd=%u free=%u "
            "| ctrl=%04x flags=%04x underrun=%u buf=%u | flush=%u drop=%u torn=%u "
@@ -1135,26 +1145,17 @@ static void heartbeat(void)
     }
 
     {
-        /* The DIO DRAM port, per second. ddr3mj (2026-09-28) streams each song
-         * into DRAM WHILE it plays and only the first 6 sectors ever arrived:
-         * pushes == drains says the writes reach DDR3 (so the game stopped
-         * issuing them); pushes > drains, or ovf, says the posted-write FIFO
-         * dropped them (starved behind the PSX master). Reads/pointer writes
-         * show a verify-and-retry loop if there is one. */
-        unsigned dd[4];
-        int anyd = 0;
-        for (int i = 0; i < 4; i++) {
-            dd[i] = dio_have_prev ? (unsigned)(uint16_t)(dio[i] - dio_prev[i]) : 0u;
-            if (dio[i]) anyd = 1;
-            dio_prev[i] = dio[i];
-        }
-        dio_have_prev = 1;
-        if (anyd || (dio[4] & 0xc000))
-            s573_log("s573mp3: dio: b4 pushes=%u/s drained=%u/s reads=%u/s ptr_writes=%u/s | "
-                     "wfifo=%u/1024%s%s\n",
-                     dd[0], dd[1], dd[2], dd[3], (unsigned)((dio[4] >> 3) & 0x7ff),
-                     (dio[4] & 0x8000) ? " *** OVERFLOWED (writes DROPPED) ***" : "",
-                     (dio[4] & 0x4000) ? " (reached half full)" : "");
+        /* The DIO DRAM write pointer = the game's loader position, and the pull
+         * limit the service derives from it (ddr3mj 2026-09-28: the game streams
+         * each song into DRAM while it plays; 24 sectors/s reached DDR3 with the
+         * FIFO never past 1, so the watermark is the whole fix). */
+        if (dio_ptr_seen || (dio[0] & 0xc000))
+            s573_log("s573mp3: dio: wp=%07x limit=%07x holds=%u | wfifo=%u/1024%s%s\n",
+                     (unsigned)dio[1] | ((unsigned)(dio[2] & 0x1ff) << 16),
+                     (unsigned)s573_core_loaded_limit(&core), (unsigned)core.wp_holds,
+                     (unsigned)((dio[0] >> 3) & 0x7ff),
+                     (dio[0] & 0x8000) ? " *** OVERFLOWED (writes DROPPED) ***" : "",
+                     (dio[0] & 0x4000) ? " (reached half full)" : "");
     }
 
     if (sf & 0x0008) s573_log("s573mp3: *** evt_ovf: the fabric LOST frame pulses ***\n");
@@ -1419,7 +1420,22 @@ static void s573mp3_poll_body(void)
             s573_log("s573mp3: *** descramble scheme disagrees with the fabric ***\n");
     }
 
-    if (core.have_cfg && (core.ctrl_flags & S573_CTRL_DRAIN_EN)) decode_some();
+    /* The loader watermark wants a FRESH write pointer while a song streams in
+     * behind its own playback (ddr3mj): the once-a-second heartbeat read would
+     * hold the first pull a second behind the loader. 20 ms is 0.5 sector at
+     * the game's 24 sectors/s and one STATUS exchange per 20 ms is noise
+     * against the 1 ms poll loop. */
+    if (core.have_cfg && (core.ctrl_flags & S573_CTRL_DRAIN_EN)) {
+        static uint64_t next_wp = 0;
+        uint64_t t = now_us();
+        if (t >= next_wp) {
+            uint16_t sf2, ur2, bl2;
+            next_wp = t + 20000ull;
+            status_exchange(&sf2, &ur2, &bl2);
+            s573_core_set_write_ptr(&core, (uint32_t)dio[1] | ((uint32_t)(dio[2] & 0x1ff) << 16), dio_ptr_reported());
+        }
+        decode_some();
+    }
 
     /* The honest song end. The enables are a START gate only: ddrsbm asserts
      * fpga_ctrl[14:13] once and never clears them for a song change, so waiting

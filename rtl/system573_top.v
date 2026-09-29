@@ -87,7 +87,7 @@ module system573_top #(
     // sticky DIO posted-write FIFO overflow (fault observer, never silent)
     output wire        dio_dbg_ovf,
     output wire        dio_dbg_hi_write,  // game wrote above real-board DRAM (P4b ring guard)
-    output wire [79:0] dio_dbg_cnt,       // {wfifo_state, adr_writes, b4_reads, b4_drains, b4_pushes} (HPS STATUS 31..35)
+    output wire [47:0] dio_dbg_cnt,       // {7'b0, ram_adr[24:0], wfifo_state} (HPS STATUS 31..33)
     // MP3 descramble scheme (MAME set_ddrsbm_fpga); emu.sv ties 0 until P4
     input  wire        cfg_ddrsbm,
     input  wire [4:0]  chart_ofs_ms,   // OSD 573 Chart Offset, signed ms -> k573dio
@@ -313,6 +313,8 @@ module system573_top #(
     wire        sec_in_rtr;        // ZS01 currently shifting its response-to-reset
     wire [31:0] sec_rtr_emit;      // the bits it drove
     wire [7:0]  sec_in;
+    assign dio_dbg_cnt[47:41] = 7'd0;
+
     s573_seccart #(.DS_SERIAL(CART_SERIAL), .DS_CLK_HZ(CLK_FREQ_HZ)) u_seccart (
         .clk(clk), .rst(rst),
         .cart_type(sec_cart_type),
@@ -466,8 +468,7 @@ module system573_top #(
         .mem_wr_data(dio_mem_wr_data), .mem_wr_ack(dio_mem_wr_ack),
         .dbg_wfifo_ovf(dio_dbg_ovf),
         .dbg_dio_hi_write(dio_dbg_hi_write),
-        .dbg_b4_pushes(dio_dbg_cnt[15:0]), .dbg_b4_drains(dio_dbg_cnt[31:16]), .dbg_b4_reads(dio_dbg_cnt[47:32]),
-        .dbg_adr_writes(dio_dbg_cnt[63:48]), .dbg_wfifo_state(dio_dbg_cnt[79:64]),
+        .dbg_wfifo_state(dio_dbg_cnt[15:0]), .dbg_ram_adr(dio_dbg_cnt[40:16]),
         // P4b option (c): the descramble config the HPS mirrors, plus its
         // epoch and the position echo. Previously all left open.
         .crypto_key1(dio_key1), .crypto_key2(dio_key2), .crypto_key3(dio_key3),

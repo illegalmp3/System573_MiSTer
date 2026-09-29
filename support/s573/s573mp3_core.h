@@ -205,6 +205,25 @@ typedef struct {
     uint8_t  snap_valid;
     uint32_t rewinds;         /* pulls undone because the bytes were not there */
 
+    /* ---- the LOADER WATERMARK (2026-09-28, ddr3mj) ----
+     * 3rd Mix streams each song into DIO RAM at start=0 WHILE it plays, one
+     * 2 KB sector per 0xb0/0xb2 pointer write, and starts playback after six
+     * sectors. Real DIO silicon feeds the MAS3507D only as fast as it plays, so
+     * the loader (24 sectors/s) is always ahead; we pull up to a ring's worth
+     * ahead and outran it -- and the unloaded bytes we had already pulled sat
+     * in in_buf as an "old tail" that the rewind kept, so the decoder scanned
+     * garbage forever (log 2026-09-28: 29 frames, then rewinds climbing to
+     * 10,656 with 0 played). The fabric now reports the DIO write pointer
+     * (STATUS words 36/37): while it sits INSIDE the armed window and has moved
+     * since the re-arm, the game is still writing this window and nothing past
+     * the last COMPLETE sector below it is pulled. Outside the window (or never
+     * moved since the re-arm) the window is taken as fully loaded -- the 4th
+     * Mix/Extreme preload case, where the pointer points at something else. */
+    uint32_t wp;              /* the DIO write pointer, as last reported        */
+    uint32_t wp_arm;          /* its value when the window was (re-)armed       */
+    uint8_t  wp_valid;        /* the fabric reports it (0 on older bitstreams)  */
+    uint32_t wp_holds;        /* pulls held back by the watermark (observability)*/
+
     /* ---- playback queue: turns drained beats into frames+bytes played ---- */
     struct { uint16_t beats; uint16_t bytes; } pq[S573_PQ_LEN];
     uint8_t  pq_head, pq_tail;
@@ -305,6 +324,14 @@ void     s573_core_mark_tail_spent(s573_core_t *c);
  * (transport-design prerequisite 4: the MP3_UNPACED flood relocated to C is
  * exactly the failure mode this guards.) */
 int      s573_core_may_decode(const s573_core_t *c);
+
+/* Feed the DIO write pointer (fabric STATUS words 36/37) before each poll's
+ * decode. valid=0 means the bitstream does not report it: no gating. */
+void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid);
+
+/* The loader watermark: how far into the DRAM window the pull may read. Returns
+ * mp3_end when the pointer says nothing about this window. */
+uint32_t s573_core_loaded_limit(const s573_core_t *c);
 
 /* Top up in_buf from the DIO window, compacting what minimp3 has not consumed.
  * `dio` points at the mmap of S573_DIO_PHYS. Returns bytes added. Takes the

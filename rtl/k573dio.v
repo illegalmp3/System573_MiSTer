@@ -145,15 +145,14 @@ module k573dio #(
     // of from corrupted audio. Expected to read 0 forever.
     output wire        dbg_dio_hi_write,
 
-    // DRAM-port activity counters for the HPS log (2026-09-28, ddr3mj: the game
-    // streams a song into DRAM DURING play and only the first 6 sectors ever
-    // arrived). Free-running 16-bit CUMULATIVE counts, the HPS diffs them per
-    // second, so a poll cannot double-count and a wrap is harmless.
-    output reg  [15:0] dbg_b4_pushes,   // 0xb4 data writes the CPU issued
-    output reg  [15:0] dbg_b4_drains,   // of those, words actually written to DDR3
-    output reg  [15:0] dbg_b4_reads,    // 0xb4 reads (read-back / verify traffic)
-    output reg  [15:0] dbg_adr_writes,  // 0xb0/0xb2/0xb6/0xb8 pointer writes
-    output wire [15:0] dbg_wfifo_state, // {ovf, hi_water reached 512, wf_cnt[10:0]... see body}
+    // For the HPS log / service (2026-09-28, ddr3mj streams each song into DRAM
+    // DURING play). The pushes/drains/reads counters that answered "does the
+    // game's data reach DDR3?" (it does: pushes == drains, 24 sectors/s, FIFO
+    // never past 1) were retired the same day -- the design sits at 100 % LABs
+    // and they cost the fit. What stays is what the service needs:
+    output wire [15:0] dbg_wfifo_state, // {ovf sticky, half-full sticky, wf_cnt[10:0], 3'b0}
+    output wire [24:0] dbg_ram_adr,     // the DRAM WRITE pointer = how far the game's loader has
+                                        // written (the service's loader watermark, s573mp3_core.c)
 
     // board outputs
     output reg  [31:0] lamp,         // 32 lamp/light lines
@@ -266,6 +265,7 @@ module k573dio #(
 
     // ----- DRAM pointers (common to both backings) -----
     reg [24:0] ram_adr;        // write pointer
+    assign dbg_ram_adr = ram_adr;
     reg [24:0] ram_read_adr;   // read pointer
 
     // per-backing b4 data plumbing (assigned inside the generate blocks)
@@ -479,10 +479,6 @@ module k573dio #(
         assign dbg_wfifo_ovf = 1'b0;
         assign dbg_dio_hi_write = 1'b0;
         assign dbg_wfifo_state = 16'd0;
-        always @(posedge clk) begin
-            if (rst) dbg_b4_drains <= 16'd0;
-            else if (b4_wr_adv) dbg_b4_drains <= dbg_b4_drains + 16'd1;   // no FIFO: every push lands
-        end
 
         // MP3 read port: registered one-cycle serve
         reg [15:0] s_dat_r;
@@ -558,12 +554,8 @@ module k573dio #(
         reg wf_half = 1'b0;
         assign dbg_wfifo_state = {ovf, wf_half, wf_cnt, 3'b000};
         always @(posedge clk) begin
-            if (rst) begin
-                wf_half <= 1'b0; dbg_b4_drains <= 16'd0;
-            end else begin
-                if (wf_cnt >= 11'd512) wf_half <= 1'b1;
-                if (est == E_WR && mem_wr_req && mem_wr_ack) dbg_b4_drains <= dbg_b4_drains + 16'd1;
-            end
+            if (rst) wf_half <= 1'b0;
+            else if (wf_cnt >= 11'd512) wf_half <= 1'b1;
         end
 
         // ---- MP3 serve: own line, registered pulse ----
@@ -713,7 +705,6 @@ module k573dio #(
             fpga_ctrl <= 16'd0; network_id <= 16'd0;
             ram_adr <= 25'd0; ram_read_adr <= 25'd0; ow_master_low <= 1'b0;
             mas_scl <= 1'b1; mas_sda <= 1'b1;
-            dbg_b4_pushes <= 16'd0; dbg_b4_reads <= 16'd0; dbg_adr_writes <= 16'd0;
         end else begin
             if (sel && we) begin
                 case (off)
@@ -750,10 +741,7 @@ module k573dio #(
             // external backing qualifies the advance with its hit)
             if (b4_wr_adv) ram_adr      <= ram_adr      + 25'd2;
             if (b4_rd_adv) ram_read_adr <= ram_read_adr + 25'd2;
-            if (b4_wr_adv) dbg_b4_pushes <= dbg_b4_pushes + 16'd1;
-            if (b4_rd_adv) dbg_b4_reads  <= dbg_b4_reads  + 16'd1;
-            if (sel && we && (off == 8'hb0 || off == 8'hb2 || off == 8'hb6 || off == 8'hb8))
-                dbg_adr_writes <= dbg_adr_writes + 16'd1;
+
         end
     end
 

@@ -573,6 +573,82 @@ int main(void)
     s573_core_song_end(&c);
     CHECKEQ(c.cons_bytes, 0x105u, "an over-credit is left alone");
 
+    /* ------------------------------------------------------------------ */
+    GROUP("the loader watermark: never pull DRAM the game has not written (ddr3mj 2026-09-28)");
+    {
+        /* The hardware shape: window at DRAM 0, the game has written six 2 KB
+         * sectors and set the write pointer to the seventh; everything above is
+         * still the POST fill. The pull must stop at the pointer's sector
+         * boundary; as the pointer advances, pulls resume; nothing is ever read
+         * from an unwritten sector, so the stream is byte-identical to a one-shot
+         * descramble of the fully loaded window. */
+        uint32_t i, n, one_shot_len, streamed_len = 0, wp;
+        uint8_t *dio  = (uint8_t *)malloc(0x10000);
+        uint8_t *full = (uint8_t *)malloc(0x10000);
+        uint8_t *ref  = (uint8_t *)malloc(0x10000);
+        uint8_t *out  = (uint8_t *)malloc(0x10000);
+        const uint32_t START = 0x0, END = 0x8000;
+        s573_desc_t one;
+        for (i = 0; i < 0x10000; i++) full[i] = (uint8_t)(i * 131 + (i >> 3));
+        for (i = 0; i < 0x10000; i += 2) {                /* the POST fill everywhere */
+            uint16_t w = (uint16_t)(0x3a00 + i / 2);
+            dio[i] = (uint8_t)w; dio[i+1] = (uint8_t)(w >> 8);
+        }
+        s573_desc_init(&one, START, END, 0x6546, 0, 0, 1);
+        one_shot_len = (uint32_t)s573_desc_pull(&one, full, ref, 0x10000);
+
+        s573_core_init(&c);
+        /* the pointer parked at the window start from some earlier write: a
+         * pointer that has not MOVED since the re-arm must not gate anything */
+        s573_core_set_write_ptr(&c, 0x0, 1);
+        mkcfg(&f, START, END, 0x6546, 0, 0, FLAGS_PLAY, 1);
+        (void)s573_core_apply_cfg(&c, &f, 1, 0);
+        CHECKEQ(s573_core_loaded_limit(&c), END, "pointer unmoved since the re-arm: no watermark");
+
+        /* six sectors land, pointer at sector 7 */
+        wp = 6 * 2048;
+        memcpy(dio, full, wp);
+        s573_core_set_write_ptr(&c, wp, 1);
+        CHECKEQ(s573_core_loaded_limit(&c), wp, "watermark = the pointer (sector-aligned)");
+        s573_core_set_write_ptr(&c, wp + 700, 1);           /* mid-sector: only complete sectors count */
+        CHECKEQ(s573_core_loaded_limit(&c), wp, "a half-written sector is not loaded");
+        s573_core_set_write_ptr(&c, wp, 1);
+
+        /* pull everything the watermark allows, "decoding" it all */
+        for (i = 0; i < 100; i++) {
+            n = s573_core_refill(&c, dio);
+            if (!n) break;
+            memcpy(out + streamed_len, c.in_buf, c.in_len); streamed_len += c.in_len;
+            c.in_pos = c.in_len;
+        }
+        CHECKEQ(streamed_len, wp, "pulled exactly the six loaded sectors, not a byte more");
+        CHECK(c.wp_holds > 0, "and the watermark is what held the pull");
+        CHECKEQ(memcmp(out, ref, streamed_len), 0, "those bytes are the real stream");
+
+        /* the loader keeps writing, a sector at a time, and we keep up */
+        while (wp < END) {
+            memcpy(dio + wp, full + wp, 2048);
+            wp += 2048;
+            s573_core_set_write_ptr(&c, wp < END ? wp : END + 0x1000, 1);   /* past the end: moved on */
+            for (i = 0; i < 100; i++) {
+                n = s573_core_refill(&c, dio);
+                if (!n) break;
+                memcpy(out + streamed_len, c.in_buf, c.in_len); streamed_len += c.in_len;
+                c.in_pos = c.in_len;
+            }
+        }
+        CHECKEQ(streamed_len, one_shot_len, "same total length as a one-shot descramble");
+        CHECKEQ(memcmp(out, ref, one_shot_len), 0,
+                "byte-identical: nothing from the fill ever reached the decoder");
+
+        /* a pointer outside the window (the 4th Mix preload case) gates nothing */
+        s573_core_set_write_ptr(&c, 0x00400000, 1);
+        CHECKEQ(s573_core_loaded_limit(&c), END, "pointer outside the window: no watermark");
+        s573_core_set_write_ptr(&c, 0x100, 0);
+        CHECKEQ(s573_core_loaded_limit(&c), END, "older bitstream, no pointer: no watermark");
+        free(dio); free(full); free(ref); free(out);
+    }
+
     printf("\n%d groups, %d failures\n", groups, fails);
     if (fails) { printf("RESULT: FAIL\n"); return 1; }
     printf("RESULT: PASS\n");

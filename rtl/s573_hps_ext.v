@@ -105,10 +105,11 @@
 //                    drawing-busy cycles>>10, 29 MDEC-busy cycles>>10, 30 MACRO-
 //                    BLOCKS DECODED (a rate: busy% alone cannot say whether the
 //                    MDEC is at its modelled ceiling or just idling between feeds).
-//   word31..35   up: k573dio DRAM-port activity (2026-09-28, the ddr3mj loader):
-//                    31 0xb4 data writes pushed, 32 words drained to DDR3, 33 0xb4
-//                    reads, 34 pointer writes (0xb0/b2/b6/b8) -- cumulative 16-bit,
-//                    HPS diffs; 35 {ovf sticky, half-full sticky, wf_cnt[10:0], 000}.
+//   word31       up: k573dio posted-write FIFO {ovf sticky, half-full sticky, wf_cnt[10:0], 000}
+//   word32..33   up: the DIO DRAM WRITE pointer, lo16 / hi9 -- the loader watermark
+//                    the service pulls up to (s573mp3_core.c s573_core_loaded_limit,
+//                    2026-09-28 ddr3mj). The pushes/drains counters that briefly
+//                    lived at 31..35 were retired the same day (100 % LABs).
 //
 // CMD_573_PCPROF (0x6E) -- the PC-sampling profile read-out (s573_prof_pc.v):
 //   word0 (cmd)  up: cnt_samples (cumulative samples taken) + SNAPSHOT of the
@@ -250,8 +251,8 @@ module s573_hps_ext
     input      [15:0] pcprof_other,
     input     [111:0] prof_dbg,      // s573_prof counters, word17..23 = prof_dbg[15:0]..[111:96]
     input     [111:0] profg_dbg,     // s573_prof_gpu counters, word24..30
-    input      [79:0] dio_dbg,       // k573dio DRAM-port counters, word31..35: b4 pushes, b4 drains,
-                                     // b4 reads, pointer writes (all cumulative 16-bit), {ovf, half, wf_cnt, 0}
+    input      [47:0] dio_dbg,       // k573dio: word31 {ovf, half, wf_cnt[10:0], 000}; word32..33 the DRAM
+                                     // WRITE pointer lo16 / hi9 (the service's loader watermark)
     // ---- CMD_573_SECTRACE: cassette event trace read-out (system573_top) ----
     output reg [7:0]  sec_trace_addr,
     input      [15:0] sec_trace_data,   // valid the cycle after sec_trace_addr
@@ -310,7 +311,7 @@ localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_e
 reg gain_seen = 1'b0;
 always @(posedge clk_sys) if (rst) gain_seen <= 1'b0; else if (gain_stb) gain_seen <= 1'b1;
 
-reg [15:0] snap [1:35];
+reg [15:0] snap [1:33];
 
 integer si;
 initial begin
@@ -322,7 +323,7 @@ initial begin
     dec_frame_sync = 0;
     dec_frame_idle = 0;
     evt_ovf        = 0;
-    for (si = 1; si <= 35; si = si + 1) snap[si] = 16'd0;
+    for (si = 1; si <= 33; si = si + 1) snap[si] = 16'd0;
 end
 
 
@@ -445,8 +446,6 @@ always @(posedge clk_sys) begin
                     snap[31] <= dio_dbg[15:0];
                     snap[32] <= dio_dbg[31:16];
                     snap[33] <= dio_dbg[47:32];
-                    snap[34] <= dio_dbg[63:48];
-                    snap[35] <= dio_dbg[79:64];
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -525,8 +524,6 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 31) io_dout <= snap[31];
                     else if(byte_cnt == 32) io_dout <= snap[32];
                     else if(byte_cnt == 33) io_dout <= snap[33];
-                    else if(byte_cnt == 34) io_dout <= snap[34];
-                    else if(byte_cnt == 35) io_dout <= snap[35];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin

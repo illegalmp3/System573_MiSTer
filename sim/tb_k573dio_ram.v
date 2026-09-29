@@ -39,10 +39,8 @@ module tb_k573dio_ram;
     reg [63:0] rd_q_r  = 64'd0;
     reg        rd_ack_r = 1'b0;
     reg        wr_ack_r = 1'b0;
-    wire [15:0] cnt_pushes, cnt_drains, cnt_reads, cnt_ptr, wf_state;
-    // HPS-visible DRAM-port counters (STATUS words 31..35): every 0xb4 write is
-    // a push and, once the backlog drains, a drain -- so after every part above
-    // pushes == drains, or writes were dropped.
+    wire [15:0] wf_state;
+    wire [24:0] dbg_wp;
 
     k573dio #(.BACKING_EXTERNAL(1), .DS_CLK_HZ(1_000_000)) dut (
         .clk(clk), .rst(rst), .sel(sel), .off(off), .we(we), .re(re),
@@ -54,8 +52,7 @@ module tb_k573dio_ram;
         .mem_wr_data(mem_wr_data), .mem_wr_ack(wr_ack_r),
         .dbg_wfifo_ovf(dbg_ovf),
         .dbg_dio_hi_write(dbg_hi_write),
-        .dbg_b4_pushes(cnt_pushes), .dbg_b4_drains(cnt_drains), .dbg_b4_reads(cnt_reads),
-        .dbg_adr_writes(cnt_ptr), .dbg_wfifo_state(wf_state),
+        .dbg_wfifo_state(wf_state), .dbg_ram_adr(dbg_wp),
         .crypto_key1(), .crypto_key2(), .crypto_key3(),
         .mp3_start(), .mp3_end(), .fpga_ctrl(), .network_id(),
         .mp3_out_ready(1'b1),   // datapath test: always-ready sink (pacing is tb_k573_mp3stream)
@@ -334,19 +331,22 @@ module tb_k573dio_ram;
             errors = errors + 1;
         end
 
-        // ---- P9: the HPS activity counters (STATUS words 31..35) ----
-        // Let the last write drain, then: pushes must equal drains (nothing was
-        // dropped), reads/pointer writes must be non-zero (this bench did plenty),
-        // the FIFO must be empty and the half-full sticky bit SET (part 8 filled
-        // it to 1024). This is what the 2026-09-28 ddr3mj log line reads.
+        // ---- P9: the HPS-visible FIFO state (STATUS word 31): empty now, the
+        // half-full sticky bit SET (part 8 filled it to 1024), no overflow.
         repeat (64) @(posedge clk);
-        if (cnt_pushes !== cnt_drains) begin
-            $display("FAIL: P9 pushes=%0d != drains=%0d", cnt_pushes, cnt_drains); errors = errors + 1; end
-        if (cnt_pushes == 16'd0 || cnt_reads == 16'd0 || cnt_ptr == 16'd0) begin
-            $display("FAIL: P9 a counter never moved: pushes=%0d reads=%0d ptr=%0d", cnt_pushes, cnt_reads, cnt_ptr); errors = errors + 1; end
         if (wf_state[15] !== 1'b0 || wf_state[14] !== 1'b1 || wf_state[13:3] !== 11'd0) begin
             $display("FAIL: P9 wfifo_state=%04x (want ovf=0 half=1 cnt=0)", wf_state); errors = errors + 1; end
-        if (errors == 0) $display("  part 9 (HPS DRAM-port counters): ok  pushes=%0d drains=%0d reads=%0d ptr=%0d", cnt_pushes, cnt_drains, cnt_reads, cnt_ptr);
+        else $display("  part 9 (HPS FIFO state): ok");
+
+        // ---- P10: the exported write pointer (STATUS words 32/33) is the loader
+        // watermark the HPS service pulls up to: set the pointer, write N words,
+        // it must read back as base + 2N (byte address of the next word).
+        set_wp(25'h0003000);
+        for (i = 0; i < 1024; i = i + 1) wr_b4(16'h4000 + i[15:0], 0);
+        repeat (64) @(posedge clk);
+        if (dbg_wp !== 25'h0003000 + 25'd2048) begin
+            $display("FAIL: P10 write pointer %07x (want %07x)", dbg_wp, 25'h0003000 + 25'd2048); errors = errors + 1; end
+        else $display("  part 10 (write pointer export): ok  wp=%07x", dbg_wp);
 
         if (errors == 0) $display("RESULT: PASS (k573dio_ram)");
         else             $display("RESULT: FAIL (k573dio_ram, %0d errors)", errors);

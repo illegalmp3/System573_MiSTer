@@ -1821,7 +1821,7 @@ wire [19:0] dio_gain_ll;
 wire [19:0] dio_gain_rr;
 wire        dio_gain_stb;
 wire        dio_dbg_hi_write;   // sticky: game wrote ABOVE the real board 24 MiB (P4b PCM-ring guard)
-wire [79:0] dio_dbg_cnt;        // DIO DRAM-port activity counters -> HPS STATUS words 31..35 (ddr3mj loader question)
+wire [47:0] dio_dbg_cnt;        // DIO {write pointer, posted-write FIFO state} -> HPS STATUS words 31..33 (the ddr3mj loader watermark)
 
 // 573 ATAPI <-> PSX DMA channel 5 (psx_patches/0023). All clk_1x, no CDC: the
 // dma.vhd consume strobe is ce-qualified, atapi.v free-runs on the same clock.
