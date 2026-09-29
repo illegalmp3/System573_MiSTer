@@ -72,3 +72,12 @@ default.
 * Partial saves rewrite the cassette block too (`part_skip = 0`): the ZS01 dump port is a
   pure read, and a ZS01 title's legacy 48 MiB save without the cassette block now grows
   contiguously.
+
+## Closed on the cabinet (job 148)
+
+Boot with the restored save: clean. Test-mode edit → manual OSD "Save Flash" in the
+attract loop → power cycle → clean boot, edit kept (the exact case that failed on 137).
+Then: edit A → Save Flash → edit B → power cycle → both kept, so the saver is idle again
+after a full save (no tail stall), and this time the "Flash saved" toast was seen. The
+earlier "no toast" reports were the `saving_memcard` level mask above and/or a 2 s toast
+missed while watching the drive light. Reference save: `out/sav-backup/ddrextrm.sav.20260928-tknv-good`.

@@ -166,6 +166,10 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > `.mgl` launches (the only save-back was the `.mra` upload). Its 8 KB now rides as a 9-block
 > region at the end of the slot-4 `.sav`, partial-saved 3 s after the game's last write, and
 > the clock is set from MiSTer's RTC (`2026-09-28-note605-timekeeper-persistence.md`).
+> Its first hardware run exposed a saver bug older than it: the staging buffer captured
+> hps_io's SD stream for EVERY slot, so a save while the game read the CD wrote CD sectors
+> into the .sav (PCCARD2). Gated on our slot's ack; bench injects a foreign sector before
+> every service (`2026-09-28-save-captures-foreign-sd-slot.md`). Closed on the cabinet.
 
 With both applied, the BIOS in the NVC sim **advances ~80 ms past the old 220.6 ms
 crash** through normal init (a large ROM→RAM copy) to 300 ms with **zero AdEL /
