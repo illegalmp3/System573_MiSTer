@@ -86,13 +86,14 @@ module tb_s573_tk_nv;
     wire [12:0] tk_wr_a = {x_wr_addr[12:9] - 4'd1, x_wr_addr[8:0]};
     wire save_req, part_started, part_done, restored;
     reg  nv_written = 0;
+    reg  restore_clock = 0;
     s573_tk_nv #(.QUIET_CYC(QUIET), .AGE_CYC(AGE)) nv (
         .clk(clk), .rst(reset),
         .xtra_rd_req(tk_rd_req), .xtra_rd_addr(tk_rd_a), .xtra_rd_word(tk_rd_word), .xtra_rd_ack(tk_rd_ack),
         .xtra_wr_req(tk_wr_req), .xtra_wr_addr(tk_wr_a), .xtra_wr_word(x_wr_word), .xtra_wr_ack(tk_wr_ack),
         .sav_addr(sav_addr), .sav_dout(sav_dout), .sav_rd_ok(sav_rd_ok),
         .load_we(N_we), .load_addr(N_addr), .load_data(N_data),
-        .nv_written(nv_written), .save_req(save_req), .save_started(part_started), .restored(restored)
+        .restore_clock(restore_clock), .nv_written(nv_written), .save_req(save_req), .save_started(part_started), .restored(restored)
     );
 
     // ---------------- saver ----------------
@@ -150,14 +151,26 @@ module tb_s573_tk_nv;
         end
     end
     integer sd_wr_cnt = 0, lba_min = 99, lba_max = 0;
-    always @(posedge clk) if (sd_wr && !sd_ack) begin
+    reg sd_wr_d = 0;
+    always @(posedge clk) sd_wr_d <= sd_wr;
+    always @(posedge clk) if (sd_wr && !sd_wr_d) begin
         sd_wr_cnt = sd_wr_cnt + 1;
         if (sd_lba < lba_min) lba_min = sd_lba; if (sd_lba > lba_max) lba_max = sd_lba;
     end
 
-    integer base, wa, rr;
+    integer base, wa, rr, fw;
+    // A CD sector (slot 1, 2352 B = 1176 words) streamed to the core by Main BEFORE it
+    // services our slot: hps_io's shared sd_buff_wr/addr/dout pulse with sd_ack[4]=0.
+    // On HW (2026-09-28) this landed CD data in the .sav during a save in attract mode.
+    task foreign_sector; begin
+        for (fw = 0; fw < 1176; fw = fw + 1) begin
+            @(negedge clk); sd_buff_addr = fw[8:0]; sd_buff_dout = 16'hBAD0 | fw[3:0]; sd_buff_wr = 1;
+            @(posedge clk); @(negedge clk); sd_buff_wr = 0;
+        end
+    end endtask
     task svc_sd_write; begin
         base = sd_lba * WPB;
+        foreign_sector;
         @(negedge clk); sd_ack = 1; sd_buff_addr = 0; @(posedge clk);
         for (wa = 0; wa < WPB; wa = wa + 1) begin
             @(negedge clk); savefile[base + wa] = sd_buff_din;
@@ -168,6 +181,7 @@ module tb_s573_tk_nv;
     end endtask
     task svc_sd_read; begin
         base = sd_lba * WPB;
+        foreign_sector;
         @(negedge clk); sd_ack = 1;
         for (rr = 0; rr < WPB; rr = rr + 1) begin
             @(negedge clk); sd_buff_addr = rr[8:0]; sd_buff_dout = savefile[base + rr]; sd_buff_wr = 1;
@@ -280,7 +294,9 @@ module tb_s573_tk_nv;
         grd(13'd100, rb);
         if (rb !== 8'h00) begin $display("FAIL: setup -- timekeeper not blank (%02h)", rb); errors = errors + 1; end
 
-        // ---- 3. LOAD restores the image ----
+        // ---- 3. LOAD restores the image (host clock usable: the saved clock is NOT applied) ----
+        @(negedge clk); set_valid = 1; set_data = {8'h26, 8'h09, 8'h28, 8'h02, 8'h13, 8'h05, 8'h30}; set_stb = 1;
+        @(negedge clk); set_stb = 0;
         n_we_cnt = 0; cass_wr_cnt = 0;
         do_load(FILE_BLOCKS);
         @(negedge clk); rst = 0; repeat (4) @(posedge clk);
@@ -291,8 +307,22 @@ module tb_s573_tk_nv;
         if (n_we_cnt != 8184) begin $display("FAIL: restore issued %0d load writes (expected 8184: clock bytes skipped)", n_we_cnt); errors = errors + 1; end
         if (cass_wr_cnt != WPB) begin $display("FAIL: cassette block got %0d words (expected %0d)", cass_wr_cnt, WPB); errors = errors + 1; end
         grd(13'd8191, rb);
-        if (rb !== 8'h00) begin $display("FAIL: LOAD applied the saved clock year (%02h); the clock must come from the host", rb); errors = errors + 1; end
+        if (rb !== 8'h26) begin $display("FAIL: LOAD applied the saved clock year (%02h) although the host clock is usable", rb); errors = errors + 1; end
         if (save_req) begin $display("FAIL: a LOAD marked the timekeeper dirty"); errors = errors + 1; end
+
+        // ---- 3b. no usable host clock: the LOAD resumes the saved clock (sec..year, not ctrl) ----
+        @(negedge clk); rst = 1; reset = 1; restore_clock = 1; repeat (4) @(posedge clk);
+        @(negedge clk); reset = 0; repeat (4) @(posedge clk);
+        n_we_cnt = 0;
+        do_load(FILE_BLOCKS);
+        @(negedge clk); rst = 0; repeat (4) @(posedge clk);
+        if (n_we_cnt != 8191) begin $display("FAIL: clock restore issued %0d load writes (expected 8191)", n_we_cnt); errors = errors + 1; end
+        grd(13'd8191, rb); if (rb !== 8'h98) begin $display("FAIL: saved clock year not resumed (%02h)", rb); errors = errors + 1; end
+        grd(13'd8190, rb); if (rb !== 8'h11) begin $display("FAIL: saved clock month not resumed (%02h)", rb); errors = errors + 1; end
+        grd(13'd8185, rb); if (rb !== 8'hD6) begin $display("FAIL: saved clock seconds/STOP not resumed (%02h)", rb); errors = errors + 1; end
+        grd(13'd8184, rb); if (rb !== 8'h00) begin $display("FAIL: control byte restored (%02h)", rb); errors = errors + 1; end
+        if (!restored) begin $display("FAIL: restored flag not set (3b)"); errors = errors + 1; end
+        restore_clock = 0;
 
         // ---- 4. legacy 6-block file (no region) ----
         @(negedge clk); rst = 1; reset = 1; repeat (4) @(posedge clk);

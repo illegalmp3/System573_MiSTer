@@ -340,7 +340,20 @@ module s573_flash_saver #(
                 is_erase ? 16'h0000 : fill_q[fill_sub*16 +: 16];
         else if (state == SA_X_WAIT && xtra_rd_ack)
             buf_mem[word_cnt[8:0]] <= xtra_rd_word;
+        // ONLY OUR SLOT'S TRANSFER. sd_buff_wr / sd_buff_addr / sd_buff_dout are hps_io's
+        // shared streaming bus for EVERY slot; sd_ack is per slot (hps_io.sv: sd_ack <=
+        // disk[VD:0] on a 0x17/0x18 command). 2026-09-28, HW: a manual "Save Flash" while
+        // the game ran its attract loop wrote CD sectors into the .sav -- every ~4th 1 KB
+        // block of the card image came back as 2352-byte CD data (slot 1) that Main had
+        // streamed to the core between our fill and its read of the block: the ungated
+        // capture below overwrote the staged block, and the game rejected the card at
+        // the next boot (PCCARD2). Gated on sd_ack, a foreign transfer never touches
+        // buf_mem. (SAVER_UNGATED_BUFF_WR restores the bug for the RED bench only.)
+`ifdef SAVER_UNGATED_BUFF_WR
         else if (sd_buff_wr)
+`else
+        else if (sd_buff_wr && sd_ack)
+`endif
             buf_mem[sd_buff_addr] <= sd_buff_dout;
     end
 

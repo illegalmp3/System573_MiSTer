@@ -42,6 +42,8 @@ module m48t58 #(
     // land while rst is asserted -- gating it behind rst==0 silently dropped it and the
     // game read a blank NVRAM. Lower priority than a (post-reset) bus write, which never
     // coincides with the download.
+    // Addresses >= RTC_BASE (other than the control byte) write the CLOCK registers
+    // instead (2026-09-28: the saved clock is restored when the host has none).
     input  wire        nvram_we,
     input  wire [12:0] nvram_addr,
     input  wire [7:0]  nvram_din,
@@ -65,10 +67,9 @@ module m48t58 #(
     // ONCE at the first set_stb after rst falls (re-syncing the seconds the reset
     // hold cost), unless the game is inside a WRITE freeze setting the clock
     // itself. Never again until the next rst -- a clock the operator set in the
-    // test menu stands for the session, as it would with a battery. While rst is
-    // high and set_valid is low (no host clock seen yet) the clock resets to
-    // 2000-01-01 00:00:00 as before. MAME does the same at start (timekpr.cpp
-    // device_start loads the system time).
+    // test menu stands for the session, as it would with a battery. MAME does the
+    // same at start (timekpr.cpp device_start loads the system time). set_valid is
+    // informational (the parent gates set_stb on the reading being usable).
     input  wire        set_valid,
     input  wire        set_stb,      // 1-cycle: set_data is a fresh host reading
     input  wire [55:0] set_data
@@ -79,11 +80,17 @@ module m48t58 #(
     // Plain NVRAM for the lower 8184 bytes.
     reg [7:0] ram [0:8183];
 
-    // Control + live clock registers.
-    reg [7:0] ctrl;
-    reg [7:0] tsec, tmin, thour, tdow, tdom, tmonth, tyear;
+    // Control + live clock registers. The clock is BATTERY-BACKED on the real part:
+    // a CPU/core reset does not touch it (2026-09-28; it used to snap back to
+    // 2000-01-01 on every rst, which a restored or host-set clock must survive).
+    // Power-up value 2000-01-01 00:00:00 Saturday.
+    reg [7:0] ctrl   = 8'h00;
+    reg [7:0] tsec   = 8'h00, tmin = 8'h00, thour = 8'h00;
+    reg [7:0] tdow   = 8'h01, tdom = 8'h01, tmonth = 8'h01, tyear = 8'h00;
     // Read-freeze snapshot.
     reg [7:0] ssec, smin, shour, sdow, sdom, smonth, syear;
+    // load-port write into the clock (sec..year; the control byte is never loaded)
+    wire       ldw_rtc = nvram_we && (nvram_addr >= RTC_BASE) && (nvram_addr[2:0] != 3'd0);
 
     reg [31:0] divcnt = 32'd0;
     reg        tick   = 1'b0;
@@ -210,11 +217,18 @@ module m48t58 #(
             set_armed <= 1'b1;
             if (set_stb) begin
                 {tyear, tmonth, tdom, tdow, thour, tmin, tsec} <= set_data;
-            end else if (!set_valid) begin
-                tsec  <= 8'h00; tmin  <= 8'h00; thour  <= 8'h00;
-                tdow  <= 8'h01; tdom  <= 8'h01; tmonth <= 8'h01; tyear <= 8'h00;
-            end else if (tick) begin
-                // keep ticking from the last host reading while held in reset
+            end else if (ldw_rtc) begin
+                case (nvram_addr[2:0])
+                    3'd1: tsec   <= nvram_din;
+                    3'd2: tmin   <= nvram_din;
+                    3'd3: thour  <= nvram_din;
+                    3'd4: tdow   <= nvram_din;
+                    3'd5: tdom   <= nvram_din;
+                    3'd6: tmonth <= nvram_din;
+                    default: tyear <= nvram_din;
+                endcase
+            end else if (tick && !stopped) begin
+                // keep ticking through the reset hold (battery-backed)
                 c_sec = inc_field(tsec & 8'h7f, 8'h00, 8'h59);
                 tsec <= {1'b0, c_sec[6:0]};
                 if (c_sec[8]) begin

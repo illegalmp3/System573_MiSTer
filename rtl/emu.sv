@@ -1305,6 +1305,7 @@ reg  [1:0] padMode_1;
 
 reg [7:0] psx_info;
 reg psx_info_req;
+reg saving_memcard_d = 1'b0;
 
 wire resetFromCD;
 reg  cdDownloadReset = 0;
@@ -1316,13 +1317,18 @@ always @(posedge clk_1x) begin
 
    psx_info_req <= 0;
    padMode_1    <= padMode;
+   saving_memcard_d <= saving_memcard;
 
    cdinfo_download_1 <= cdinfo_download;
 
    if (ss_info_req) begin
       psx_info_req <= 1;
       psx_info     <= ss_info;
-   end else if (saving_memcard) begin
+   end else if (saving_memcard & ~saving_memcard_d) begin
+      // EDGE, not level (2026-09-28): hps_io latches info on the RISING edge of
+      // info_req, and this level re-asserted the request every cycle for as long as
+      // the memcard was saving, so any other toast in that window -- "Flash saved"
+      // after a 48 MB save -- was silently lost.
       psx_info_req <= 1;
       psx_info     <= 8'd23;
    end else if (saver_save_done) begin
@@ -1916,14 +1922,19 @@ end
 // Snapshot it on the toggle and hand the timekeeper a 1-cycle strobe; the M48T58 day
 // register is 1..7 (MAME timekpr.cpp: weekday + 1).
 // -----------------------------------------------------------------------------
+// A MiSTer with no RTC battery and no network reports 1970 (Main's epoch; the year
+// byte is tm_year % 100 = 0x70): such a reading is NOT applied, the timekeeper keeps
+// the clock it restored from the save (u_tk_nv restore_clock) or its power-up
+// 2000-01-01. Years 00..69 (2000..2069) are usable.
 reg         hps_rtc_tog_d  = 1'b0;
 reg         rtc_set_valid  = 1'b0;
 reg         rtc_set_stb    = 1'b0;
 reg  [55:0] rtc_set_data   = 56'd0;
+wire        hps_rtc_usable = (hps_rtc[47:40] < 8'h70);
 always @(posedge clk_1x) begin
    hps_rtc_tog_d <= hps_rtc[64];
    rtc_set_stb   <= 1'b0;
-   if (hps_rtc[64] != hps_rtc_tog_d) begin
+   if (hps_rtc[64] != hps_rtc_tog_d && hps_rtc_usable) begin
       rtc_set_data  <= {hps_rtc[47:40], hps_rtc[39:32], hps_rtc[31:24],
                         5'd0, hps_rtc[50:48] + 3'd1,
                         hps_rtc[23:16], hps_rtc[15:8], hps_rtc[7:0]};
@@ -1972,6 +1983,7 @@ s573_tk_nv u_tk_nv (
    .load_we      (tk_load_we),
    .load_addr    (tk_load_addr),
    .load_data    (tk_load_data),
+   .restore_clock(~rtc_set_valid),      // no usable host clock seen: resume the saved one
    .nv_written   (nvram_written & ~reset),
    .save_req     (tk_save_req),
    .save_started (saver_part_started),
@@ -2310,7 +2322,7 @@ s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .xtra_wr_word (xtra_wr_word),
    .xtra_wr_ack  (xtra_wr_ack),
    .part_trigger (tk_save_req),
-   .part_skip    (cass_off),
+   .part_skip    (4'd0),               // rewrite the cassette block too (its dump port is a pure read); a legacy file with no cassette block then grows contiguously
    .part_started (saver_part_started),
    .part_done    (saver_part_done),
    .load_blocks  (saver_load_blocks),

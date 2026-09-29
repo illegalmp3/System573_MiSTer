@@ -18,8 +18,9 @@
 //   block 0        header: [0:7] "573NVTKP" magic, [8] version = 1, [9] type = 1
 //                  (M48T58), [10:11] image length little-endian = 8192, rest 0.
 //   blocks 1..8    the 8 KB image, byte (k-1)*1024 + b of the timekeeper (MAME .nvm
-//                  order; bytes 8184..8191 are the live clock registers on SAVE and
-//                  are NOT restored -- the clock is set from MiSTer's own RTC instead).
+//                  order; bytes 8184..8191 are the live clock registers on SAVE; on
+//                  LOAD they are skipped when the host clock is usable (the clock is
+//                  set from MiSTer's RTC) and 8185..8191 are applied when it is not).
 // A LOAD applies blocks 1..8 to the m48t58 load port ONLY when the header block
 // matched; a blank (all-zero) region -- a freshly grown .sav -- or a legacy file
 // without the region leaves whatever the .mgl loaded (e.g. hyperbbc's .22h) untouched.
@@ -59,6 +60,11 @@ module s573_tk_nv #(
     output reg  [12:0] load_addr,
     output reg  [7:0]  load_data,
     // ---- dirty tracking -> partial save ----
+    // LEVEL: also restore the saved clock bytes 8185..8191 (the parent asserts it when
+    // the host has no usable clock -- a MiSTer with no RTC battery and no network
+    // reports 1970 -- so the game's clock resumes from the last save, the closest thing
+    // to a live battery this setup can offer). The control byte 8184 is never restored.
+    input  wire        restore_clock,
     input  wire        nv_written,     // 1-cycle: the game wrote the timekeeper
     output wire        save_req,       // LEVEL: please run a partial save
     input  wire        save_started,   // 1-cycle: the saver began it (clears dirty)
@@ -144,6 +150,11 @@ module s573_tk_nv #(
     wire [3:0] wblk  = xtra_wr_addr[12:9];
     wire [9:0] wbhdr = {xtra_wr_addr[8:0], 1'b0};          // byte index within the header block
     wire       w_img = (wblk >= 4'd1) && (wblk <= IMG_BLOCKS[3:0]);
+    // a byte is applied if it is below the clock, or a clock byte other than control
+    // while restore_clock is set
+    function apply_ok(input [12:0] b, input rc);
+        apply_ok = (b < RTC_BASE) || (rc && (b > RTC_BASE));
+    endfunction
     wire [12:0] w_lo = {wblk[2:0] - 3'd1, xtra_wr_addr[8:0], 1'b0};
     always @(posedge clk) begin
         xtra_wr_ack <= 1'b0;
@@ -163,7 +174,7 @@ module s573_tk_nv #(
                         hdr_ok <= hdr_ok & (xtra_wr_word[7:0] == hdr(wbhdr));
                 end
 `ifndef TK_NV_NO_RESTORE
-                else if (hdr_ok && w_img && (w_lo < RTC_BASE)) begin
+                else if (hdr_ok && w_img && apply_ok(w_lo, restore_clock)) begin
                     load_we   <= 1'b1;
                     load_addr <= w_lo;
                     load_data <= xtra_wr_word[7:0];
@@ -177,12 +188,12 @@ module s573_tk_nv #(
                         hdr_ok <= hdr_ok & (whi == hdr(wbhdr | 10'd1));
                 end
 `ifndef TK_NV_NO_RESTORE
-                else if (hdr_ok && w_img && (wbyte < RTC_BASE)) begin
+                else if (hdr_ok && w_img && apply_ok(wbyte, restore_clock)) begin
                     load_we   <= 1'b1;
                     load_addr <= wbyte;
                     load_data <= whi;
-                    if (wbyte == RTC_BASE - 13'd1) restored <= 1'b1;
                 end
+                if (hdr_ok && w_img && wbyte == RTC_BASE - 13'd1) restored <= 1'b1;
 `endif
                 ws <= W_ACK;
             end

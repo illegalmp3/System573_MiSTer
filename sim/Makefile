@@ -275,6 +275,13 @@ CASS_NV_NO_RESTORE ?=
 # ddrextrm shows NOTE 605 "RTC-RAM cleared" every time. tb_s573_tk_nv test 3 is RED
 # under the define and GREEN by default. MAME reference: timekpr.cpp (NVRAM device).
 TK_NV_NO_RESTORE ?=
+# Optional `make SAVER_UNGATED_BUFF_WR=1 s573_tk_nv` compiles s573_flash_saver.v with
+# -DSAVER_UNGATED_BUFF_WR: the staging buffer captures hps_io's shared SD stream for
+# EVERY slot, not just ours, i.e. the pre-2026-09-28 core in which a CD sector Main
+# streamed to slot 1 between our fill and its read landed in the .sav (PCCARD2 after a
+# save during the attract loop). tb_s573_tk_nv (foreign_sector before every service)
+# is RED under the define and GREEN by default.
+SAVER_UNGATED_BUFF_WR ?=
 HPS_EXT_WIDE_DELTA ?=
 DEFS :=
 ifeq ($(HPS_EXT_WIDE_DELTA),1)
@@ -297,6 +304,9 @@ DEFS += -DCASS_NV_NO_RESTORE
 endif
 ifeq ($(TK_NV_NO_RESTORE),1)
 DEFS += -DTK_NV_NO_RESTORE
+endif
+ifeq ($(SAVER_UNGATED_BUFF_WR),1)
+DEFS += -DSAVER_UNGATED_BUFF_WR
 endif
 ifeq ($(PCM_NO_STOP_FLUSH),1)
 DEFS += -DPCM_NO_STOP_FLUSH
