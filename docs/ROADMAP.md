@@ -170,6 +170,10 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > hps_io's SD stream for EVERY slot, so a save while the game read the CD wrote CD sectors
 > into the .sav (PCCARD2). Gated on our slot's ack; bench injects a foreign sector before
 > every service (`2026-09-28-save-captures-foreign-sd-slot.md`). Closed on the cabinet.
+> Audio-underrun watch item CLOSED without a change: across the ten 09-27/28 session logs
+> (~300 stream epochs) the `underrun=` counter moves only at stream starts (the DAC ticks
+> before the first PCM lands) and at song ends after "window exhausted -- ring drained";
+> never inside a playing epoch. Those are silence either way. Ricky hears no dropouts.
 
 With both applied, the BIOS in the NVC sim **advances ~80 ms past the old 220.6 ms
 crash** through normal init (a large ROM→RAM copy) to 300 ms with **zero AdEL /
