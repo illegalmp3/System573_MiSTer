@@ -154,6 +154,15 @@ MGL_HEAD = """<!--
   The .sav MUST exist before launch -- an .mgl type="s" item mounts with pre=0 and
   a missing file EJECTS the slot (docs/2026-09-12-flash-persistence-fixed.md).
   tools/stage_573.py creates it at {savmb} MiB (+1 KB for a ZS01 cassette, +9 KB timekeeper).
+
+  The .sav is the FIRST item, on purpose. At core init Main mounts slot 4 from its
+  bookmark (config/System573.s4 = the last .sav mounted = the PREVIOUS title's);
+  the flash restore runs once the downloads have settled and does not restart
+  when the slot is remounted, so a .sav mounted after the last download let the
+  previous title's file supply the start of this title's flash (2026-09-29,
+  docs/2026-09-29-sav-mount-order.md). Mounted first, it is in place before the
+  .u1 download -- which resets the saver and re-arms the restore -- so the one
+  restore that completes reads only this file (sim/tb_s573_sav_mount_order.v).
 {packnote}
   After an install, WAIT for the "Flash saved" toast before cutting power. The game
   tells you to switch off at exactly the moment the auto-save has not fired yet
@@ -162,11 +171,11 @@ MGL_HEAD = """<!--
 <mistergamedescription>
   <rbf>_Console/Konami_System_573</rbf>
   <setname>System573</setname>
+  <file delay="1" type="s" index="4" path="{sav}"/>
   <file delay="1" type="f" index="0" path="573bios.bin"/>
   <file delay="1" type="f" index="4" path="{u1}"/>
   <file delay="1" type="f" index="5" path="{pack}"/>
   <file delay="2" type="s" index="1" path="{chd}"/>
-  <file delay="3" type="s" index="4" path="{sav}"/>
   <reset delay="1"/>
 </mistergamedescription>
 """

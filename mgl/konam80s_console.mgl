@@ -51,6 +51,8 @@
 <mistergamedescription>
   <rbf>_Console/Konami_System_573</rbf>
   <setname>System573</setname>
+  <!-- the .sav FIRST: docs/2026-09-29-sav-mount-order.md (a slot-4 mount after the downloads let the previous title's .sav seed this title's flash) -->
+  <file delay="1" type="s" index="4" path="konam80s.sav"/>
   <file delay="1" type="f" index="0" path="573bios.bin"/>
   <file delay="1" type="f" index="2" path="flash16m_blank.bin"/>
   <file delay="1" type="f" index="3" path="nvram8k_blank.bin"/>
@@ -72,7 +74,6 @@
        file: the core programmed its 16 MB flash and the save went nowhere, and the
        next launch offered to initialize the flash again.
        A bare filename lands it in games/System573/, which exists. -->
-  <file delay="3" type="s" index="4" path="konam80s.sav"/>
   <!-- NO <reset>: this launcher has six file items, and Main parses at most SIX
        items per .mgl, silently discarding the rest (mgl_item_struct item[6] +
        mra_loader.cpp `mgl.count < 6`). The reset used to be item seven and was

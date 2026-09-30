@@ -10,7 +10,7 @@ IVFLAGS := -g2005-sv -Wall
 RTL     := ../rtl
 BUILD   := build
 
-TESTS := gn845pwbb s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdtoc atapi_cdread cdboot
+TESTS := gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdtoc atapi_cdread cdboot
 
 # `make` with no target must run the whole suite: the secdata/cddata helper
 # targets were added ABOVE `all`, silently turning `make -C sim` into a no-op
@@ -25,6 +25,7 @@ SRC_m48t58        := $(RTL)/m48t58.v
 SRC_s573_nvram_loader := $(RTL)/s573_nvram_loader.v $(RTL)/m48t58.v
 SRC_s573_nvram_saver  := $(RTL)/s573_nvram_saver.v $(RTL)/s573_nvram_loader.v $(RTL)/m48t58.v
 SRC_s573_flash_saver  := $(RTL)/s573_flash_saver.v
+SRC_s573_sav_mount_order := $(RTL)/s573_flash_saver.v
 SRC_s573_flash_saver_card := $(RTL)/s573_flash_saver.v
 SRC_s573_prof     := $(RTL)/s573_prof.v
 SRC_s573_prof_gpu := $(RTL)/s573_prof_gpu.v
@@ -284,6 +285,12 @@ TK_NV_NO_RESTORE ?=
 # save during the attract loop). tb_s573_tk_nv (foreign_sector before every service)
 # is RED under the define and GREEN by default.
 SAVER_UNGATED_BUFF_WR ?=
+# MGL_SAV_LAST=1: tb_s573_sav_mount_order runs the launcher order shipped until
+# 2026-09-29 (the .sav mounted after the downloads) in the scenarios the fix is for.
+# The boot-time flash restore then starts on Main's slot-4 bookmark (the previous
+# title's .sav) and the image comes out mixed -- RED under the define, GREEN by default
+# (docs/2026-09-29-sav-mount-order.md).
+MGL_SAV_LAST ?=
 HPS_EXT_WIDE_DELTA ?=
 DEFS :=
 ifeq ($(HPS_EXT_WIDE_DELTA),1)
@@ -309,6 +316,9 @@ DEFS += -DTK_NV_NO_RESTORE
 endif
 ifeq ($(SAVER_UNGATED_BUFF_WR),1)
 DEFS += -DSAVER_UNGATED_BUFF_WR
+endif
+ifeq ($(MGL_SAV_LAST),1)
+DEFS += -DMGL_SAV_LAST
 endif
 ifeq ($(PCM_NO_STOP_FLUSH),1)
 DEFS += -DPCM_NO_STOP_FLUSH
