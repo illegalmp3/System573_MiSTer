@@ -70,9 +70,13 @@
 /* Work bound per poll. The decode gate itself is free-space only (never a
  * timer -- that is the MP3_UNPACED flood relocated into C), but Main is a
  * single-threaded poll loop, so one poll must not run away with 1.3 s of audio
- * and stall input handling. 12 frames is ~0.31 s of audio for ~3 ms of decode.
+ * and stall input handling. MEASURED 2026-10-02 (ddr3mj, `poll:` lines): one frame
+ * decodes in ~480 us avg / ~1 ms max, so the old cap of 12 was up to ~6 ms of
+ * Main blocked on every poll after a re-arm until the ring filled (5 polls at
+ * each song start and each preview). 3 frames is ~1.5 ms and still fills the
+ * ring 15x faster than it drains (78 ms of audio per 5 ms poll).
  */
-#define S573_FRAMES_PER_POLL   12
+#define S573_FRAMES_PER_POLL   3
 #define S573_POLL_US           5000       /* ~5 ms, as MD+ */
 #define S573_MAX_FRAME_BYTES   1441       /* MPEG-1 L3 worst case */
 /* minimp3 decodes a frame only when the header of the NEXT one is in the buffer
@@ -122,7 +126,8 @@ static int   opt_cdtrace = 0;    /* cdtrace=1  log every CD sector read         
  * and then bounded, not argued about. mp3_frames caps frames per poll (the old
  * fixed 12); mp3_budget_us additionally stops the burst once it has run that long,
  * which bounds the blocking time no matter how slow a frame decodes. */
-static int   opt_frames    = 12;  /* mp3_frames=N     frames per poll             */
+static int   opt_frames    = S573_FRAMES_PER_POLL;  /* mp3_frames=N  frames per poll */
+static int   opt_pcprof    = 0;   /* pcprof=1         pull the PC profile every second */
 static int   opt_log_fsync = 1;   /* log_fsync=0      do not fsync every log line  */
 static uint32_t log_us_max = 0, log_us_sum = 0, log_writes = 0;
 static int   opt_budget_us = 0;   /* mp3_budget_us=N  0 = no time bound           */
@@ -209,7 +214,6 @@ static void *logger_main(void *arg)
                 log_writes++;
             }
         }
-        fwrite(line, 1, len, stdout);
     }
     return 0;
 }
@@ -226,8 +230,7 @@ static void s573_log(const char *fmt, ...)
     if (n >= (int)sizeof line) n = (int)sizeof line - 1;
     if (!logq_started) {                  /* before the thread exists: direct, as before */
         if (logf) { fwrite(line, 1, n, logf); fflush(logf); }
-        fwrite(line, 1, n, stdout);
-        return;
+        return;                           /* no sink: diagnostics are off, say nothing */
     }
     pthread_mutex_lock(&logq_mx);
     if (logq_head - logq_tail >= LOGQ_N) {
@@ -243,11 +246,23 @@ static void s573_log(const char *fmt, ...)
 
 static void logger_start(void)
 {
+    pthread_attr_t attr;
+    cpu_set_t set;
     if (logq_started) return;
-    if (pthread_create(&logq_thr, NULL, logger_main, NULL) == 0) {
+    /* Core #0, NOT Main's. Main pins itself to core #1 (main.cpp) and a thread
+     * inherits its creator's affinity, so this thread -- woken by every queued
+     * line, and running the FAT write + fsync path -- was competing with the
+     * poll loop for the one core Main has. Upstream's own worker does exactly
+     * this (offload.cpp: "Set affinity to core #0 since main runs on core #1"). */
+    pthread_attr_init(&attr);
+    CPU_ZERO(&set);
+    CPU_SET(0, &set);
+    pthread_attr_setaffinity_np(&attr, sizeof(set), &set);
+    if (pthread_create(&logq_thr, &attr, logger_main, NULL) == 0) {
         pthread_detach(logq_thr);
         logq_started = 1;
     }
+    pthread_attr_destroy(&attr);
 }
 
 /* Open the sink BEFORE anything that can fail. Appends, so a later core load
@@ -288,6 +303,7 @@ static int s573_read_debug_file(void)
         else if (sscanf(p, "mp3_frames=%d", &v) == 1) { if (v >= 1 && v <= 64) opt_frames = v; }
         else if (sscanf(p, "mp3_budget_us=%d", &v) == 1) { if (v >= 0 && v <= 50000) opt_budget_us = v; }
         else if (sscanf(p, "log_fsync=%d", &v) == 1) opt_log_fsync = (v != 0);
+        else if (sscanf(p, "pcprof=%d", &v) == 1) opt_pcprof = (v != 0);
     }
     fclose(f);
     return 1;
@@ -1318,6 +1334,7 @@ static void s573mp3_poll_body(void)
 {
     s573_ptrs_t p;
     uint64_t t;
+    uint16_t wr_advertised;
 
     /* FIRST-CALL EVIDENCE, before the gate and before anything that can fail.
      * This was ordered the other way round and it cost a board cycle: the gate
@@ -1330,8 +1347,10 @@ static void s573mp3_poll_body(void)
         const char *n  = user_io_get_core_name();
         const char *on = user_io_get_core_name(1);
         first = 1;
-        (void)s573_read_debug_file();
-        s573_open_log();
+        /* The log, and its thread, exist only when the SD-card switch is there.
+         * This ran unconditionally: every core, 573 or not, got the file opened
+         * (with an fsync on Main's thread) and the logger thread started. */
+        if (s573_read_debug_file()) s573_open_log();
         s573_log("s573mp3: poll reached -- gate=%d core_name='%s' orig_name='%s'\n",
                  is_573(), n ? n : "(null)", on ? on : "(null)");
         if (!is_573())
@@ -1358,6 +1377,7 @@ static void s573mp3_poll_body(void)
     if (t < next_due_us) return;
     next_due_us = t + S573_POLL_US;
 
+    wr_advertised  = core.pcm_wr;     /* what this exchange sends down */
     ptrs_exchange(&p);
     core.pcm_rd    = p.fab_pcm_rd;
     last_rst_seen  = p.rst_epoch;
@@ -1468,6 +1488,24 @@ static void s573mp3_poll_body(void)
     if (core.have_cfg && now_us() >= wp_next_refresh_us) refresh_write_ptr();
     if (core.have_cfg && (core.ctrl_flags & S573_CTRL_DRAIN_EN)) decode_some();
 
+    /* ADVERTISE WHAT WAS JUST WRITTEN before anything enables the drain. The
+     * poll's opening PTRS carried the write pointer from BEFORE this poll's
+     * decode (and before a re-arm's collapse), and the closing CTRL raises
+     * DRAIN_EN -- so at every song start the fabric reader was switched on
+     * against a pointer one beat ahead, read that beat and starved until the
+     * next poll, 5 ms later, finally delivered the prefill. That is the
+     * underrun count that "moves only at stream starts" in every log (13-152
+     * samples each), and 5 ms of silence in front of every song and preview.
+     * The fabric bench's own HPS model has always done it in this order
+     * (sim/tb_s573_mp3_path.v: produce_beats -> ptrs_poll -> ctrl_poll); its
+     * 2026-10-02 case shows both orders. One 4-word exchange, only when the
+     * pointer moved. */
+    if (core.pcm_wr != wr_advertised) {
+        s573_ptrs_t q2;
+        ptrs_exchange(&q2);
+        core.pcm_rd = q2.fab_pcm_rd;
+    }
+
     /* The honest song end. The enables are a START gate only: ddrsbm asserts
      * fpga_ctrl[14:13] once and never clears them for a song change, so waiting
      * on an enable edge here would mean the music never stops. */
@@ -1482,7 +1520,8 @@ static void s573mp3_poll_body(void)
     ctrl_exchange();
     if (opt_hb) {
         uint64_t h0 = now_us();
-        ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump(); pcprof_dump();
+        ring_watch(); heartbeat(); stagetrace_dump(); sectrace_dump();
+        if (opt_pcprof) pcprof_dump();    /* 579 SPI words a second: ~94 % of the heartbeat's cost */
         { uint32_t hus = (uint32_t)(now_us() - h0); if (hus > hb_us_max) hb_us_max = hus; }
     }
 }

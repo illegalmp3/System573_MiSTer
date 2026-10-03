@@ -251,6 +251,7 @@ module tb_s573_mp3_path;
     reg [15:0] hps_wr = 0;          // HPS's own wr pointer (beats, [BL:0] live range)
     reg [15:0] hps_sync_cnt = 0;    // cumulative frame counter (low 8 bits used)
     reg [15:0] r0, r1, r2, r3;
+    reg [15:0] u_a, u_b;            // STATUS underrun count before/after a start
     reg [15:0] last_fab_rd;
     integer i, w, room, base_samp, t0;
 
@@ -437,6 +438,55 @@ module tb_s573_mp3_path;
         for (i = 0; i < 16; i = i + 1)
             if (gl[i] !== (enc_l(i) + 16'h0100)) w = w + 1;
         chk(w == 0, "reset: only FRESH data plays (no stale replay)");
+
+        // ---------- song start: pointer BEFORE drain enable (2026-10-02) ----------
+        // The service's poll was PTRS -> decode -> CTRL: the prefill decoded in a
+        // poll was not advertised until the NEXT poll's PTRS, but that poll's
+        // CTRL already raised drain_en. The reader then ran against an empty
+        // advertised ring and every sample clock until the next poll was an
+        // underrun -- the count that "moves only at stream starts" in every
+        // hardware log. [old] reproduces that order and must count underruns;
+        // [new] advertises first (a second PTRS after the decode) and must not.
+        w = 0;
+        while (nsamp < beats_written*2 && w < 40*900) begin @(posedge clk); w = w + 1; end
+        ctrl_poll(16'h0001);                  // stop: drain off
+        repeat (100) @(posedge clk);
+        ptrs_poll;
+        spi_begin; spi_word(16'h0069, r0); spi_word(16'h0000, u_a); spi_word(16'h0000, r2); spi_end;
+        // [old] decode (ring written, pointer NOT sent) -> CTRL drain on -> ... next poll
+        for (i = 0; i < 16; i = i + 1) begin
+            @(negedge clk);
+            ddr[hps_wr[BL-1:0]] = { enc_r(2*beats_written+1), enc_l(2*beats_written+1),
+                                    enc_r(2*beats_written),   enc_l(2*beats_written) };
+            hps_wr = (hps_wr + 1) & PTR_MASK;
+            beats_written = beats_written + 1;
+        end
+        ctrl_poll(16'h0003);
+        repeat (6*800) @(posedge clk);        // "until the next poll"
+        spi_begin; spi_word(16'h0069, r0); spi_word(16'h0000, u_b); spi_word(16'h0000, r2); spi_end;
+        chk(u_b != u_a, "song start [old order]: drain enabled before the pointer -> underruns counted");
+        ptrs_poll;                            // the late advertisement
+        w = 0;
+        while (nsamp < beats_written*2 && w < 60*900) begin @(posedge clk); w = w + 1; end
+        chk(nsamp == beats_written*2, "song start [old order]: the prefill does play once advertised");
+
+        ctrl_poll(16'h0001);                  // stop again
+        repeat (100) @(posedge clk);
+        ptrs_poll;
+        spi_begin; spi_word(16'h0069, r0); spi_word(16'h0000, u_a); spi_word(16'h0000, r2); spi_end;
+        // [new] decode -> PTRS (advertise) -> CTRL drain on
+        for (i = 0; i < 16; i = i + 1) begin
+            @(negedge clk);
+            ddr[hps_wr[BL-1:0]] = { enc_r(2*beats_written+1), enc_l(2*beats_written+1),
+                                    enc_r(2*beats_written),   enc_l(2*beats_written) };
+            hps_wr = (hps_wr + 1) & PTR_MASK;
+            beats_written = beats_written + 1;
+        end
+        ptrs_poll;
+        ctrl_poll(16'h0003);
+        repeat (6*800) @(posedge clk);
+        spi_begin; spi_word(16'h0069, r0); spi_word(16'h0000, u_b); spi_word(16'h0000, r2); spi_end;
+        chk(u_b == u_a, "song start [new order]: pointer before drain enable -> ZERO underruns");
 
         if (errors == 0) $display("RESULT: PASS (s573_mp3_path)");
         else             $display("RESULT: FAIL (s573_mp3_path, %0d errors)", errors);

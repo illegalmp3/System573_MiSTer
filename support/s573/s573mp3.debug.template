@@ -9,13 +9,12 @@
 hb=1          # one state line per second: epochs, ring pointers, frame counts,
               # underruns, flushes. Every field retires a specific doubt.
 
-dump=1        # On the first song, write the RAW still-scrambled MP3 window as
+dump=0        # 1 = on the first song, write the RAW still-scrambled MP3 window as
               # the HPS sees it to /media/fat/s573mp3_dump.bin (+ a .txt with
               # the window and keys). Byte-comparing that against the scrambled
               # MP3 in the disc image proves the write path, the address map and
-              # word alignment in ONE shot, and needs no keys. Leave this on for
-              # the first run -- it is the check that distinguishes correct audio
-              # from plausible-but-wrong audio that reads GREEN on every counter.
+              # word alignment in ONE shot, and needs no keys. For a NEW title's first
+              # run only: it writes 64 KB to the card on Main's thread.
 
 tone=0        # 1 = push a known tone through the SAME ring path instead of the
               # decoded MP3. Bisects delivery from decode -- the first thing to
@@ -30,12 +29,12 @@ atten=100     # MP3 channel level, percent. Upstream measured peaks above
               # (0x33F10000, still marked PROVISIONAL in the RTL) overlaps live
               # game memory, so overriding it corrupts the running game.
 
-mp3_frames=12 # How many MP3 frames one poll may decode. Main is a SINGLE poll loop:
+mp3_frames=3  # How many MP3 frames one poll may decode. Main is a SINGLE poll loop:
               # this service, the CD sector reads the fabric asks for, and USB input
               # all take their turn in it, so a long decode burst is dead time for the
-              # other two. 12 was chosen for headroom, not measured. The "poll:" line
-              # in the log reports Main's loop period and the burst length, in
-              # microseconds, once a second.
+              # other two. Measured 2026-10-02: ~480 us per frame, ~1 ms worst. 3 keeps
+              # a burst near 1.5 ms and still fills the ring 15x faster than it drains.
+              # (Was 12 = up to ~6 ms blocked per poll after every re-arm.)
 
 mp3_budget_us=0
               # 0 = no time bound (the frame count alone caps a burst). Set e.g. 1500
@@ -55,7 +54,7 @@ log_fsync=1   # The log commits every line to the SD card so it survives a power
               # footprint. Set 0 only for a run where loop timing IS the measurement;
               # the last second or two of log can then be lost on a power cut.
 
-# pcprof: nothing to switch on. When the bitstream carries rtl/s573_prof_pc.v the
-# heartbeat adds two lines a second -- "pcprof:" (sample rate, class split, top
-# bins) and "pcprof-hist:" (all 512 bins) -- and stays silent on a bitstream
-# without it. Read them with tools/pcprof_map.py.
+pcprof=0      # 1 = pull the PC-sampling profile (rtl/s573_prof_pc.v) every second: the
+              # "pcprof:" and "pcprof-hist:" lines, read with tools/pcprof_map.py. It is
+              # 579 SPI words -- about 1.7 of the heartbeat's 1.8 ms on Main's loop, once
+              # a second -- so it is off unless a run is FOR the profile.
