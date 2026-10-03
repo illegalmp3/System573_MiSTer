@@ -81,3 +81,25 @@ on a copy of the project, or restore the qsf afterwards.
 The cdimg S_STREAM ack qualifier and the ddram_arb reset count were found by
 reading, with no evidence they fire: left alone. Instrumentation stays compiled in
 while it is being used.
+
+## Hardware result (2026-10-02, late session; log local/sdlog/s573mp3-20261002b-review-steps23.log)
+
+ddr3mj and ddrextrm, three stages each plus a failed fourth, on rbf 7f070d4c /
+firmware ccdac5ed. No music dropout, previews fine in both titles (the CD-reader
+fix, commit 844d214, held: no `cd_fetch` run, no decode stall other than each
+window's truncated tail).
+
+Flip intervals over every gameplay song in the log:
+
+| title | frames counted | on the nominal interval | off it |
+|---|---|---|---|
+| ddr3mj (30 fps, bin "2") | 10,914 | all mid-song frames | only in a song's first second and its last one or two (load / result transition) |
+| ddrextrm (60 fps, bin "1") | 18,439 | all mid-song frames | 2 frames, both in a song's first second, plus one long gap at each start |
+
+Not one late frame in the middle of a song in either title. The hitches seen in the
+recorded footage were in the capture chain (RetroTINK + USB capture), and arrow
+scrolling on the CRT looked fine to the player. CLOSED, no change.
+
+`underrun=0` on all 1,131 heartbeats of both sessions, song starts included; before
+the pointer-before-drain fix it rose at every stream start (8 by the first song of
+the earlier log). That fix is confirmed.
