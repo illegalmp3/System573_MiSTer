@@ -41,7 +41,15 @@ module s573_prof_gpu (
     output wire [15:0] prof_stall_k,
     output wire [15:0] prof_gpu_k,
     output wire [15:0] prof_mdec_k,
-    output wire [15:0] prof_mdec_mb   // macroblocks decoded (a RATE, not an occupancy)
+    output wire [15:0] prof_mdec_mb,  // macroblocks decoded (a RATE, not an occupancy)
+    // FLIP-INTERVAL HISTOGRAM (2026-10-02). flips/s and vblanks/s cannot see one
+    // late frame: 59 or 61 in a second is also what the one-second window sliding
+    // looks like. This counts every flip by HOW MANY VBLANKS passed since the
+    // previous flip: {5 or more, 4, 3, 2, 1, 0}, 8 bits each, cumulative and
+    // free-running (at most 60 flips/s, so a once-a-second diff mod 256 is exact).
+    // A 60 fps title is all 1s and a late frame is a 2; a 30 fps title is all 2s
+    // and a late frame is a 3. STATUS words 34..36.
+    output wire [47:0] prof_fliphist
 );
     // The taps are levels on psx_top's clk1x, which is this clock. flip and vblank
     // are single-cycle strobes there, but count only their RISING edge so a tap
@@ -54,6 +62,8 @@ module s573_prof_gpu (
     wire mb_edge   = mdecmb ^ mb_q;
 
     reg [15:0] c_flip, c_vb, c_mb;
+    reg [2:0]  vb_since;              // vblanks since the last flip, saturating at 5
+    reg [7:0]  h0, h1, h2, h3, h4, h5;
     reg [25:0] c_paused, c_stall, c_gpu, c_mdec;   // 16 visible + 10 fraction
 
     always @(posedge clk) begin
@@ -64,7 +74,23 @@ module s573_prof_gpu (
             c_flip <= 0; c_vb <= 0; c_mb <= 0;
             c_paused <= 0; c_stall <= 0; c_gpu <= 0; c_mdec <= 0;
             flip_q <= 1'b0; vb_q <= 1'b0; mb_q <= 1'b0;
+            vb_since <= 3'd0;
+            h0 <= 0; h1 <= 0; h2 <= 0; h3 <= 0; h4 <= 0; h5 <= 0;
         end else begin
+            // a flip closes the interval with the vblanks seen BEFORE this cycle; a
+            // vblank in the same cycle belongs to the next interval
+            if (flip_edge) begin
+                case (vb_since)
+                    3'd0: h0 <= h0 + 1'b1;
+                    3'd1: h1 <= h1 + 1'b1;
+                    3'd2: h2 <= h2 + 1'b1;
+                    3'd3: h3 <= h3 + 1'b1;
+                    3'd4: h4 <= h4 + 1'b1;
+                    default: h5 <= h5 + 1'b1;
+                endcase
+                vb_since <= vb_edge ? 3'd1 : 3'd0;
+            end else if (vb_edge && vb_since != 3'd5)
+                vb_since <= vb_since + 1'b1;
             if (flip_edge)  c_flip   <= c_flip   + 1'b1;
             if (vb_edge)    c_vb     <= c_vb     + 1'b1;
             if (mb_edge)    c_mb     <= c_mb     + 1'b1;
@@ -82,4 +108,5 @@ module s573_prof_gpu (
     assign prof_gpu_k    = c_gpu[25:10];
     assign prof_mdec_k   = c_mdec[25:10];
     assign prof_mdec_mb  = c_mb;
+    assign prof_fliphist = {h5, h4, h3, h2, h1, h0};
 endmodule

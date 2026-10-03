@@ -60,15 +60,37 @@ module s573_cdtoc (
 
     // track-start lookup, 1-clk latency (index = track number 1..99)
     input  wire [6:0]  toc_qtrack,
-    output reg  [31:0] toc_qstart,      // USER-space start LBA
-    output reg         toc_qaudio
+    output wire [31:0] toc_qstart,      // USER-space start LBA
+    output wire        toc_qaudio
 );
     // Main's fake 150-sector track-1 pregap (psx.cpp:142-146/250): subtracted
     // from every MSF-space disk_t / img_size value to keep ATAPI in user space.
     localparam [31:0] PREGAP_LBA = 32'd150;
     // track table: {isAudio, start_lba[18:0]} indexed by track number (1..99;
     // cdinfo word address 4t..4t+3 -> index ti_addr[8:2] = t, same as cd_top)
+    //
+    // ONE write site, so the table infers as RAM. It had two -- the cdinfo commit
+    // and a `track_tbl[1] <= 0` at mount -- and two independent write addresses
+    // cannot be a RAM: Quartus built 2,560 registers and a 128:1 read mux, 1,054
+    // ALMs with 0 block-memory bits (fit report 2026-10-02), on a design at 99.5 %
+    // LABs. The mount's "track 1 = data at LBA 0" is now the flag t1_fallback,
+    // applied on the read side and cleared by the cdinfo commit of track 1 --
+    // the same observable table at every clock (sim/tb_s573_cdtoc.v [5]).
+    // The RAM itself is the plain template -- one write, one whole-word registered
+    // read, in a block of its own. (The first cut kept the read as two part-selects
+    // inside the big always block and Quartus 17 still built registers: map report
+    // of job 213, 2,733 registers, no altsyncram.)
     reg [19:0] track_tbl [0:127];
+    reg        t1_fallback = 1'b0;    // track 1 reads as {data, LBA 0} until cdinfo writes it
+    reg [19:0] tbl_q = 20'd0;         // registered read (the 1-clk lookup latency)
+    reg        t1_sel = 1'b0;         // the lookup was track 1 while the fallback stood
+    wire       tbl_we = ti_write && (ti_addr >= 9'd4) && (ti_addr[1:0] == 2'd3);
+    always @(posedge clk) begin
+        if (tbl_we) track_tbl[ti_addr[8:2]] <= {pend_audio, pend_start};
+        tbl_q <= track_tbl[toc_qtrack];
+    end
+    assign toc_qstart = t1_sel ? 32'd0 : {13'd0, tbl_q[18:0]};
+    assign toc_qaudio = t1_sel ? 1'b0  : tbl_q[19];
 
     reg [18:0] pend_start = 19'd0;    // staged per-track fields between words
     reg        pend_audio = 1'b0;
@@ -91,14 +113,13 @@ module s573_cdtoc (
 
     always @(posedge clk) begin
         // ---- registered track-start lookup ----
-        toc_qstart <= {13'd0, track_tbl[toc_qtrack][18:0]};
-        toc_qaudio <= track_tbl[toc_qtrack][19];
+        t1_sel <= t1_fallback && (toc_qtrack == 7'd1);
 
         // ---- mount: reset to the single-track fallback + start the divider ----
         if (img_mounted) begin
             cdinfo_seen     <= 1'b0;
             toc_track_count <= 8'd1;
-            track_tbl[1]    <= 20'd0;          // track 1: data, LBA 0
+            t1_fallback     <= 1'b1;           // track 1: data, LBA 0
             if (img_size != 64'd0) begin
                 div_dvd  <= img_size[39:0];    // CDs are < 1 TB; 40 bits is generous
                 div_quot <= 40'd0;
@@ -150,7 +171,7 @@ module s573_cdtoc (
                                       : (ti_data[18:0] >= PREGAP_LBA[18:0])
                                         ? ti_data[18:0] - PREGAP_LBA[18:0] : 19'd0;
                     2'd2: pend_audio <= ti_data[16];
-                    2'd3: track_tbl[ti_addr[8:2]] <= {pend_audio, pend_start};
+                    2'd3: if (ti_addr[8:2] == 7'd1) t1_fallback <= 1'b0;   // the table write is tbl_we, above
                     default: ;
                 endcase
             end

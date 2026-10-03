@@ -852,6 +852,7 @@ wire psx_dbg_gpubusy, psx_dbg_mdecbusy, psx_dbg_mdecmb;
 wire mdec15_fast    = status[108];                 // "O[108],MDEC Timing" 1 = drop the 15-bit wait
 wire [15:0] prof_flips, prof_vblanks, prof_paused_k, prof_stall_k, prof_gpu_k, prof_mdec_k, prof_mdec_mb;
 wire [111:0] profg_dbg112 = {prof_mdec_mb, prof_mdec_k, prof_gpu_k, prof_stall_k, prof_paused_k, prof_vblanks, prof_flips};
+wire [47:0] prof_fliphist;                         // STATUS words 34..36
 s573_prof_gpu u_prof_gpu (
    .clk(clk_1x), .rst(reset_or),
    .flip(psx_dbg_flip), .vblank(psx_dbg_vblank),
@@ -859,7 +860,8 @@ s573_prof_gpu u_prof_gpu (
    .gpubusy(psx_dbg_gpubusy), .mdecbusy(psx_dbg_mdecbusy), .mdecmb(psx_dbg_mdecmb),
    .prof_flips(prof_flips), .prof_vblanks(prof_vblanks),
    .prof_paused_k(prof_paused_k), .prof_stall_k(prof_stall_k),
-   .prof_gpu_k(prof_gpu_k), .prof_mdec_k(prof_mdec_k), .prof_mdec_mb(prof_mdec_mb)
+   .prof_gpu_k(prof_gpu_k), .prof_mdec_k(prof_mdec_k), .prof_mdec_mb(prof_mdec_mb),
+   .prof_fliphist(prof_fliphist)
 );
 // PC-sampling profile (s573_prof_pc.v, tap from psx_patches 0031) -> CMD_573_PCPROF.
 // The occupancy levels above cannot tell a spin-wait from work; this says WHERE
@@ -912,6 +914,7 @@ s573_hps_ext hps_ext
 	.prof_dbg(prof_dbg112),
 	.profg_dbg(profg_dbg112),
 	.dio_dbg(dio_dbg_cnt),
+	.fliphist_dbg(prof_fliphist),
 	.pcprof_addr(pcprof_addr), .pcprof_data(pcprof_data), .pcprof_samples(pcprof_samples),
 	.pcprof_ram_hi(pcprof_ram_hi), .pcprof_bios(pcprof_bios), .pcprof_other(pcprof_other),
 	.sec_trace_addr(sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),

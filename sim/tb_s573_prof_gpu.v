@@ -13,6 +13,9 @@ module tb_s573_prof_gpu;
     reg clk = 0, rst = 1;
     reg flip = 0, vblank = 0, cpupaused = 0, cpustall = 0, gpubusy = 0, mdecbusy = 0, mdecmb = 0;
     wire [15:0] p_flip, p_vb, p_paused, p_stall, p_gpu, p_mdec, p_mb;
+    wire [47:0] p_hist;
+    reg  [47:0] hb;                  // histogram baseline
+    integer f;
     integer errors = 0, i, k;
 
     always #5 clk = ~clk;
@@ -22,7 +25,8 @@ module tb_s573_prof_gpu;
         .flip(flip), .vblank(vblank), .cpupaused(cpupaused), .cpustall(cpustall),
         .gpubusy(gpubusy), .mdecbusy(mdecbusy), .mdecmb(mdecmb),
         .prof_flips(p_flip), .prof_vblanks(p_vb), .prof_paused_k(p_paused),
-        .prof_stall_k(p_stall), .prof_gpu_k(p_gpu), .prof_mdec_k(p_mdec), .prof_mdec_mb(p_mb)
+        .prof_stall_k(p_stall), .prof_gpu_k(p_gpu), .prof_mdec_k(p_mdec), .prof_mdec_mb(p_mb),
+        .prof_fliphist(p_hist)
     );
 
     task chk(input [175:0] name, input [31:0] got, input [31:0] want);
@@ -108,13 +112,44 @@ module tb_s573_prof_gpu;
         end
         chk("4 held toggles", p_mb, 304);
 
+        // ---- flip-interval histogram: flips binned by vblanks since the last flip ----
+        strobe_flip(1);                           // close whatever interval is open
+        hb = p_hist;
+        // a 60 fps second: one vblank between flips, 60 times
+        for (f = 0; f < 60; f = f + 1) begin strobe_vb; strobe_flip(1); end
+        chk("60 fps: bin1", (p_hist[15:8] - hb[15:8]) & 8'hff, 60);
+        chk("60 fps: bin2", (p_hist[23:16] - hb[23:16]) & 8'hff, 0);
+        // ONE late frame in it: 2 vblanks before the flip -> exactly one count in bin 2
+        strobe_vb; strobe_vb; strobe_flip(1);
+        chk("late frame at 60 fps: bin2", (p_hist[23:16] - hb[23:16]) & 8'hff, 1);
+        chk("late frame at 60 fps: bin1 unchanged", (p_hist[15:8] - hb[15:8]) & 8'hff, 60);
+        // a 30 fps run: 2 vblanks per flip, then one hitch of 3
+        hb = p_hist;
+        for (f = 0; f < 30; f = f + 1) begin strobe_vb; strobe_vb; strobe_flip(1); end
+        strobe_vb; strobe_vb; strobe_vb; strobe_flip(1);
+        chk("30 fps: bin2", (p_hist[23:16] - hb[23:16]) & 8'hff, 30);
+        chk("hitch at 30 fps: bin3", (p_hist[31:24] - hb[31:24]) & 8'hff, 1);
+        // two flips with no vblank between -> bin 0; a long gap saturates in bin 5+
+        strobe_flip(1);
+        chk("double flip: bin0", (p_hist[7:0] - hb[7:0]) & 8'hff, 1);
+        for (f = 0; f < 4; f = f + 1) strobe_vb;
+        strobe_flip(1);
+        chk("4 vblanks: bin4", (p_hist[39:32] - hb[39:32]) & 8'hff, 1);
+        for (f = 0; f < 9; f = f + 1) strobe_vb;
+        strobe_flip(1);
+        chk("9 vblanks: bin5+", (p_hist[47:40] - hb[47:40]) & 8'hff, 1);
+        // the counters wrap mod 256 and the diff stays exact
+        hb = p_hist;
+        for (f = 0; f < 300; f = f + 1) begin strobe_vb; strobe_flip(1); end
+        chk("300 flips mod 256", (p_hist[15:8] - hb[15:8]) & 8'hff, 300 % 256);
+
         if (errors == 0) $display("RESULT: PASS (s573_prof_gpu)");
         else             $display("RESULT: FAIL (s573_prof_gpu, %0d errors)", errors);
         $finish;
     end
 
     initial begin
-        #5_000_000;
+        #50_000_000;
         $display("RESULT: FAIL (s573_prof_gpu, timeout)");
         $finish;
     end

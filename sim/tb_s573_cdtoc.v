@@ -123,6 +123,33 @@ module tb_s573_cdtoc;
         qtrack = 7'd1; @(negedge clk); @(negedge clk);
         chk32(qstart, 32'd0, "remount track 1 start reset");
 
+        // ===== [5] the track-1 fallback is a read-side flag (one-write-port table) =====
+        // a cdinfo that gives track 1 a non-zero, audio entry must read back ...
+        ti_word(9'd4, 32'd777);                  // track 1 start (taken as-is: psx.cpp:413 space)
+        ti_word(9'd6, 32'h00010000);             // isAudio
+        ti_word(9'd7, 32'd0);                    // commit
+        qtrack = 7'd1; @(negedge clk); @(negedge clk);
+        chk32(qstart, 32'd777, "cdinfo track 1 start reads back");
+        chk32({31'd0, qaudio}, 32'd1, "cdinfo track 1 audio reads back");
+        // ... a remount must put track 1 back to data at LBA 0 and leave track 2 alone ...
+        mount(64'd1150 * 64'd2352);
+        qtrack = 7'd1; @(negedge clk); @(negedge clk);
+        chk32(qstart, 32'd0, "remount: track 1 start back to 0");
+        chk32({31'd0, qaudio}, 32'd0, "remount: track 1 back to data");
+        qtrack = 7'd2; @(negedge clk); @(negedge clk);
+        chk32(qstart, 32'd12000, "remount: track 2 entry untouched");
+        chk32({31'd0, qaudio}, 32'd1, "remount: track 2 audio untouched");
+        // ... and a commit of ANOTHER track must not lift the track-1 fallback ...
+        ti_word(9'd12, 32'd20150); ti_word(9'd14, 32'd0); ti_word(9'd15, 32'd0);   // track 3
+        qtrack = 7'd1; @(negedge clk); @(negedge clk);
+        chk32(qstart, 32'd0, "track 3 commit leaves the track 1 fallback");
+        qtrack = 7'd3; @(negedge clk); @(negedge clk);
+        chk32(qstart, 32'd20000, "track 3 start (user space)");
+        // ... while a new cdinfo for track 1 takes over again
+        ti_word(9'd4, 32'd42); ti_word(9'd6, 32'd0); ti_word(9'd7, 32'd0);
+        qtrack = 7'd1; @(negedge clk); @(negedge clk);
+        chk32(qstart, 32'd42, "new cdinfo track 1 lifts the fallback");
+
         if (errors == 0) $display("RESULT: PASS (s573_cdtoc)");
         else             $display("RESULT: FAIL (s573_cdtoc, %0d errors)", errors);
         $finish;

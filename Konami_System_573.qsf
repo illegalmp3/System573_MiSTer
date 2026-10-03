@@ -26,7 +26,7 @@ set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 # PSX_MiSTer needs the DDR3 framebuffer path (sys_top gates FB_* on this).
 set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 
-# ─────────────────── NO HDMI: analog / CRT-only build (2026-09-10) ───────────────────
+# ????????????????????????????????????????????????????????? NO HDMI: analog / CRT-only build (2026-09-10) ?????????????????????????????????????????????????????????
 # This project is used on a CRT over COMPOSITE, so the HDMI scaler is dead weight
 # on a die at 100% LABs. MISTER_DEBUG_NOHDMI removes it, and the framework has 17
 # guards plumbed for exactly this configuration (psx/sys/sys_top.v) -- it is a
@@ -168,7 +168,11 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
 # (+0.836) but missed HOLD by 0.338 ns on the vendored sdram.sv 3x->1x
 # dma_reqprocessed sync -- a path nothing in this tree touches; ALL PATHS hold
 # padding did not catch it at 99 % LABs. Seed 4: +0.495 setup / +0.061 hold, clean.
-set_global_assignment -name SEED 4
+# SEED 4 -> 5 (2026-10-02): re-rolled after quartus_fit died in the router twice on seed 4
+# (jobs 213/216). Not shown to be seed-related: job 218 on seed 5 then lost quartus_sta to
+# an access violation too, and STA passed when re-run alone. See
+# docs/2026-10-02-review-steps-2-3.md.
+set_global_assignment -name SEED 5
 # HOLD (2026-09-18). Quartus's default OPTIMIZE_HOLD_TIMING covers only I/O and
 # minimum-tPD paths, so an internal register-to-register hold violation is left
 # standing: build #2 of the pcprof/MDEC A/B bitstream had exactly one, -0.256 ns

@@ -107,6 +107,8 @@
 //                    MDEC is at its modelled ceiling or just idling between feeds).
 //   word31       up: k573dio posted-write FIFO {ovf sticky, half-full sticky, wf_cnt[10:0], 000}
 //   word32..33   up: the DIO DRAM WRITE pointer, lo16 / hi9 -- the loader watermark
+//   word34..36   up: flip-interval histogram (s573_prof_gpu), 8-bit cumulative counts of
+//                    flips that came {1,0} / {3,2} / {5+,4} vblanks after the previous one
 //                    the service pulls up to (s573mp3_core.c s573_core_loaded_limit,
 //                    2026-09-28 ddr3mj). The pushes/drains counters that briefly
 //                    lived at 31..35 were retired the same day (100 % LABs).
@@ -253,6 +255,8 @@ module s573_hps_ext
     input     [111:0] profg_dbg,     // s573_prof_gpu counters, word24..30
     input      [47:0] dio_dbg,       // k573dio: word31 {ovf, half, wf_cnt[10:0], 000}; word32..33 the DRAM
                                      // WRITE pointer lo16 / hi9 (the service's loader watermark)
+    input      [47:0] fliphist_dbg,  // s573_prof_gpu flip-interval histogram, word34..36:
+                                     // {1 vblank, 0}, {3, 2}, {5+, 4} -- 8-bit cumulative counts
     // ---- CMD_573_SECTRACE: cassette event trace read-out (system573_top) ----
     output reg [7:0]  sec_trace_addr,
     input      [15:0] sec_trace_data,   // valid the cycle after sec_trace_addr
@@ -311,7 +315,7 @@ localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_e
 reg gain_seen = 1'b0;
 always @(posedge clk_sys) if (rst) gain_seen <= 1'b0; else if (gain_stb) gain_seen <= 1'b1;
 
-reg [15:0] snap [1:33];
+reg [15:0] snap [1:36];
 
 integer si;
 initial begin
@@ -323,7 +327,7 @@ initial begin
     dec_frame_sync = 0;
     dec_frame_idle = 0;
     evt_ovf        = 0;
-    for (si = 1; si <= 33; si = si + 1) snap[si] = 16'd0;
+    for (si = 1; si <= 36; si = si + 1) snap[si] = 16'd0;
 end
 
 
@@ -446,6 +450,9 @@ always @(posedge clk_sys) begin
                     snap[31] <= dio_dbg[15:0];
                     snap[32] <= dio_dbg[31:16];
                     snap[33] <= dio_dbg[47:32];
+                    snap[34] <= fliphist_dbg[15:0];
+                    snap[35] <= fliphist_dbg[31:16];
+                    snap[36] <= fliphist_dbg[47:32];
                 end
                 CMD_573_MP3CFG: begin
                     // the whole descramble config latched as ONE tuple -- a
@@ -524,6 +531,9 @@ always @(posedge clk_sys) begin
                     else if(byte_cnt == 31) io_dout <= snap[31];
                     else if(byte_cnt == 32) io_dout <= snap[32];
                     else if(byte_cnt == 33) io_dout <= snap[33];
+                    else if(byte_cnt == 34) io_dout <= snap[34];
+                    else if(byte_cnt == 35) io_dout <= snap[35];
+                    else if(byte_cnt == 36) io_dout <= snap[36];
                 end
                 CMD_573_STAGETRACE: begin
                     if(byte_cnt == 1) begin

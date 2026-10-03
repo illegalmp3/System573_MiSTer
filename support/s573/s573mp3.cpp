@@ -410,6 +410,11 @@ static uint16_t profg[7], profg_prev[7];
  * half-full sticky, wf_cnt[10:0], 000}; 32/33 = the DRAM WRITE pointer lo/hi,
  * the loader watermark (s573_core_loaded_limit). */
 static uint16_t dio[3];
+/* words34..36: the flip-interval histogram (rtl/s573_prof_gpu.v, 0 on older RTL).
+ * Six 8-bit cumulative counts of buffer flips by how many vblanks passed since the
+ * previous flip: word34 = {1, 0}, word35 = {3, 2}, word36 = {5 or more, 4}. */
+static uint16_t fliph[3], fliph_prev[3];
+static int      fliph_have_prev = 0;
 static int      prof_have_prev = 0, profg_have_prev = 0;
 /* zs01 packet-engine observability (STATUS words 6/7/8; rtl/zs01.v dbg). The engine
  * is multi-cycle and the real host neither clock-stretches nor waits, so 'did the
@@ -673,6 +678,8 @@ static void status_exchange(uint16_t *flags, uint16_t *underrun, uint16_t *buflv
         profg[i]    = spi_w(0);   /* words24..30: the PSX-side profile (0 on older RTL) */
     for (int i = 0; i < 3; i++)
         dio[i]      = spi_w(0);   /* words31..33: k573dio FIFO state + DRAM write pointer (0 on older RTL) */
+    for (int i = 0; i < 3; i++)
+        fliph[i]    = spi_w(0);   /* words34..36: flip-interval histogram (0 on older RTL) */
     DisableIO();
 }
 
@@ -1190,6 +1197,26 @@ static void heartbeat(void)
                          g[6], 100.0 * g[6] / (33868800.0 / 2171.0),
                          g[0], g[1], g[2], g[3], g[4], g[5], g[6]);
         }
+    }
+
+    {
+        /* Flip intervals. frames/s cannot see ONE late frame (59 or 61 in a second
+         * is also the one-second window sliding); this can: every flip is counted
+         * by the vblanks since the previous one. 60 fps = all in "1", a late frame
+         * is a "2"; 30 fps = all in "2", a late frame is a "3". An older bitstream
+         * leaves the three words 0 and the line stays silent. */
+        unsigned b[6];
+        int anyf = 0;
+        for (int i = 0; i < 3; i++) {
+            if (fliph[i]) anyf = 1;
+            b[2*i]   = fliph_have_prev ? (unsigned)(uint8_t)((fliph[i] & 0xff) - (fliph_prev[i] & 0xff)) : 0u;
+            b[2*i+1] = fliph_have_prev ? (unsigned)(uint8_t)((fliph[i] >> 8)   - (fliph_prev[i] >> 8))   : 0u;
+            fliph_prev[i] = fliph[i];
+        }
+        fliph_have_prev = 1;
+        if (anyf)
+            s573_log("s573mp3: flips: by vblanks since the previous flip 0=%u 1=%u 2=%u 3=%u 4=%u 5+=%u\n",
+                     b[0], b[1], b[2], b[3], b[4], b[5]);
     }
 
     {
