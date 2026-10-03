@@ -87,15 +87,6 @@ extern "C" {
  * early -- which is what a player reported on the first playable credit. */
 #define S573_ELASTIC_BEATS   256u
 
-/* When a re-arm arrives while the drain is LIVE (the song-select scroll does
- * this: the next preview is armed before the previous one stops), the reader
- * is advancing ~110 beats per 5 ms poll. Parking one beat past a snapshot of
- * it is a race -- it may already be past us, and the difference then reads
- * as a full ring of replay. Park THIS far ahead instead, zeroed: up to 46 ms
- * of silence instead of the old preview's 1.5 s tail. Upstream deferred the
- * flush in this case, having measured that the case never occurred; it does. */
-#define S573_LIVE_GAP_BEATS  1024u   /* retired 2026-09-27: the live case now stops the reader first */
-
 /* minimp3 emits 1152 samples per MPEG-1 Layer III frame. */
 #define S573_FRAME_SAMPLES   1152u
 #define S573_FRAME_BEATS     (S573_FRAME_SAMPLES / S573_BEAT_SAMPLES)   /* 576 */
@@ -105,7 +96,6 @@ extern "C" {
  * ran on silicon. NOT 8192 - a single 8 KiB descramble costs ~1.3 ms inside a
  * ~5 ms poll (decision-B spike, "CPU cost"). */
 #define S573_IN_BUF          4096u
-#define S573_IN_KEEP         1600u   /* >= 1441 B lookahead kept on a refill */
 
 /* How far the descrambler may run AHEAD of the audio that has actually played,
  * in stream bytes. This is the demand model, and without it the service is not
@@ -223,7 +213,7 @@ typedef struct {
      * in in_buf as an "old tail" that the rewind kept, so the decoder scanned
      * garbage forever (log 2026-09-28: 29 frames, then rewinds climbing to
      * 10,656 with 0 played). The fabric now reports the DIO write pointer
-     * (STATUS words 36/37): while it sits INSIDE the armed window and has moved
+     * (STATUS words 32/33): while it sits INSIDE the armed window and has moved
      * since the re-arm, the game is still writing this window and nothing past
      * the last COMPLETE sector below it is pulled. Outside the window, or at its
      * end, the window is taken as fully loaded -- the 4th Mix/Extreme preload
@@ -347,7 +337,7 @@ void     s573_core_mark_tail_spent(s573_core_t *c);
  * exactly the failure mode this guards.) */
 int      s573_core_may_decode(const s573_core_t *c);
 
-/* Feed the DIO write pointer (fabric STATUS words 36/37) before each poll's
+/* Feed the DIO write pointer (fabric STATUS words 32/33) before each poll's
  * decode. valid=0 means the bitstream does not report it: no gating. */
 void s573_core_set_write_ptr(s573_core_t *c, uint32_t wp, int valid, uint32_t now_us);
 

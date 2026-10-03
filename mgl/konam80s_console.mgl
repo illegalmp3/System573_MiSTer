@@ -54,8 +54,6 @@
   <!-- the .sav FIRST: docs/2026-09-29-sav-mount-order.md (a slot-4 mount after the downloads let the previous title's .sav seed this title's flash) -->
   <file delay="1" type="s" index="4" path="konam80s.sav"/>
   <file delay="1" type="f" index="0" path="573bios.bin"/>
-  <file delay="1" type="f" index="2" path="flash16m_blank.bin"/>
-  <file delay="1" type="f" index="3" path="nvram8k_blank.bin"/>
   <file delay="1" type="f" index="4" path="konam80s.u1"/>
   <file delay="2" type="s" index="1" path="konam80s.chd"/>
   <!-- FLASH PERSISTENCE (slot 4): see hypbbc2p_console.mgl for the full rationale.
@@ -74,9 +72,11 @@
        file: the core programmed its 16 MB flash and the save went nowhere, and the
        next launch offered to initialize the flash again.
        A bare filename lands it in games/System573/, which exists. -->
-  <!-- NO <reset>: this launcher has six file items, and Main parses at most SIX
-       items per .mgl, silently discarding the rest (mgl_item_struct item[6] +
-       mra_loader.cpp `mgl.count < 6`). The reset used to be item seven and was
-       therefore never parsed -- it only LOOKED harmless. Made explicit 2026-09-11
-       so nobody adds a seventh item expecting it to run. -->
+  <!-- 2026-10-02: the two blank images (flash16m_blank.bin at index 2, nvram8k_blank.bin
+       at index 3) are gone. Loading a blank flash image on every launch is the pattern that
+       overwrote a restored install (docs/2026-07-31-ddrsbm-flash-restore-root-cause.md); the
+       item list is now the one hypbbc2p_console.mgl has run with since 2026-09-11 -- the
+       .sav first, BIOS, cassette, disc, reset. Four items leaves room for the reset inside
+       Main's six-item limit. UNTESTED: no konam80s dump has been staged for this core. -->
+  <reset delay="1"/>
 </mistergamedescription>

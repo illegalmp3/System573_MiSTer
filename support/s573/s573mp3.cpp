@@ -54,8 +54,6 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <time.h>
-#include <unistd.h>
-#include <sys/stat.h>
 
 #include "../../spi.h"
 #include "../../user_io.h"
@@ -643,7 +641,7 @@ static void pcprof_dump(void)
     }
 }
 
-/* Does this bitstream report the DIO write pointer (STATUS words 36/37)? An
+/* Does this bitstream report the DIO write pointer (STATUS words 32/33)? An
  * older one returns 0 there; a real pointer is never 0 once the game has
  * written anything, and the loader gate is off until it is seen non-zero. */
 static int dio_ptr_seen = 0;
