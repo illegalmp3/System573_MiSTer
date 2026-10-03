@@ -30,6 +30,7 @@ module tb_s573_mp3_pcm;
     reg         wr_en = 0;
     reg  [15:0] wr_l = 0, wr_r = 0;
     reg         drain_en = 0;
+    reg         hold = 0;
     wire        wr_full;
     wire [AW:0] wr_level;
     wire [15:0] pcm_l, pcm_r;
@@ -40,7 +41,7 @@ module tb_s573_mp3_pcm;
         .clk(clk), .rst(rst),
         .wr_en(wr_en), .wr_l(wr_l), .wr_r(wr_r),
         .wr_full(wr_full), .wr_level(wr_level),
-        .drain_en(drain_en),
+        .drain_en(drain_en), .hold(hold),
         .pcm_l(pcm_l), .pcm_r(pcm_r), .pcm_sample_tick(pcm_sample_tick),
         .underrun_cnt(underrun_cnt), .overflow_cnt(overflow_cnt)
     );
@@ -293,13 +294,48 @@ module tb_s573_mp3_pcm;
             end
         if (bad !== 0) begin $display("FAIL: phaseG %0d post-restart samples were not the new stream", bad); errors=errors+1; end
 
+        // =====================================================================
+        // Phase H: CORE PAUSE (2026-10-02: the music played on through the MiSTer
+        // OSD while the game stood still, and the chart came back out of sync).
+        // psx_top's isPaused freezes the CPU, GPU and SPU; the MP3 drain must
+        // freeze with them: no tick, no underrun, nothing flushed, the output
+        // level held, and on release the stream continues with the NEXT sample
+        // at the right phase. RED under PCM_NO_PAUSE_HOLD.
+        // =====================================================================
+        do_reset;
+        tick_count = 0;
+        hold = 0;
+        for (i = 0; i < 60; i = i + 1)
+            push(16'hC000 + i[15:0], 16'hC800 + i[15:0]);
+        drain_en = 1;
+        wait_ticks(10, 12*PERIOD);
+        run_cyc(PERIOD/3);                              // pause part-way through a sample period
+        @(negedge clk); hold = 1;
+        u0 = underrun_cnt; dmin = wr_level; dmax = pcm_l;
+        run_cyc(40*PERIOD);                             // 40 sample periods "with the OSD open"
+        if (tick_count !== 10) begin $display("FAIL: phaseH %0d samples drained while the core was paused (the music plays on through the OSD)", tick_count - 10); errors=errors+1; end
+        if (wr_level !== dmin) begin $display("FAIL: phaseH buffer level changed during the pause (%0d -> %0d)", dmin, wr_level); errors=errors+1; end
+        if (underrun_cnt !== u0) begin $display("FAIL: phaseH underruns counted during the pause"); errors=errors+1; end
+        if (pcm_l !== dmax[15:0]) begin $display("FAIL: phaseH output level moved during the pause"); errors=errors+1; end
+        @(negedge clk); hold = 0; first_tick_cyc = cyc;
+        wait_ticks(11, 2*PERIOD);
+        // the paused period resumes where it stopped: about 2/3 of a period remains
+        if (tick_count >= 11 && ((tick_cyc[10] - first_tick_cyc) > PERIOD || (tick_cyc[10] - first_tick_cyc) < PERIOD/2))
+            begin $display("FAIL: phaseH first tick after the pause came %0d cycles later (exp ~%0d: the phase was not kept)", tick_cyc[10] - first_tick_cyc, PERIOD - PERIOD/3); errors=errors+1; end
+        wait_ticks(60, 60*PERIOD);
+        @(negedge clk); drain_en = 0;
+        bad = 0;
+        for (i = 0; i < 60 && i < tick_count; i = i + 1)
+            if (got_l[i] !== (16'hC000 + i[15:0]) || got_r[i] !== (16'hC800 + i[15:0])) bad = bad + 1;
+        if (bad !== 0 || tick_count !== 60) begin $display("FAIL: phaseH %0d of 60 samples wrong or missing across the pause (ticks=%0d)", bad, tick_count); errors=errors+1; end
+
         if (errors == 0) $display("RESULT: PASS (s573_mp3_pcm)");
         else             $display("RESULT: FAIL (s573_mp3_pcm, %0d errors)", errors);
         $finish;
     end
 
     initial begin
-        #200_000_000;
+        #400_000_000;
         $display("RESULT: FAIL (s573_mp3_pcm, TIMEOUT)");
         $finish;
     end

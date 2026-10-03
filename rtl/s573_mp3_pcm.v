@@ -75,6 +75,18 @@ module s573_mp3_pcm #(
     // silent, accumulator phase reset (a clean restart, no half-sample carry).
     input  wire        drain_en,
 
+    // ---- core pause ----
+    // High while the PSX core is paused (psx_top isPaused = `pausing`, the level that
+    // freezes the CPU, the GPU and the SPU -- e.g. the OSD is open with "Pause when OSD
+    // open"). The drain FREEZES: no sample clock, no tick, no underrun, the accumulator
+    // keeps its phase and the buffer keeps its samples, so the stream resumes on the
+    // very next sample when the pause ends. Without it the 44100 Hz drain ran on a
+    // free-running clock while the game stood still: the music played on through the
+    // OSD and the chart came back out of sync (2026-10-02, every DDR title). The
+    // output holds its last sample (a constant level is silent; muting and un-muting
+    // would put a step, i.e. a click, at both ends of the pause).
+    input  wire        hold,
+
     // ---- outputs: to the audio mixer + the k573dio sample counter ----
     output reg  [15:0] pcm_l,             // held between sample-clocks; 0 on underrun/idle
     output reg  [15:0] pcm_r,
@@ -110,7 +122,12 @@ module s573_mp3_pcm #(
     // CLK_HZ cycles. With CLK_HZ = 44100*768 this reduces to one ce / 768 cycles.
     reg  [31:0] acc;
     wire [32:0] acc_next = {1'b0, acc} + {1'b0, SR_HZ};
-    wire        pcm_ce   = drain_en && (acc_next >= {1'b0, CLK_HZ});
+`ifdef PCM_NO_PAUSE_HOLD
+    wire        held     = 1'b0;     // WRONG (compiled only to make phase H RED)
+`else
+    wire        held     = hold;
+`endif
+    wire        pcm_ce   = drain_en && !held && (acc_next >= {1'b0, CLK_HZ});
 
     always @(posedge clk) begin
         if (rst) begin
@@ -148,6 +165,8 @@ module s573_mp3_pcm #(
             // ---- accumulator phase ----
             if (!drain_en)
                 acc <= 32'd0;                    // idle: reset phase (clean restart)
+            else if (held)
+                acc <= acc;                      // paused: keep the phase
             else if (pcm_ce)
                 acc <= acc_next[31:0] - CLK_HZ;  // wrap
             else

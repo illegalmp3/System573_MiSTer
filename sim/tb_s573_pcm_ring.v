@@ -49,7 +49,7 @@ module tb_s573_pcm_ring;
     s573_mp3_pcm #(.AW(9)) snk (
         .clk(clk), .rst(rst),
         .wr_en(wr_en), .wr_l(wr_l), .wr_r(wr_r), .wr_full(wr_full), .wr_level(lvl),
-        .drain_en(drain_en),
+        .drain_en(drain_en), .hold(1'b0),
         .pcm_l(pcm_l), .pcm_r(pcm_r), .pcm_sample_tick(pcm_tick),
         .underrun_cnt(uflow), .overflow_cnt(oflow)
     );

@@ -3206,6 +3206,7 @@ s573_mp3_pcm u_mp3_pcm (
    .wr_full        (mp3_buf_wr_full),
    .wr_level       (mp3_buf_level),
    .drain_en       (mp3_ctrl_flags[1]),   // HPS-owned: set while the MP3 stream plays
+   .hold           (isPaused),            // the core is paused (OSD open / pause button): freeze the drain
    .pcm_l          (mp3_pcm_l),
    .pcm_r          (mp3_pcm_r),
    .pcm_sample_tick(mp3_pcm_sample_tick),

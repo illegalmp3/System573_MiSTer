@@ -118,7 +118,7 @@ module tb_s573_mp3_path;
         .clk(clk), .rst(rst),
         .wr_en(mp3_buf_wr_en), .wr_l(mp3_buf_wr_l), .wr_r(mp3_buf_wr_r),
         .wr_full(mp3_buf_wr_full), .wr_level(mp3_buf_level),
-        .drain_en(mp3_ctrl_flags[1]),
+        .drain_en(mp3_ctrl_flags[1]), .hold(1'b0),
         .pcm_l(mp3_pcm_l), .pcm_r(mp3_pcm_r), .pcm_sample_tick(mp3_pcm_sample_tick),
         .underrun_cnt(mp3_underrun_cnt32), .overflow_cnt(mp3_overflow_cnt32)
     );

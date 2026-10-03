@@ -243,6 +243,10 @@ PCM_FAKE_UNDERRUN ?=
 # the next one: ddrextrm song-select pops). tb_s573_mp3_pcm phase G is RED under the
 # define and GREEN by default. MAME reference: mas3507d.cpp reset_playback().
 PCM_NO_STOP_FLUSH ?=
+# Optional `make PCM_NO_PAUSE_HOLD=1 s573_mp3_pcm`: the drain ignores the core pause, i.e.
+# the pre-2026-10-02 core whose music played on while the OSD paused the game.
+# tb_s573_mp3_pcm phase H is RED under the define and GREEN by default.
+PCM_NO_PAUSE_HOLD ?=
 # Optional `make CASS_NV_NO_RESTORE=1 s573_cass_nv` compiles s573_cass_nv.v with
 # -DCASS_NV_NO_RESTORE: a LOAD never applies the saved ZS01 cassette block, i.e. the
 # pre-2026-09-16 core in which the .mgl's pristine .u1 always wins and an installed
@@ -296,6 +300,9 @@ DEFS += -DSAVER_UNGATED_BUFF_WR
 endif
 ifeq ($(MGL_SAV_LAST),1)
 DEFS += -DMGL_SAV_LAST
+endif
+ifeq ($(PCM_NO_PAUSE_HOLD),1)
+DEFS += -DPCM_NO_PAUSE_HOLD
 endif
 ifeq ($(PCM_NO_STOP_FLUSH),1)
 DEFS += -DPCM_NO_STOP_FLUSH
