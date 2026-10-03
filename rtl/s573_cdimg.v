@@ -15,6 +15,11 @@
 // reclaimed here). It is the contract in psx/rtl/cd_top.vhd's SFETCH state machine:
 //   * cd_req=1 with cd_lba = the sector LBA in MAIN'S MSF SPACE (user LBA + 150,
 //     see PREGAP_LBA below); hold until cd_ack=1, then drop req.
+//   * cd_req is raised ONLY WHILE cd_ack IS LOW (cd_top.vhd SFETCH_DELAY: "wait
+//     for HPS ack before new request"). sd_ack is a LEVEL that hps_io holds from
+//     the first word of Main's transfer until DisableIO, i.e. past the last
+//     word; a request raised under it would take the previous transfer's ack
+//     for its own (see S_ARM below).
 //   * the host then streams the RAW 2352-byte sector as 1176 16-bit words, one per
 //     cd_wr pulse (cd_data valid on each). 1176 words = 2352 bytes.
 //   * MODE1/MODE2-form2 sectors carry a 16-byte sync+header, then 2048 user bytes,
@@ -76,8 +81,19 @@ module s573_cdimg (
     // zone -> 'CD001' check fails -> -11 -> CDR BAD.
     localparam [31:0] PREGAP_LBA = 32'd150;
 
-    localparam [1:0] S_IDLE=2'd0, S_REQ=2'd1, S_STREAM=2'd2, S_DONE=2'd3;
-    reg [1:0]  state;
+    // S_ARM (2026-10-02, ddr3mj): a request is not put on the wire until the host's
+    // ack is LOW. hps_io.sv raises sd_ack on the first word of Main's sector
+    // transaction and clears it only when io_enable drops, so it is still high for
+    // a moment after the 1176th word -- the word on which this module declares the
+    // sector ready -- and all through a transfer. A sec_req arriving then went
+    // straight S_REQ -> S_STREAM on the PREVIOUS transfer's ack: cd_req was high
+    // for one clock (Main's status poll never saw it) and S_STREAM waited forever
+    // for 1176 words. The game's loader stopped mid-song and never read the disc
+    // again (log: cd_fetch=100%, sectors=0, ide_acc=0, Main's read count frozen).
+    // Upstream has this guard: psx/rtl/cd_top.vhd SFETCH_DELAY holds the request
+    // until cd_hps_ack = '0'. sim/tb_s573_cdimg_ack.v is RED without it.
+    localparam [2:0] S_IDLE=3'd0, S_ARM=3'd1, S_REQ=3'd2, S_STREAM=3'd3, S_DONE=3'd4;
+    reg [2:0]  state;
     reg [10:0] wcnt;       // raw word counter 0..1175
 
     always @(posedge clk) begin
@@ -102,14 +118,20 @@ module s573_cdimg (
             // sec_req is what tags sec_ready to the CURRENT request -- an aborted
             // earlier LBA's buffer can never be served as the new (different) LBA.
             cd_lba    <= sec_lba + PREGAP_LBA;  // user -> Main MSF space (see above)
-            cd_req    <= 1'b1;
+            cd_req    <= 1'b0;                  // raised in S_ARM, once the host's ack is low
             sec_ready <= 1'b0;                  // invalidate the old sector
             sec_busy  <= 1'b1;
             wcnt      <= 11'd0;
-            state     <= S_REQ;
+            state     <= S_ARM;
         end else begin
             case (state)
                 S_IDLE: sec_busy <= 1'b0;
+                S_ARM: begin                  // the previous transfer's ack must be gone first
+                    if (!cd_ack) begin
+                        cd_req <= 1'b1;
+                        state  <= S_REQ;
+                    end
+                end
                 S_REQ: begin                  // wait for the host to accept the request
                     if (cd_ack) begin
                         cd_req <= 1'b0;
