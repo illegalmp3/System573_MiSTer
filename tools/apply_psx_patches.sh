@@ -27,7 +27,7 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           # already sees the current FetchAddr. The patch forced an i-cache MISS on every 16-byte
           # line crossing (+5 clk1x each, NVC-measured: 65 -> 150 cycles for a 16-line loop),
           # which is what held ddrextrm at 30 fps. The June BIOS crash it was blamed for is the
-          # cached-BIOS-mirror fill gap that 0005 fixes. docs/2026-09-27-icache-patch-0004-cost.md
+          # cached-BIOS-mirror fill gap that 0005 fixes. docs/2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md
           "$ROOT/psx_patches/0005-s573-cpu-bios-uncached.patch" \
           "$ROOT/psx_patches/0006-s573-exp1-flash-wait.patch" \
           "$ROOT/psx_patches/0007-sdram-ch4-flash.patch" \

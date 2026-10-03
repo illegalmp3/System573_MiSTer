@@ -76,7 +76,6 @@ db/
 incremental_db/
 hc_output/
 .qsys_edit/
-*.qpf
 build_id.v
 jtag.cdf
 PLLJ_PLLSPE_INFO.txt
@@ -123,3 +122,6 @@ support/s573/tests/test_S573_MUT_*
 sim/Makefile.pcprof
 sim/system573/build_*/
 Konami_System_573.qsf.prebuild
+
+# Quartus crash reports
+cr_ie_info.json

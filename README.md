@@ -36,6 +36,10 @@ The full register map (transcribed from psx-spx) lives in
 
 ## Status — honest accounting
 
+> **Current status lives in [`docs/STATUS.md`](docs/STATUS.md).** The account below was
+> written in mid-2026 and is kept as the history of the bring-up; where the two
+> disagree, STATUS.md is right.
+
 **Latest milestone (2026-08-02): a DDR title boots, plays, and has working
 streamed MP3 music on real hardware.** *Dance Dance Revolution Solo Bass Mix*
 (`ddrsbm`) boots from restored onboard flash into attract, plays through a

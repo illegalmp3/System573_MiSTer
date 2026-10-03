@@ -1,5 +1,8 @@
 # Roadmap
 
+> The phase list below is the original plan, with boxes ticked as things landed.
+> For what runs today and what is open, see [`STATUS.md`](STATUS.md).
+
 The honest path from this repository to a System 573 core that boots a game.
 
 > **For the forward plan** (PSX integration → BIOS POST → first game → full game
@@ -76,8 +79,10 @@ hook point, the 4 MB/2 MB deviations, IRQ10/DMA ch5, bring-up order).
             layer in the testbench (implemented, currently unexercised)
 - [x] Security-cartridge bus glue (`rtl/s573_seccart.v`, tested): D0-D7 latch
       -> EEPROM SDA/SCL/CS/RST + board DS2401, IO0/I0 read-back
-- [ ] Per-game DS2401 serials + installation cart handling
-- [ ] M48T58 contents / "master calendar" handling
+- [x] Per-game DS2401 serials + installation cart handling (`.cas` packs, both cassettes
+      held in the core, OSD "573 Cassette" -- 2026-09-28)
+- [x] M48T58 contents / "master calendar" handling (persisted in the slot-4 `.sav`,
+      clock from the host RTC -- 2026-09-28)
 
 ## Phase 4 — BEMANI Digital I/O board (DDR)
 - [x] Digital I/O register block (`rtl/k573dio.v`, tested): light outputs,
@@ -99,7 +104,8 @@ hook point, the 4 MB/2 MB deviations, IRQ10/DMA ch5, bring-up order).
       - [x] ADC0838 8-channel serial ADC (`rtl/adc0838.v`, tested)
       - [ ] Analog I/O board glue / JVS analog path
 - [ ] JVS MCU emulation for later I/O
-- [ ] Save/restore of NVRAM + security state to SD
+- [x] Save/restore of NVRAM + security state to SD (`s573_flash_saver`, `s573_cass_nv`,
+      `s573_tk_nv`)
 - [ ] Per-game timing, video options, MiSTer OSD menu
 
 Phases 1–5 are large. Phase 0 (the 573 glue) is *done and verified*, and
