@@ -531,8 +531,6 @@ parameter CONF_STR = {
 	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port1,Analog Joystick,Pop'n;",
 	"D8O[52:49],Pad2,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port2,Analog Joystick,Pop'n;",
 	"D8h0O[66],SNAC MemCard,Virtual,Real;",
-	"D8hFO[91],NeGcon Rumble,Off,On;",
-	"D8h2O[9],Show Crosshair,Off,On;",
 	"D8h4O[31],DS Mode,L3+R3+Up/Dn | Click,L1+L2+R1+R2+Up/Dn;",
 	"O[57:56],Multitap,Off,Port1: 4 x Digital,Port1: 4 x Analog;",
 	"-;",
@@ -549,42 +547,14 @@ parameter CONF_STR = {
 	"P1O[61],Black Transitions,On,Off;",
 	"P1O[41],Deinterlacing,Weave,Bob;",
 	"P1O[60],Sync 480i for HDMI,Off,On;",
-	"P1O[24],Rotate,Off,On;",
 	"P1-;",
 	"P1O[22],Dithering,On,Off;",
-	"DEP1O[84],Render 24 Bit,Off,On;",
-	"P1O[73],Dither 24 Bit for VGA,Off,On;",
 	"P1-;",
-	"P1O[89],480i to 480p Hack,Off,On;",
-	"P1O[54:53],Widescreen Hack,Off,3:2,5:3,16:9;",
-	"P1O[82:81],Texture Filter,Off,All Polygon,Dithered,Dith+Shaded;",
-	"hDP1O[87:86],Filter Strength,25%,50%,75%,100%;",
-	"hDP1O[83],Filter 2D Detect,Off,On;",
-	"P1-;",
-	"d1P1O[44],SPU RAM select,DDR3,SDRAM2;",
 	"P1O[8:7],Stereo Mix,None,25%,50%,100%;",
 
 	"P2,Miscellaneous;",
 	"P2-;",
-	"P2O[16],Fastboot,Off,On;",
-	"P2O[42],CD Lid,Closed,Open;",
 	"P2O[64],Pause when OSD open,On,Off;",
-	"P2-;",
-	"P2-,(U) = unsafe -> can crash;",
-	"P2O[80:79],Turbo(Cheats Off),Off,Low(U),Medium(U),High(U);",
-	"P2O[72],Pause when CD slow,On,Off(U);",
-	"P2O[15],PAL 60Hz Hack,Off,On(U);",
-	"P2O[21],CD Fast Seek,Off,On(U);",
-	"P2O[77:75],CD Speed,Original,Forced 1X(U),Forced 2X(U),Hack 4X(U),Hack 6X(U),Hack 8X(U);",
-	"P2O[78],Limit Max CD Speed,Off,On(U);",
-	"P2O[85],RAM(Homebrew),2 MByte,8 MByte(U);",
-	"P2O[90],GPU Slowdown,Off,On(U);",
-	"P2O[92],Old GPU(CXD8514Q),Off,On;",
-	"P2-;",
-	"P2O[28],FPS Overlay,Off,On;",
-	"P2O[74],Error Overlay,Off,On;",
-	"P2O[59],CD Slow Overlay,Off,On;",
-	"h9P2O[70],CD Overlay,Read,Read+Seek;",
 
 	"h3-;",
 	"h3P3,Debug;",
@@ -594,9 +564,6 @@ parameter CONF_STR = {
 	"h3P3O[11],VRAMViewer,Off,On;",
 	"h3P3O[30],Sound,On,Off;",
 	"h3P3O[43],RepTimingSPUDMA,Off,On;",
-	"h3P3O[27],Textures,On,Off;",
-	"h3P3O[69],LBA Overlay,Off,On;",
-	"h3P3O[88],Fast CD DMA Timing,Off,On;",
 	"h3P3T1,Advance Pause;",
 	"h3P3T2,Sound IRQ Trigger;",
 
@@ -725,7 +692,7 @@ wire [15:0] joystick4_rumble;
 wire [32:0] RTC_time;
 wire [64:0] hps_rtc;    // Main's wall clock, BCD (send_rtc: sec,min,hour,date,month,year,wday,0x40); [64] toggles per update
 
-wire filter_on = (status[82:81] == 2'b00) ? 1'b0 : 1'b1;
+wire filter_on = 1'b0;   // S573: Texture Filter option removed (HDMI area recovery)
 
 assign HDMI_BLACKOUT = ~status[61];
 
@@ -1367,7 +1334,7 @@ always @(posedge clk_1x) begin
       if (!padMode[1]) psx_info <= 8'd18;
    end else if (cdinfo_download_1 && ~cdinfo_download) begin
       // warning for every unsafe option
-      if (status[89] || status[80:79] > 0 || status[72] || status[15] || status[21] || status[77:75] > 0 || status[78] || status[85]) begin
+      if (1'b0) begin   // S573: the unsafe options this warned about are gone from the OSD
          psx_info_req <= 1;
          psx_info     <= 8'd24;
       end else if (status[40:39] == 2'b00) begin
@@ -1466,10 +1433,10 @@ always @(posedge clk_1x) begin
    // 1 => low    -> only MEM
    // 2 => medium -> MEM + 50% cache
    // 3 => high   -> everything
-   TURBO_MEM      <= status[80:79] > 0;
-   TURBO_COMP     <= status[80:79] == 2'b11;
-   TURBO_CACHE    <= status[80];
-   TURBO_CACHE50  <= status[80:79] == 2'b10;
+   TURBO_MEM      <= 1'b0;   // S573: Turbo option removed (HDMI area recovery)
+   TURBO_COMP     <= 1'b0;
+   TURBO_CACHE    <= 1'b0;
+   TURBO_CACHE50  <= 1'b0;
 
 end
 
@@ -1501,31 +1468,31 @@ psx
    .TURBO_CACHE(TURBO_CACHE),
    .TURBO_CACHE50(TURBO_CACHE50),
    .REPRODUCIBLEGPUTIMING(0),
-   .INSTANTSEEK(status[21]),
-   .FORCECDSPEED(status[77:75]),
-   .LIMITREADSPEED(status[78]),
-   .IGNORECDDMATIMING(status[88]),
+   .INSTANTSEEK(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .FORCECDSPEED(3'b000),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .LIMITREADSPEED(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .IGNORECDDMATIMING(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .ditherOff(status[22]),
-   .interlaced480pHack(status[89]),
-   .showGunCrosshairs(status[9]),
-   .enableNeGconRumble(status[91]),
-   .fpscountOn(status[28]),
-   .cdslowOn(status[59]),
-   .testSeek(status[70]),
-   .pauseOnCDSlow(~status[72]),
-   .errorOn(status[74]),
-   .LBAOn(status[69]),
+   .interlaced480pHack(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .showGunCrosshairs(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .enableNeGconRumble(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .fpscountOn(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .cdslowOn(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .testSeek(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .pauseOnCDSlow(1'b1),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .errorOn(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .LBAOn(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .PATCHSERIAL(0), //.PATCHSERIAL(status[54]),
-   .noTexture(status[27]),
-   .textureFilter(status[82:81]),
-   .textureFilterStrength(status[87:86]),
-   .textureFilter2DOff(status[83]),
-   .dither24(status[73]),
-   .render24(status[84] && ~hack_480p),
-   .drawSlow(status[90]),
+   .noTexture(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .textureFilter(2'b00),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .textureFilterStrength(2'b00),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .textureFilter2DOff(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .dither24(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .render24(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .drawSlow(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .syncVideoOut(syncVideoOut),
    .syncInterlace(status[60]),
-   .rotate180(status[24]),
+   .rotate180(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .fixedVBlank(status[55] && ~hack_480p),
    .vCrop(hack_480p ? 2'b00 : status[4:3]),
    .hCrop(status[67]),
@@ -1534,8 +1501,8 @@ psx
    .SPUSDRAM(status[44] & SDRAM2_EN),
    .REVERBOFF(0),
    .REPRODUCIBLESPUDMA(status[43]),
-   .WIDESCREEN(status[54:53]),
-   .oldGPU(status[92]),   
+   .WIDESCREEN(2'b00),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
+   .oldGPU(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)   
    // RAM/BIOS interface
    .biosregion(biosregion),
    // System 573: widened EXP1 master (psx_patches/0001) routed to system573_top
@@ -1587,7 +1554,7 @@ psx
    .region          (region),
    .region_out      (region_out),
    .hasCD           (hasCD),
-   .LIDopen         (status[42]),
+   .LIDopen         (1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .fastCD          (0),
    .trackinfo_data  (ramdownload_wrdata),
    .trackinfo_addr  (ramdownload_wraddr[10:2]),
@@ -1639,7 +1606,7 @@ psx
    // video
    .videoout_on     (~status[14]),
    .isPal           (isPal),
-   .pal60           (status[15]),
+   .pal60           (1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .hsync           (hs),
    .vsync           (vs),
    .hblank          (hbl),
@@ -1659,7 +1626,7 @@ psx
    .video_hResMode  (video_hResMode),
    .video_frameindex(frameindex),
    //Keys
-   .DSAltSwitchMode(status[31]),
+   .DSAltSwitchMode(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .PadPortEnable1 (PadPortEnable1),
    .PadPortDigital1(PadPortDigital1),
    .PadPortAnalog1 (PadPortAnalog1),
@@ -3329,7 +3296,7 @@ wire [2:0] video_hResMode;
 wire ce_pix;
 wire [7:0] r,g,b;
 
-wire hack_480p = status[89];
+wire hack_480p = 1'b0;   // S573: 480i->480p hack option removed (HDMI area recovery)
 
 typedef struct {
 	logic [7:0] red;

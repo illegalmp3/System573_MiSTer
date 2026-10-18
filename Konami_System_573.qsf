@@ -26,6 +26,13 @@ set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 # PSX_MiSTer needs the DDR3 framebuffer path (sys_top gates FB_* on this).
 set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 
+# From the upstream PSX core's own PSX.qsf (psx/PSX.qsf, the build MiSTer ships with HDMI):
+# nearest-neighbour instead of bilinear when the HDMI scaler DOWNscales, and no ALSA
+# (Linux audio playback into the core's output -- unused here: the 573 MP3 reaches the
+# mixer through its own DDR3 ring, rtl/s573_pcm_ring.v). Both only shrink the framework.
+set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"
+set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+
 # ????????????????????????????????????????????????????????? NO HDMI: analog / CRT-only build (2026-09-10) ?????????????????????????????????????????????????????????
 # This project is used on a CRT over COMPOSITE, so the HDMI scaler is dead weight
 # on a die at 100% LABs. MISTER_DEBUG_NOHDMI removes it, and the framework has 17
@@ -150,7 +157,11 @@ set_global_assignment -name LAST_QUARTUS_VERSION "17.0.2 Lite Edition"
 # the next step is characterising seed variance, NOT more effort.
 set_global_assignment -name OPTIMIZATION_MODE "High Performance Effort"
 set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC ON
+# HDMI M2 experiment (2026-10-18): M1 (HDMI in) placed at 41,478 ALM / 100% LABs and failed to
+# route. Register duplication cost ~1,200 ALM when it was added (2026-07-30 table above);
+# M2 measures the area it costs now, with upstream PSX.qsf's COMBO_LOGIC_FOR_AREA instead.
 set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
+set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 
 # MEASURED (2026-07-30): the two settings above took the ascal HDMI setup slack
 # from -2.143 ns to -0.322 ns and total negative slack from -55.6 to -4.9 -- i.e.

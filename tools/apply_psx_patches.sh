@@ -144,7 +144,11 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           "$ROOT/psx_patches/0030-s573-mdec-timing-switch.patch" \
           # 0031 = the R3000 fetch PC brought out (dbg573_pc) for the PC-sampling
           # profiler rtl/s573_prof_pc.v. Observation only.
-          "$ROOT/psx_patches/0031-s573-cpu-pc-tap.patch" )
+          "$ROOT/psx_patches/0031-s573-cpu-pc-tap.patch" \
+          # 0032 = ascal PALETTE off (sys/sys_top.v). The palette RAM serves only the Linux
+          # framebuffer's 8 bpp mode; this core's framebuffer is 16/24 bpp. With HDMI in, its
+          # read (pal1_mem -> o_hpix2) was the one path missing timing (-0.075 ns, pll_hdmi).
+          "$ROOT/psx_patches/0032-s573-ascal-no-fb-palette.patch" )
 
 if [ ! -e "$PSX/.git" ]; then
   echo "error: psx submodule not initialised. Run: git submodule update --init psx" >&2

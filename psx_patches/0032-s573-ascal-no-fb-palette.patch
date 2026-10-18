@@ -1,0 +1,17 @@
+diff --git a/sys/sys_top.v b/sys/sys_top.v
+--- a/sys/sys_top.v
++++ b/sys/sys_top.v
+@@ -741,6 +741,13 @@
+ 		// binding path at +0.006 ns setup, and ascal is the only block on it.
+ 		// CONSEQUENCE: do not select bicubic scaling in MiSTer.ini / the video
+ 		// OSD on a build with this patch applied.
++		// System 573: no framebuffer palette (PALETTE = false). The palette RAM serves only
++		// the Linux framebuffer's 8 bpp mode (Main video.cpp FB_FMT_PAL8, set only by the
++		// `vmode` command a Linux script can send); this core's framebuffer is 16 or 24 bpp
++		// (rtl/emu.sv FB_FORMAT 01100 / 00101), and Main's own fb_enable uses 8888. With
++		// HDMI in, the palette read (pal1_mem -> o_hpix2) was the ONLY path missing timing
++		// (-0.075 ns, pll_hdmi, slow -40C; docs/2026-10-18-hdmi-output.md).
++		.PALETTE("false"),
+ 		.MASK(8'hF7),
+ 		.FRAC(8),
+ 		.N_DW(128),
