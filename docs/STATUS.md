@@ -33,7 +33,12 @@ Staged on the drive, not yet reported: ddr3mk, ddr3mka, ddr3mp, ddr4mps, ddr4ms,
 ddr4msj, dsem2, dsfdct.
 
 Opening the MiSTer OSD pauses the game AND its MP3 music, and play resumes in
-sync (confirmed on the cabinet 2026-10-17; docs/2026-10-02-osd-pause-music.md). Out of scope for this core as it stands:
+sync (confirmed on the cabinet 2026-10-17, and in the 2026-10-18 log: two mid-song
+pauses, the MP3 read pointer frozen for exactly the paused seconds, no underrun;
+docs/2026-10-02-osd-pause-music.md).
+
+HDMI is back (2026-10-18): one bitstream drives an HDMI TV and the S-Video/composite
+CRT at the same time, confirmed on the cabinet (docs/2026-10-18-hdmi-output.md). Out of scope for this core as it stands:
 the analog-board titles (2nd Mix family, dsfdcta, dsftkd) -- they play songs as
 CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
 
@@ -60,14 +65,14 @@ CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
 
 | | |
 |---|---|
-| bitstream | job 241, CRT-only (`-Crt`, no HDMI scaler), seed 5: 36,637 ALM (87 %), LABs 4,140 / 4,191, worst setup 0.596 ns / hold 0.079 ns |
+| bitstream | job 326, HDMI + analog (no `-Crt`), seed 5: 38,903 ALM (93 %), LABs 4,181 / 4,191, DSP 97 / 112, worst setup 0.035 ns (pll_hdmi) / hold 0.069 ns. docs/2026-10-18-hdmi-output.md |
 | firmware | Main_MiSTer at the 2026-09-07 release + `support/s573` (MP3 service, CD trace hook, .sav grow hook) |
 | PSX core | `psx/` submodule + `psx_patches/` (list and order: `tools/apply_psx_patches.sh`) |
 | tests | `sim/`: 65 Icarus benches; `support/s573/tests`: 27 host groups + 7 mutations |
 
 ## How things are done here
 
-* **Build**: `tools/build-573.ps1 -Crt` (Quartus 17.0, Windows), run as a job file
+* **Build**: `tools/build-573.ps1` (Quartus 17.0, Windows; `-Crt` = the old analog-only variant), run as a job file
   through `tools/win/jobrunner.ps1`. It fails on negative slack and on undriven nets.
 * **Sims and firmware**: WSL Ubuntu (`tools/wsl/`): `make -C sim`,
   `make -C support/s573/tests test mutate`, `tools/build-hps-mp3.sh all`.

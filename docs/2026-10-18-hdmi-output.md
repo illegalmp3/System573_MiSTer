@@ -46,6 +46,14 @@ The i9-14900KF crashed Quartus repeatedly and blue-screened once (0x3B, 12:19 20
 with corrected machine checks around it. BIOS updated 1812 -> 1837 (ASUS Z790 GAMING WIFI7);
 M5 and M6 ran clean afterwards, and M5 reproduced M3's rbf byte for byte.
 
-## Hardware test
+## Hardware test (2026-10-18, cabinet)
 
-Pending (see the test steps given with this build).
+HDMI TV and CRT over composite driven at the same time from this build: both show the
+game. The log of that session (s573mp3.log, two sessions, ~6 + ~4 min):
+
+* ddrextrm, 2 songs: underrun 0, stalls 0, rewinds 0; 99 % of frame flips one vblank
+  apart (60 fps). Two OSD pauses mid-song (~1 s and ~7 s): watchdog kicks and frame
+  flips at 0 while the MP3 `played`/`rd` counters stood still for exactly those
+  seconds, then resumed with no underrun -- the 2026-10-02 pause fix, seen in the log.
+* ddr3mj, 2 songs (streams from CD): underrun 0; flips mostly two vblanks apart, its
+  normal 30 fps arrows.

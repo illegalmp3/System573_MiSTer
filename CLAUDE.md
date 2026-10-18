@@ -11,7 +11,7 @@ Read `docs/STATUS.md` first: what runs, what is open, how things are built.
   in name order (`.cmd` -> Windows, `.sh` -> WSL Ubuntu as root, from the project
   root) and leaves `NAME.log` / `NAME.rc` in `local/jobs/done/`. Builds, sims and
   git all go through it.
-* **Bitstream**: `tools/build-573.ps1 -Crt` (Quartus 17.0). ~25 minutes. Do not
+* **Bitstream**: `tools/build-573.ps1` (Quartus 17.0; HDMI + analog). ~27 minutes. `-Crt` = analog only. Do not
   edit sources while one runs.
 * **Sims**: `make -C sim` (Icarus), `make -C support/s573/tests test mutate`.
 * **Firmware**: `tools/build-hps-mp3.sh all` -> `out/MiSTer`.

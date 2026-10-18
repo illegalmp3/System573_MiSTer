@@ -26,6 +26,38 @@ PlayStation-based arcade board behind *Dance Dance Revolution* and the rest of
 Konami's BEMANI line (as well as games like *GunMania* and *Hyper Bishi Bashi
 Champ*).
 
+## Installing and playing
+
+What you need: a DE10-Nano with a 128 MB SDRAM board, the MiSTer SD card, and your
+own MAME romsets + CHDs for the titles (`ddr3mj.zip` + its CHD, ...). No game, BIOS
+or cassette data is in this repository.
+
+1. **Core:** copy `Konami_System_573.rbf` to `_Console/` on the SD card.
+2. **Launchers:** copy the `.mgl` files from [`mgl/`](mgl/) to `_Arcade/`. Each one
+   is named `<title> (<region>, <year>)` and loads one title;
+   [`mgl/README.md`](mgl/README.md) maps them to MAME romsets. Launch a game from its
+   launcher, not from the bare `.rbf`.
+3. **Game files:** `tools/stage_573.py <romset> <games/System573 folder>` reads the
+   romset and CHD from `dumps/mame573/` and writes everything a launcher loads --
+   BIOS, cassette image(s), disc, and an empty save file of the right size -- into
+   `games/System573/` on the SD card or USB drive.
+4. **The modified `MiSTer` executable (required for music):** the Digital-I/O DDR and
+   Dancing Stage titles decode their MP3 soundtrack on the ARM side, in a service
+   added to MiSTer's Main program (`support/s573/`, built by
+   `tools/build-hps-mp3.sh`). Replace `/media/fat/MiSTer` with that build (keep the
+   original). Other cores run on it unchanged -- the additions are gated on this
+   core. **`update_all` and the downloader put the stock `MiSTer` back**, after which
+   the DDR games run silent until it is reinstalled. Hyper Bishi Bashi Champ and
+   Gacha Gachamp have no MP3 board and do not need it.
+5. **First boot of a CD title installs it to flash:** set OSD *573 Boot Device* =
+   CD-ROM, launch, let the game install, and **wait for the "Flash saved" message**
+   before switching off (the game asks you to power down before the save has run).
+   Then set *573 Boot Device* = Flash ROM and launch again to play.
+
+Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-Video /
+composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
+music together.
+
 ## What this board is
 
 The System 573 is, at its core, a Sony PlayStation:
