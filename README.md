@@ -1,5 +1,26 @@
 # Konami System 573 — MiSTer FPGA core
 
+> **Built on Fabricore's System 573 core.** This repository continues the
+> work-in-progress Konami System 573 MiSTer core by **Fabricore**:
+> **<https://github.com/fabricore-eng/System573_MiSTer>**. Everything up to their
+> `main` at `6b114d6` (2026-08-02) is their work, and their full commit history is
+> kept here unchanged; the commits after it are this fork's. The board research,
+> the 573 RTL, the PSX-core integration over EXP1, the HPS-side MP3 service and
+> the first DDR title with music (*DDR Solo Bass Mix*) all come from that
+> project. The bring-up history further down this README is theirs.
+>
+> **What this fork adds**, aimed at the Digital-I/O *Dance Dance Revolution*
+> titles: the X76F041 and ZS01 security cassettes on hardware (single and dual
+> cassette), the GN845 stage-multiplexor handshake, the 32 MB PCMCIA linear-flash
+> card (3rd Mix through Extreme), CD-to-flash installs that persist across title
+> switches, 60 fps gameplay with full-speed background video, MP3 streaming fixes
+> (song previews, mid-song CD streaming, pause with the OSD), and single
+> launchers per title. Current state, by title:
+> [`docs/STATUS.md`](docs/STATUS.md).
+>
+> Like the original, this is GPL v2. No game, BIOS or security-cassette dumps are
+> included; you supply your own.
+
 A work-in-progress MiSTer FPGA core for the **Konami System 573**, the
 PlayStation-based arcade board behind *Dance Dance Revolution* and the rest of
 Konami's BEMANI line (as well as games like *GunMania* and *Hyper Bishi Bashi

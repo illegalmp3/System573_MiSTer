@@ -1,6 +1,6 @@
 # System 573 core -- status
 
-The one live status page. Last updated 2026-10-02. The page this replaced (the
+The one live status page. Last updated 2026-10-18. The page this replaced (the
 2026-09-09 evidence ledger and dump hashes) is `docs/archive/STATUS-2026-09-09.md`.
 Dated notes in `docs/` are the record of how each thing was found; `docs/README.md`
 says which ones still describe the current tree.
@@ -24,11 +24,16 @@ games on a USB SSD). "Credit" = a full credit of songs played with music.
 | DDR 4th Mix Plus | ddr4mp | boots, credit started | songs not reported |
 | DDR 3rd Mix (A) | ddr3ma | installs and boots | songs not reported |
 | DDR 3rd Mix (J) | ddr3mj | credit | streams songs from CD during play |
+| DDR MAX | ddrmax | credit | |
+| DDR MAX2 | ddrmax2 | credit | |
 | DDR 5th Mix | ddr5m | runs | 60 fps confirmed |
 | DDR Extreme | ddrextrm | credit | 60 fps arrows, full-speed background video |
 
 Staged on the drive, not yet reported: ddr3mk, ddr3mka, ddr3mp, ddr4mps, ddr4ms,
-ddr4msj, ddrmax, ddrmax2, dsem2, dsfdct. Out of scope for this core as it stands:
+ddr4msj, dsem2, dsfdct.
+
+Opening the MiSTer OSD pauses the game AND its MP3 music, and play resumes in
+sync (confirmed on the cabinet 2026-10-17; docs/2026-10-02-osd-pause-music.md). Out of scope for this core as it stands:
 the analog-board titles (2nd Mix family, dsfdcta, dsftkd) -- they play songs as
 CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
 
@@ -55,7 +60,7 @@ CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
 
 | | |
 |---|---|
-| bitstream | job 218, CRT-only (`-Crt`, no HDMI scaler), seed 5: 36,652 ALM (87 %), LABs 4,150 / 4,191, DSP 90 / 112, worst setup 0.794 ns / hold 0.073 ns |
+| bitstream | job 241, CRT-only (`-Crt`, no HDMI scaler), seed 5: 36,637 ALM (87 %), LABs 4,140 / 4,191, worst setup 0.596 ns / hold 0.079 ns |
 | firmware | Main_MiSTer at the 2026-09-07 release + `support/s573` (MP3 service, CD trace hook, .sav grow hook) |
 | PSX core | `psx/` submodule + `psx_patches/` (list and order: `tools/apply_psx_patches.sh`) |
 | tests | `sim/`: 65 Icarus benches; `support/s573/tests`: 27 host groups + 7 mutations |
