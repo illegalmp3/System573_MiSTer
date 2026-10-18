@@ -26,6 +26,10 @@ PlayStation-based arcade board behind *Dance Dance Revolution* and the rest of
 Konami's BEMANI line (as well as games like *GunMania* and *Hyper Bishi Bashi
 Champ*).
 
+## Quick non-AI generated note from me:
+
+This would not exist without work done by human beings such as contributors to MAME (respect to 987123879113 in particular) and the contributors to the PSX_MiSTer core, and it must be mentioned that this core was built on what fabricore made publicly available. I am not a developer. I wanted to play DDR on a MiSTer console with a pad on a CRT, and here we are. This is Claude’s work, not mine. As of 10/18/2026, this core has only been tested with Digital System 573 DDR titles, and no testing has been done with other 573 bemani titles. Off the top of my head, features I wish to include are: (i) Memory Card support; (ii) Analog 573 support (DDR 1st Mix and 2nd Mix); (iii) automatic recognition of DDR solo vs standard DDR games; and (iv) support for other 573 bemani games. One last note: I used MAME non-merged ROMs to test this core.
+
 ## Installing and playing
 
 What you need: a DE10-Nano with a 128 MB SDRAM board, the MiSTer SD card, and your
