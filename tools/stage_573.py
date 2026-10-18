@@ -38,6 +38,7 @@ an older core the pack's first 8 bytes are still the game .u6, so the launcher t
 behaves like the old *_console.mgl (play only).
 """
 import argparse, os, re, shutil, subprocess, sys, tempfile, zipfile
+from s573_names import launcher_file   # "<title> (<region>, <year>).mgl", from GAME()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DUMPS = os.path.join(ROOT, "dumps", "mame573")
@@ -225,7 +226,7 @@ def write_launchers(t, mgldir, sav_mb, disc_name, dtype, frames):
         u1=f"{rom}.u1",
         pack=f"{rom}.cas" if two else f"{rom}.u6",
         chd=(f"{rom}.cue" if dtype == "MODE1" else f"{rom}.chd"), sav=f"{rom}.sav")
-    fp = os.path.join(mgldir, rom + ".mgl")
+    fp = os.path.join(mgldir, launcher_file(rom))
     open(fp, "w").write(txt)
     return [os.path.basename(fp)]
 
