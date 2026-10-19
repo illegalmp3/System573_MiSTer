@@ -72,3 +72,13 @@ launcher already names its rbf, so the user just picks the title.
 
 Dumps on hand: dsftkd and dsfdcta (zips + CHDs). Needed from the user: ddr2m,
 ddrja (1st Mix) and any other analog sets he wants.
+
+## The user's sets (T7 bemaniMAME, scanned 2026-10-18; local/re/bemani_scan.txt)
+
+All analog DDR sets are present (ddrja/jb/j/u/a, dstage/dstagea, ddr2m, ddr2mc,
+ddr2mc2, ddr2ml/a/b, ddrbocd, dsftkd, dsfdcta), plus GF 1st/2nd and DM 1st.
+Every analog runtime disc is one data track + Red Book audio: DDR 1st 27-39
+tracks (27-33 min), DDR 2nd 72 (64 min), 2nd Mix Link 82 (70 min), GF 1st 68
+(57-59 min), GF 2nd 85-86 (63-68 min), DM 1st 67-68 (65-67 min). ddrjb has no
+cassette at all (MAME: "game doesn't try reading") and boots from a factory flash
+image, like hyperbbc.

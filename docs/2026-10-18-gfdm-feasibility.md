@@ -48,3 +48,23 @@ are analog (k573a) and belong with the analog core.
 
 Dumps needed from the user: GF 3rd-9th and DM 2nd-9th non-merged zips + CHDs
 (only gtrfrk5m.zip is in dumps/mame573, no disc).
+
+## The user's sets (T7 bemaniMAME, scanned 2026-10-18; local/re/bemani_scan.txt)
+
+Every GF 1st-11th and DM 1st-10th set is there with its zip complete against the
+driver's CRCs (drmnu / drmna zips absent; their discs are present) and every
+disc matching its DISK_IMAGE SHA1. Dance Maniax / Dance Freaks (dmx sets) are
+NOT on the drive.
+
+- Digital GF/DM discs are data-only (no audio tracks) -- music is MP3, as for DDR.
+- DM 4th-10th carry a second "multisession" disc (session box, not needed solo);
+  GF 3rd, GF 10th, DM 9th and others also have separate "install" discs
+  (MAME regions install / install2 / runtime; install2 = e-Amusement HDD data,
+  needs the network unit). The runtime disc is the one that boots; a title whose
+  first install needs another disc gets a disc swap (separate launcher or OSD).
+- Several data discs are v5 CHDs whose hunks use **cdfl (FLAC)** even for data
+  (885jab01, d09jab01, 921jbb02 ...). Copied-as-is discs are fine (Main's libchdr
+  reads them), but a v5 MODE1/2048 disc that needs the cue+raw2352 rebuild would
+  stop tools/s573_stage.py with its "codec cdfl" message -- the shipped titles'
+  two MODE1 discs (936eaa, 910jca02) are v4 zlib, so nothing shipped is affected
+  yet. The stager needs a FLAC decoder before any v5 MODE1 title is added.
