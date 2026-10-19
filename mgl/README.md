@@ -5,8 +5,8 @@ files (any folder works -- Main lists `.mgl` files wherever it lists cores, and 
 `.mgl` loads the same way from any of them). Each one loads
 `_Console/Konami_System_573.rbf` with that title's BIOS, cassette, disc and save file,
 which it expects under `games/System573/`, named by MAME romset (`ddr3mj.chd`,
-`ddr3mj.u1`, ...). `tools/stage_573.py` puts those files in place and writes these
-launchers.
+`ddr3mj.u1`, ...). `tools/s573_stage.py` puts those files in place from your MAME
+romsets (`tools/stage_573.py`, the developer version, also writes these launchers).
 
 File names are `<title> (<region>, <year>).mgl`, taken from the romset's `GAME()` line
 in MAME's `ksys573.cpp` by `tools/s573_names.py`: MAME's title without its version

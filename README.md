@@ -41,10 +41,21 @@ or cassette data is in this repository.
    is named `<title> (<region>, <year>)` and loads one title;
    [`mgl/README.md`](mgl/README.md) maps them to MAME romsets. Launch a game from its
    launcher, not from the bare `.rbf`.
-3. **Game files:** `tools/stage_573.py <romset> <games/System573 folder>` reads the
-   romset and CHD from `dumps/mame573/` and writes everything a launcher loads --
-   BIOS, cassette image(s), disc, and an empty save file of the right size -- into
-   `games/System573/` on the SD card or USB drive.
+3. **Game files:** [`tools/s573_stage.py`](tools/s573_stage.py) builds
+   `games/System573/` from your MAME romsets. It is one file and needs only Python
+   3.8 or newer:
+
+       python3 s573_stage.py <folder with your MAME roms> <SD card or USB drive>
+
+   It writes everything a launcher loads -- BIOS, cassette image(s), disc, and an
+   empty save file of the right size -- for every title it finds. ROMs are found by
+   CRC32 and checked against MAME's SHA1 and discs by the SHA1 in the CHD header, so
+   non-merged, split and merged sets all work and file names do not matter. An
+   existing `.sav` is never replaced (it holds the game's install), and running it
+   again only fills in what is missing. `--list` shows what it found without writing
+   anything. Its title table is generated from MAME's `ksys573.cpp` and `mgl/` by
+   `tools/gen_s573_titles.py`. (`tools/stage_573.py` is the developer version of
+   the same staging, one romset at a time from `dumps/mame573/`.)
 4. **The modified `MiSTer` executable (required for music):** the Digital-I/O DDR and
    Dancing Stage titles decode their MP3 soundtrack on the ARM side, in a service
    added to MiSTer's Main program (`support/s573/`, built by

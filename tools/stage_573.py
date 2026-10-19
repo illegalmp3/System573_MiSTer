@@ -87,7 +87,7 @@ def resolve(cfg, bodies, seen=None):
 def title_info(romset):
     src = driver_text()
     bodies = machine_bodies(src)
-    g = re.search(r'GAME\(\s*\d+,\s*%s,\s*\w+,\s*(\w+),\s*\w+,\s*\w+,\s*\w+,\s*ROT0,\s*"Konami",\s*"([^"]+)"' % re.escape(romset), src)
+    g = re.search(r'GAME\(\s*\d+,\s*%s,\s*\w+,\s*(\w+),\s*\w+,\s*\w+,\s*\w+,\s*ROT\d+,\s*"Konami",\s*"([^"]+)"' % re.escape(romset), src)
     if not g:
         sys.exit(f"{romset}: no GAME() line in ksys573.cpp")
     cfg, desc = g.group(1), g.group(2)
@@ -121,6 +121,28 @@ def chip_of(t, role):
         sys.exit(f"{t['romset']}: no KONAMI573_CASSETTE_* option for role '{role}' "
                  f"in config {t['cfg']} -- refusing to guess")
     return c
+
+
+TIMEKEEPER_BYTES = 9 * 1024
+
+
+def save_layout(t):
+    """(flash MiB, has ZS01 block, total bytes) of a title's .sav.
+
+    16 MiB onboard flash, +32 MiB when the title has a slot-2 32 MB PCMCIA card.
+    A ZS01 cassette is NVRAM (zs01.cpp nvram_read/nvram_write) and an install writes
+    it, so its state rides in ONE extra 1 KB block after the flash image(s)
+    (rtl/s573_cass_nv.v). Main never grows a type="s" image (pre=0 -> cangrow=0:
+    user_io.cpp clamps a write past EOF to zero bytes), so the block must already
+    be in the file.
+    The M48T58 timekeeper (settings, bookkeeping) is NVRAM too and every title writes
+    it; its 8 KB image rides as a 9-block region (1 KB header + 8 KB) after the
+    cassette block (rtl/s573_tk_nv.v, 2026-09-28: ddrextrm NOTE 605 "RTC-RAM cleared"
+    on every boot). Same rule: the region must already be in the file.
+    tools/gen_s573_titles.py uses this too, so the standalone stager agrees."""
+    sav_mb = 16 + (t["card_mb"] if t["slot"] == "2" and t["card_mb"] == 32 else 0)
+    zs01 = any(chip_of(t, r) == "ZS01" for r in t["cassettes"])
+    return sav_mb, zs01, (sav_mb << 20) + (1024 if zs01 else 0) + TIMEKEEPER_BYTES
 
 
 def chd_track(path):
@@ -240,19 +262,8 @@ def main():
 
     t = title_info(a.romset)
     card = f"slot {t['slot']} / {t['card_mb']} MB" if t["slot"] else "none"
-    sav_mb = 16 + (t["card_mb"] if t["slot"] == "2" and t["card_mb"] == 32 else 0)
-    # A ZS01 cassette is NVRAM (zs01.cpp nvram_read/nvram_write) and an install writes
-    # it, so its state rides in ONE extra 1 KB block after the flash image(s)
-    # (rtl/s573_cass_nv.v). Main never grows a type="s" image (pre=0 -> cangrow=0:
-    # user_io.cpp clamps a write past EOF to zero bytes), so the block must already
-    # be in the file.
-    zs01 = any(chip_of(t, r) == "ZS01" for r in t["cassettes"])
-    # The M48T58 timekeeper (settings, bookkeeping) is NVRAM too and every title writes
-    # it; its 8 KB image rides as a 9-block region (1 KB header + 8 KB) after the
-    # cassette block (rtl/s573_tk_nv.v, 2026-09-28: ddrextrm NOTE 605 "RTC-RAM cleared"
-    # on every boot). Same rule: the region must already be in the file.
-    TK_BYTES = 9 * 1024
-    sav_bytes = (sav_mb << 20) + (1024 if zs01 else 0) + TK_BYTES
+    sav_mb, zs01, sav_bytes = save_layout(t)
+    TK_BYTES = TIMEKEEPER_BYTES
 
     print(f"== {t['romset']}: {t['desc']}")
     print(f"   machine config : {t['cfg']}   board: {'digital (k573dio)' if t['dio'] else 'analog'}")
