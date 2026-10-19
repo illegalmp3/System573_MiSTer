@@ -179,10 +179,11 @@ class Gen:
                     "install_u1": self.rom(setname, i["eeprom"][0], lines),
                     "install_chip": S.chip_of(t, "install")}
         if ext in (".chd", ".cue"):
-            disks = DISK.findall(body)
-            if len(disks) != 1:
-                die(f"{setname}: expected one DISK_IMAGE, found {len(disks)}")
-            disc, sha1 = disks[0]
+            disks = dict((d, h) for d, h in DISK.findall(body))
+            if not t["discs"] or t["discs"][0] not in disks:
+                die(f"{setname}: no dumped DISK_IMAGE to load")
+            disc = t["discs"][0]          # the runtime disc (stage_573.title_info order)
+            sha1 = disks[disc]
             r = {"make": "chd" if ext == ".chd" else "mode1", "disc": disc, "sha1": sha1.lower()}
             if ext == ".cue":
                 r["bin"] = setname + ".bin"

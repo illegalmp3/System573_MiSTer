@@ -460,6 +460,146 @@ TABLE = json.loads(r"""
    "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
    "size": 8
   },
+  "drmn2m/ge912ja.u1": {
+   "crc": "508d618d",
+   "name": "ge912ja.u1",
+   "set": "drmn2m",
+   "sha1": "d30ba54ccc86072c10962632603028206ff08d4b",
+   "size": 548
+  },
+  "drmn2m/ge912ja.u6": {
+   "crc": "af09e43c",
+   "name": "ge912ja.u6",
+   "set": "drmn2m",
+   "sha1": "d8372f2d6e0ae07061b496a2242a63e5bc2e54dc",
+   "size": 8
+  },
+  "drmn2m/gn912ja.u1": {
+   "crc": "952f4681",
+   "name": "gn912ja.u1",
+   "set": "drmn2m",
+   "sha1": "667fc5ef07517801496444a91b6f1d88c8d0b9d2",
+   "size": 140
+  },
+  "drmn2m/gn912ja.u6": {
+   "crc": "ce84419e",
+   "name": "gn912ja.u6",
+   "set": "drmn2m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn3m/a23jaa.u1": {
+   "crc": "508d618d",
+   "name": "a23jaa.u1",
+   "set": "drmn3m",
+   "sha1": "d30ba54ccc86072c10962632603028206ff08d4b",
+   "size": 548
+  },
+  "drmn3m/a23jaa.u6": {
+   "crc": "af09e43c",
+   "name": "a23jaa.u6",
+   "set": "drmn3m",
+   "sha1": "d8372f2d6e0ae07061b496a2242a63e5bc2e54dc",
+   "size": 8
+  },
+  "drmn3m/gca23ja.u1": {
+   "crc": "e78225db",
+   "name": "gca23ja.u1",
+   "set": "drmn3m",
+   "sha1": "0870cfb01cd3f940812b842b315bc6329e956d88",
+   "size": 140
+  },
+  "drmn3m/gca23ja.u6": {
+   "crc": "ce84419e",
+   "name": "gca23ja.u6",
+   "set": "drmn3m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn4m/gea25jaa.u1": {
+   "crc": "8ee64348",
+   "name": "gea25jaa.u1",
+   "set": "drmn4m",
+   "sha1": "9c02096c94da68d096efc225f19e420cb9445820",
+   "size": 140
+  },
+  "drmn4m/gea25jaa.u6": {
+   "crc": "ce84419e",
+   "name": "gea25jaa.u6",
+   "set": "drmn4m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn5m/gcb05jaa.u1": {
+   "crc": "1f0e9f51",
+   "name": "gcb05jaa.u1",
+   "set": "drmn5m",
+   "sha1": "64f9ae6c2d9a6264b09c1b66ae2acac9db9ada32",
+   "size": 140
+  },
+  "drmn5m/gcb05jaa.u6": {
+   "crc": "ce84419e",
+   "name": "gcb05jaa.u6",
+   "set": "drmn5m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn6m/gcb16jaa.u1": {
+   "crc": "a8ab305d",
+   "name": "gcb16jaa.u1",
+   "set": "drmn6m",
+   "sha1": "7815ec63fa419174d689f237bcb3ec2372fb6baa",
+   "size": 140
+  },
+  "drmn6m/gcb16jaa.u6": {
+   "crc": "ce84419e",
+   "name": "gcb16jaa.u6",
+   "set": "drmn6m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn7m/gcc07jba.u1": {
+   "crc": "9b85fd8a",
+   "name": "gcc07jba.u1",
+   "set": "drmn7m",
+   "sha1": "34fc42389fc5eb5d09a0a7b6b4c4b4597b1f6849",
+   "size": 140
+  },
+  "drmn7m/gcc07jba.u6": {
+   "crc": "ce84419e",
+   "name": "gcc07jba.u6",
+   "set": "drmn7m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn8m/gcc38jaa.u1": {
+   "crc": "c2895619",
+   "name": "gcc38jaa.u1",
+   "set": "drmn8m",
+   "sha1": "49dcebd44435760dde02638b0e0a89b743064e69",
+   "size": 140
+  },
+  "drmn8m/gcc38jaa.u6": {
+   "crc": "ce84419e",
+   "name": "gcc38jaa.u6",
+   "set": "drmn8m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
+  "drmn9ma/gcd09jaa.u1": {
+   "crc": "f73f2f6b",
+   "name": "gcd09jaa.u1",
+   "set": "drmn9ma",
+   "sha1": "30abe964fcef3901b2098e32946568f4a7c617d7",
+   "size": 140
+  },
+  "drmn9ma/gcd09jaa.u6": {
+   "crc": "ce84419e",
+   "name": "gcd09jaa.u6",
+   "set": "drmn9ma",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
+   "size": 8
+  },
   "dsem/ge936ea.u1": {
    "crc": "c7e3a7f9",
    "name": "ge936ea.u1",
@@ -542,6 +682,20 @@ TABLE = json.loads(r"""
    "name": "gea37ja.u6",
    "set": "dsfdr",
    "sha1": "d8372f2d6e0ae07061b496a2242a63e5bc2e54dc",
+   "size": 8
+  },
+  "gtrfrk5m/gea26jaa.u1": {
+   "crc": "5e16a3f1",
+   "name": "gea26jaa.u1",
+   "set": "gtrfrk5m",
+   "sha1": "629dce132588035cea20d1fe92e0f17f90d0ef60",
+   "size": 140
+  },
+  "gtrfrk5m/gea26jaa.u6": {
+   "crc": "ce84419e",
+   "name": "gea26jaa.u6",
+   "set": "gtrfrk5m",
+   "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
    "size": 8
   },
   "hypbbc2p/gx908ja.u1": {
@@ -1303,6 +1457,292 @@ TABLE = json.loads(r"""
      "make": "rom",
      "rom": "sys573/700a01.22g"
     },
+    "drmn2m.cas": {
+     "game_u6": "drmn2m/gn912ja.u6",
+     "install_chip": "X76F041",
+     "install_u1": "drmn2m/ge912ja.u1",
+     "install_u6": "drmn2m/ge912ja.u6",
+     "make": "cas"
+    },
+    "drmn2m.chd": {
+     "disc": "912jab02",
+     "make": "chd",
+     "sha1": "19dfae94b63468d3e16d3cc4a3eeae60d5dff1d7"
+    },
+    "drmn2m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn2m.u1": {
+     "ds2401": "drmn2m/gn912ja.u6",
+     "make": "zs01",
+     "rom": "drmn2m/gn912ja.u1"
+    }
+   },
+   "launchers": [
+    "DrumMania 2nd Mix (Japan, 1999).mgl"
+   ],
+   "set": "drmn2m",
+   "title": "DrumMania 2nd Mix (GE912 VER. JAB)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn3m.cas": {
+     "game_u6": "drmn3m/gca23ja.u6",
+     "install_chip": "X76F041",
+     "install_u1": "drmn3m/a23jaa.u1",
+     "install_u6": "drmn3m/a23jaa.u6",
+     "make": "cas"
+    },
+    "drmn3m.chd": {
+     "disc": "a23jaa02",
+     "make": "chd",
+     "sha1": "89e365f61a4db889621d7d9d9917bcfa2c09704e"
+    },
+    "drmn3m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn3m.u1": {
+     "ds2401": "drmn3m/gca23ja.u6",
+     "make": "zs01",
+     "rom": "drmn3m/gca23ja.u1"
+    }
+   },
+   "launchers": [
+    "DrumMania 3rd Mix (Japan, 2000).mgl"
+   ],
+   "set": "drmn3m",
+   "title": "DrumMania 3rd Mix (G*A23 VER. JAA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn4m.chd": {
+     "disc": "a25jaa02",
+     "make": "chd",
+     "sha1": "8a0b761d1c282d927e2daf92519654a1c91ee1ab"
+    },
+    "drmn4m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn4m.u1": {
+     "ds2401": "drmn4m/gea25jaa.u6",
+     "make": "zs01",
+     "rom": "drmn4m/gea25jaa.u1"
+    },
+    "drmn4m.u6": {
+     "make": "rom",
+     "rom": "drmn4m/gea25jaa.u6"
+    }
+   },
+   "launchers": [
+    "DrumMania 4th Mix (Japan, 2001).mgl"
+   ],
+   "set": "drmn4m",
+   "title": "DrumMania 4th Mix (G*A25 VER. JAA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn5m.chd": {
+     "disc": "b05jaa02",
+     "make": "chd",
+     "sha1": "7a6e7940d1441cff1d9be1bc3affc029fe6dc9e4"
+    },
+    "drmn5m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn5m.u1": {
+     "ds2401": "drmn5m/gcb05jaa.u6",
+     "make": "zs01",
+     "rom": "drmn5m/gcb05jaa.u1"
+    },
+    "drmn5m.u6": {
+     "make": "rom",
+     "rom": "drmn5m/gcb05jaa.u6"
+    }
+   },
+   "launchers": [
+    "DrumMania 5th Mix (Japan, 2001).mgl"
+   ],
+   "set": "drmn5m",
+   "title": "DrumMania 5th Mix (G*B05 VER. JAA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn6m.chd": {
+     "disc": "b16jaa02",
+     "make": "chd",
+     "sha1": "fa0862a9bd3a48d4f6e7b44b11ad387acc05037e"
+    },
+    "drmn6m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn6m.u1": {
+     "ds2401": "drmn6m/gcb16jaa.u6",
+     "make": "zs01",
+     "rom": "drmn6m/gcb16jaa.u1"
+    },
+    "drmn6m.u6": {
+     "make": "rom",
+     "rom": "drmn6m/gcb16jaa.u6"
+    }
+   },
+   "launchers": [
+    "DrumMania 6th Mix (Japan, 2001).mgl"
+   ],
+   "set": "drmn6m",
+   "title": "DrumMania 6th Mix (G*B16 VER. JAA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn7m.chd": {
+     "disc": "c07jca02",
+     "make": "chd",
+     "sha1": "a81a35360933ab8a7630cf5e8a8c6988714cfa0d"
+    },
+    "drmn7m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn7m.u1": {
+     "ds2401": "drmn7m/gcc07jba.u6",
+     "make": "zs01",
+     "rom": "drmn7m/gcc07jba.u1"
+    },
+    "drmn7m.u6": {
+     "make": "rom",
+     "rom": "drmn7m/gcc07jba.u6"
+    }
+   },
+   "launchers": [
+    "DrumMania 7th Mix power-up ver. (Japan, 2002).mgl"
+   ],
+   "set": "drmn7m",
+   "title": "DrumMania 7th Mix power-up ver. (G*C07 VER. JBA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn8m.chd": {
+     "disc": "c38jaa02",
+     "make": "chd",
+     "sha1": "9115252e6cc13ff90e73cd1a864e0d99e3c8b5ea"
+    },
+    "drmn8m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn8m.u1": {
+     "ds2401": "drmn8m/gcc38jaa.u6",
+     "make": "zs01",
+     "rom": "drmn8m/gcc38jaa.u1"
+    },
+    "drmn8m.u6": {
+     "make": "rom",
+     "rom": "drmn8m/gcc38jaa.u6"
+    }
+   },
+   "launchers": [
+    "DrumMania 8th Mix (Japan, 2003).mgl"
+   ],
+   "set": "drmn8m",
+   "title": "DrumMania 8th Mix (G*C38 VER. JAA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "drmn9ma.chd": {
+     "disc": "d09jaa02",
+     "make": "chd",
+     "sha1": "33f3e48ed5a8becd8c4714413e454328d8d5baae"
+    },
+    "drmn9ma.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "drmn9ma.u1": {
+     "ds2401": "drmn9ma/gcd09jaa.u6",
+     "make": "zs01",
+     "rom": "drmn9ma/gcd09jaa.u1"
+    },
+    "drmn9ma.u6": {
+     "make": "rom",
+     "rom": "drmn9ma/gcd09jaa.u6"
+    }
+   },
+   "launchers": [
+    "DrumMania 9th Mix (Japan, 2003, Ver. JAA).mgl"
+   ],
+   "set": "drmn9ma",
+   "title": "DrumMania 9th Mix (G*D09 VER. JAA)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
     "dsem.cue": {
      "bin": "dsem.bin",
      "disc": "936eaa",
@@ -1455,6 +1895,41 @@ TABLE = json.loads(r"""
    ],
    "set": "gchgchmp",
    "title": "Gacha Gachamp (GE877 VER. JAB)"
+  },
+  {
+   "files": {
+    "573bios.bin": {
+     "make": "rom",
+     "rom": "sys573/700a01.22g"
+    },
+    "gtrfrk5m.chd": {
+     "disc": "a26jaa02",
+     "make": "chd",
+     "sha1": "9909e08abff780db6fd7a5fbcc57ffbe14ae08ce"
+    },
+    "gtrfrk5m.sav": {
+     "make": "sav",
+     "older": [
+      16777216,
+      16778240
+     ],
+     "size": 16787456
+    },
+    "gtrfrk5m.u1": {
+     "ds2401": "gtrfrk5m/gea26jaa.u6",
+     "make": "zs01",
+     "rom": "gtrfrk5m/gea26jaa.u1"
+    },
+    "gtrfrk5m.u6": {
+     "make": "rom",
+     "rom": "gtrfrk5m/gea26jaa.u6"
+    }
+   },
+   "launchers": [
+    "Guitar Freaks 5th Mix (Japan, 2001).mgl"
+   ],
+   "set": "gtrfrk5m",
+   "title": "Guitar Freaks 5th Mix (G*A26 VER. JAA)"
   },
   {
    "files": {

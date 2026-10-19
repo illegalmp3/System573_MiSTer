@@ -108,7 +108,14 @@ def title_info(romset):
     for reg in re.finditer(r'ROM_REGION\(\s*0x[0-9a-fA-F]+,\s*"cassette:(\w+):(eeprom|id)"\s*,[^)]*\)\s*ROM_LOAD\(\s*"([^"]+)"\s*,\s*0x[0-9a-fA-F]+\s*,\s*0x([0-9a-fA-F]+)', body):
         role, kind, fname, sz = reg.group(1), reg.group(2), reg.group(3), int(reg.group(4), 16)
         cassettes.setdefault(role, {})[kind] = (fname, sz)
+    # Discs in the order the 573 needs them: the "runtime" region (the disc that
+    # boots and installs) first. Later sets also carry "install"/"install2"
+    # (upgrade / e-Amusement HDD installers) and "multisession" (session box)
+    # discs; those follow, in driver order, and the launcher loads only the first.
+    regs = re.findall(r'DISK_REGION\(\s*"(\w+)"\s*\)\s*DISK_IMAGE(?:_READONLY)?\(\s*"([^"]+)"', body)
     discs = re.findall(r'DISK_IMAGE(?:_READONLY)?\(\s*"([^"]+)"', body)
+    runtime = [d for r, d in regs if r == "runtime"]
+    discs = runtime + [d for d in discs if d not in runtime]
     return dict(romset=romset, cfg=cfg, desc=desc, slot=slot, card_mb=mb,
                 mcr="*k573mcr" in feats, cassettes=cassettes, discs=discs,
                 role_chip=role_chip, dio="k573d" in feats)
