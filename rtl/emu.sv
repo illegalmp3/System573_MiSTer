@@ -432,7 +432,6 @@ parameter CONF_STR = {
 	// operator makes on a real cabinet (ksys573.cpp header Note 3). Change it before
 	// launching / then reset: the game reads the cassette at boot.
 	"O[110:109],573 Cassette,Auto,Game,Install;",
-	"O[94],573 Flash Debug,Off,On;",
 	// The DIO board's MP3 descrambler is per-TITLE, not per-board: the game uploads
 	// its own bitstream to the board's Xilinx XCS40XL at boot, and the seven known
 	// Konami bitstreams differ CHIEFLY in the descramble algorithm. DDR Solo Bass Mix
@@ -444,7 +443,6 @@ parameter CONF_STR = {
 	// that is exactly how MAME distinguishes Konami's GN676 firmwares -- but it needs
 	// the CRC observed on hardware first, so the manual switch comes first.
 	"O[101],573 MP3 Descramble,Default,DDR Solo Bass Mix;",
-	"O[96:95],573 Dbg Field,ch4Q,expQ,cnt/sz,wrAddr;",
 	"-;",
 	"d6C,Cheats;",
 	"h6O[6],Cheats Enabled,Yes,No;",
@@ -504,7 +502,6 @@ parameter CONF_STR = {
 	// whenever the MDEC is idle and exactly 30 whenever it is decoding (measured
 	// 2026-09-17), so this switch exists to let the hardware say whether that wait
 	// is what costs the frame. "Accurate" is the upstream behaviour and the default.
-	"O[108],MDEC Timing,Accurate,Fast (test);",
 	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
 	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
 	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
@@ -816,7 +813,7 @@ wire [111:0] prof_dbg112 = {prof_exp1, prof_ide, prof_frames, prof_sectors, prof
 // above measured ~0% on silicon, so this is where the missing time has to be.
 wire psx_dbg_flip, psx_dbg_vblank, psx_dbg_cpupaused, psx_dbg_cpustall;
 wire psx_dbg_gpubusy, psx_dbg_mdecbusy, psx_dbg_mdecmb;
-wire mdec15_fast    = status[108];                 // "O[108],MDEC Timing" 1 = drop the 15-bit wait
+wire mdec15_fast    = 1'b0;   // release build: the MDEC Timing test option is off the OSD (upstream 2171-clk wait)
 wire [15:0] prof_flips, prof_vblanks, prof_paused_k, prof_stall_k, prof_gpu_k, prof_mdec_k, prof_mdec_mb;
 wire [111:0] profg_dbg112 = {prof_mdec_mb, prof_mdec_k, prof_gpu_k, prof_stall_k, prof_paused_k, prof_vblanks, prof_flips};
 wire [47:0] prof_fliphist;                         // STATUS words 34..36
@@ -2539,7 +2536,7 @@ function [23:0] dbg_field;
 endfunction
 
 reg [23:0] dbg_color;
-always @(*) dbg_color = dbg_field(status[96:95]);
+always @(*) dbg_color = dbg_field(2'd0);   // release build: Dbg Field is off the OSD
 
 // FORCED 4-BAR PAINT (no OSD/PSX.CFG needed -- arcade .mra loads ignore PSX.CFG).
 // When DBG_FORCE_BARS=1 the whole active display is painted as 4 stacked
@@ -3414,9 +3411,9 @@ always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
 	dbg_bar <= dbg_field(v_pos < 12'd60  ? 2'd0 :
 	                     v_pos < 12'd120 ? 2'd1 :
 	                     v_pos < 12'd180 ? 2'd2 : 2'd3);
-	video_aspect.red   <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[23:16] : (status[94] ? dbg_color[23:16] : r));
-	video_aspect.green <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[15:8]  : (status[94] ? dbg_color[15:8]  : g));
-	video_aspect.blue  <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[7:0]   : (status[94] ? dbg_color[7:0]   : b));
+	video_aspect.red   <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[23:16] : (1'b0 ? dbg_color[23:16] : r));
+	video_aspect.green <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[15:8]  : (1'b0 ? dbg_color[15:8]  : g));
+	video_aspect.blue  <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[7:0]   : (1'b0 ? dbg_color[7:0]   : b));
 	{aspect_x, aspect_y} <= video_isPal ? aspect_ratio_lut_pal[v_total] : aspect_ratio_lut_ntsc[v_total];
 
 	VGA_DISABLE <= fast_forward;

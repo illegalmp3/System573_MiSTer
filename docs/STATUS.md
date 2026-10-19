@@ -38,7 +38,9 @@ pauses, the MP3 read pointer frozen for exactly the paused seconds, no underrun;
 docs/2026-10-02-osd-pause-music.md).
 
 HDMI is back (2026-10-18): one bitstream drives an HDMI TV and the S-Video/composite
-CRT at the same time, confirmed on the cabinet (docs/2026-10-18-hdmi-output.md). Out of scope for this core as it stands:
+CRT at the same time, confirmed on the cabinet (docs/2026-10-18-hdmi-output.md).
+
+Out of scope for this core as it stands:
 the analog-board titles (2nd Mix family, dsfdcta, dsftkd) -- they play songs as
 CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
 
