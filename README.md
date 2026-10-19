@@ -34,16 +34,28 @@ This would not exist without work done by human beings such as contributors to M
 
 What you need: a DE10-Nano with a 128 MB SDRAM board, the MiSTer SD card, and your
 own MAME romsets + CHDs for the titles (`ddr3mj.zip` + its CHD, ...). No game, BIOS
-or cassette data is in this repository.
+or cassette data is in this repository or its downloads.
+
+Everything below comes ready-made on the
+[**Releases page**](https://github.com/illegalmp3/System573_MiSTer/releases), as
+three downloads:
+
+| download | what it is |
+|---|---|
+| `System573_MiSTer-v<version>.zip` | the core, the launchers and the modified `MiSTer` executable, laid out like the SD card (steps 1, 2 and 4) |
+| `s573_stage.py` | the staging tool: builds the game files from your MAME romsets (step 3) |
+| `System573_blank_saves.zip` | an empty save file for every title, for staging by hand (step 3) |
 
 1. **Core:** copy `Konami_System_573.rbf` to `_Console/` on the SD card.
 2. **Launchers:** copy the `.mgl` files from [`mgl/`](mgl/) to `_Arcade/`. Each one
    is named `<title> (<region>, <year>)` and loads one title;
    [`mgl/README.md`](mgl/README.md) maps them to MAME romsets. Launch a game from its
    launcher, not from the bare `.rbf`.
-3. **Game files:** [`tools/s573_stage.py`](tools/s573_stage.py) builds
-   `games/System573/` from your MAME romsets. It is one file and needs only Python
-   3.8 or newer:
+3. **Game files:** the staging tool, `s573_stage.py` (a release download; the same
+   file as [`tools/s573_stage.py`](tools/s573_stage.py)), builds `games/System573/`
+   from your MAME romsets. It is one file and needs only Python 3.8 or newer (on
+   Windows, install Python from python.org or the Microsoft Store and use `python`
+   or `py` in place of `python3`):
 
        python3 s573_stage.py <folder with your MAME roms> <SD card or USB drive>
 
@@ -56,6 +68,14 @@ or cassette data is in this repository.
    anything. Its title table is generated from MAME's `ksys573.cpp` and `mgl/` by
    `tools/gen_s573_titles.py`. (`tools/stage_573.py` is the developer version of
    the same staging, one romset at a time from `dumps/mame573/`.)
+
+   **Blank saves:** every launcher needs its title's `.sav` in `games/System573/`
+   before it starts, at the exact size the core expects. The staging tool creates
+   them, and `python3 s573_stage.py --blank-saves <SD card or USB drive>` writes only
+   them. `System573_blank_saves.zip` holds the same files for anyone staging by
+   hand. **Don't extract it over a card that already has saves:** each `.sav` holds
+   that game's install, and the blank one would replace it. Copy only the ones you
+   are missing.
 4. **The modified `MiSTer` executable (required for music):** the Digital-I/O DDR and
    Dancing Stage titles decode their MP3 soundtrack on the ARM side, in a service
    added to MiSTer's Main program (`support/s573/`, built by
