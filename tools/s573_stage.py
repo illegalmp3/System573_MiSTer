@@ -516,6 +516,20 @@ TABLE = json.loads(r"""
    "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
    "size": 8
   },
+  "drmn4m/gea25jaa.27m": {
+   "crc": "118fa45a",
+   "name": "gea25jaa.27m",
+   "set": "drmn4m",
+   "sha1": "6bc6129e328f6f97a27b9f524066297b29efff5a",
+   "size": 2097152
+  },
+  "drmn4m/gea25jaa.31m": {
+   "crc": "a0dd0ef4",
+   "name": "gea25jaa.31m",
+   "set": "drmn4m",
+   "sha1": "be4c1d3f2eb3c484b515be12b692c30cc780c36c",
+   "size": 2097152
+  },
   "drmn4m/gea25jaa.u1": {
    "crc": "8ee64348",
    "name": "gea25jaa.u1",
@@ -544,6 +558,20 @@ TABLE = json.loads(r"""
    "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
    "size": 8
   },
+  "drmn6m/gcb16jaa.27m": {
+   "crc": "5696e133",
+   "name": "gcb16jaa.27m",
+   "set": "drmn6m",
+   "sha1": "aad39cc25ce5279adac8a10fb10158f4f4418c0a",
+   "size": 2097152
+  },
+  "drmn6m/gcb16jaa.31m": {
+   "crc": "19de3e53",
+   "name": "gcb16jaa.31m",
+   "set": "drmn6m",
+   "sha1": "bbb7a247bdd617a124330a946c2e8dd565b2a09c",
+   "size": 2097152
+  },
   "drmn6m/gcb16jaa.u1": {
    "crc": "a8ab305d",
    "name": "gcb16jaa.u1",
@@ -557,6 +585,20 @@ TABLE = json.loads(r"""
    "set": "drmn6m",
    "sha1": "839e8ee080ecfc79021a06417d930e8b32dfc6a1",
    "size": 8
+  },
+  "drmn7m/gcc07jba.27m": {
+   "crc": "9393fe8e",
+   "name": "gcc07jba.27m",
+   "set": "drmn7m",
+   "sha1": "f60752e3e397121f3d4856a634e1c8ce5fc465b5",
+   "size": 2097152
+  },
+  "drmn7m/gcc07jba.31m": {
+   "crc": "7120d1ce",
+   "name": "gcc07jba.31m",
+   "set": "drmn7m",
+   "sha1": "4df9828150120762b99c5b212bc7a91b0d525bce",
+   "size": 2097152
   },
   "drmn7m/gcc07jba.u1": {
    "crc": "9b85fd8a",
@@ -683,6 +725,20 @@ TABLE = json.loads(r"""
    "set": "dsfdr",
    "sha1": "d8372f2d6e0ae07061b496a2242a63e5bc2e54dc",
    "size": 8
+  },
+  "gtrfrk5m/gea26jaa.27m": {
+   "crc": "345dc5f2",
+   "name": "gea26jaa.27m",
+   "set": "gtrfrk5m",
+   "sha1": "61af3fcfe6119c1e8e18b92693855ab4fe708b30",
+   "size": 2097152
+  },
+  "gtrfrk5m/gea26jaa.31m": {
+   "crc": "1a25e660",
+   "name": "gea26jaa.31m",
+   "set": "gtrfrk5m",
+   "sha1": "dbd8fad0bac307723c70d00763cadf4261a7ed73",
+   "size": 2097152
   },
   "gtrfrk5m/gea26jaa.u1": {
    "crc": "5e16a3f1",
@@ -1544,6 +1600,22 @@ TABLE = json.loads(r"""
       16777216,
       16778240
      ],
+     "seed": {
+      "fill": 255,
+      "parts": [
+       {
+        "base": 0,
+        "lane": 0,
+        "rom": "drmn4m/gea25jaa.31m"
+       },
+       {
+        "base": 0,
+        "lane": 1,
+        "rom": "drmn4m/gea25jaa.27m"
+       }
+      ],
+      "size": 16777216
+     },
      "size": 16787456
     },
     "drmn4m.u1": {
@@ -1614,6 +1686,22 @@ TABLE = json.loads(r"""
       16777216,
       16778240
      ],
+     "seed": {
+      "fill": 255,
+      "parts": [
+       {
+        "base": 0,
+        "lane": 0,
+        "rom": "drmn6m/gcb16jaa.31m"
+       },
+       {
+        "base": 0,
+        "lane": 1,
+        "rom": "drmn6m/gcb16jaa.27m"
+       }
+      ],
+      "size": 16777216
+     },
      "size": 16787456
     },
     "drmn6m.u1": {
@@ -1649,6 +1737,22 @@ TABLE = json.loads(r"""
       16777216,
       16778240
      ],
+     "seed": {
+      "fill": 255,
+      "parts": [
+       {
+        "base": 0,
+        "lane": 0,
+        "rom": "drmn7m/gcc07jba.31m"
+       },
+       {
+        "base": 0,
+        "lane": 1,
+        "rom": "drmn7m/gcc07jba.27m"
+       }
+      ],
+      "size": 16777216
+     },
      "size": 16787456
     },
     "drmn7m.u1": {
@@ -1913,6 +2017,22 @@ TABLE = json.loads(r"""
       16777216,
       16778240
      ],
+     "seed": {
+      "fill": 255,
+      "parts": [
+       {
+        "base": 0,
+        "lane": 0,
+        "rom": "gtrfrk5m/gea26jaa.31m"
+       },
+       {
+        "base": 0,
+        "lane": 1,
+        "rom": "gtrfrk5m/gea26jaa.27m"
+       }
+      ],
+      "size": 16777216
+     },
      "size": 16787456
     },
     "gtrfrk5m.u1": {
@@ -2735,9 +2855,12 @@ def make_mode1(path, out, r, set_, dry, log):
         c.close()
 
 
-def make_sav(out, name, r, dry, log):
+def make_sav(out, name, r, dry, log, src=None):
     """Real zero bytes, never a sparse/truncated file: saves created by extending a
-    file with truncate() were never written back by the MiSTer on exFAT."""
+    file with truncate() were never written back by the MiSTer on exFAT.
+    An upgrade title's save starts with the previous game already in the onboard
+    flash (r["seed"]: the set's flash ROMs, as MAME preloads them) -- without it
+    the game stops with ERROR 194 before installing."""
     p = os.path.join(out, name)
     size = r["size"]
     if os.path.exists(p):
@@ -2754,10 +2877,19 @@ def make_sav(out, name, r, dry, log):
         else:
             log.append(f"{name}: WARNING is {have:,} bytes, expected {size:,} -- left alone")
         return
+    seed = r.get("seed")
+    if seed and src is None:
+        log.append(f"{name}: SKIPPED -- this title's save starts from its romset's flash ROMs; "
+                   f"run the stager with the romsets to create it")
+        return
     if not dry:
         tmp = p + ".part"
         with open(tmp, "wb") as f:
             left = size
+            if seed:
+                img = make_flash(src, seed)
+                f.write(img)
+                left -= len(img)
             blk = bytes(MIB)
             while left:
                 n = min(left, MIB)
@@ -2766,7 +2898,8 @@ def make_sav(out, name, r, dry, log):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, p)
-    log.append(f"{name}: created ({size:,} bytes of zeros)")
+    log.append(f"{name}: created ({size:,} bytes" + (", flash preloaded with the previous game, as MAME does)"
+                                                      if seed else " of zeros)"))
 
 
 # -------------------------------------------------------------------------- main
@@ -2778,6 +2911,7 @@ def needs(t):
             if r.get(k):
                 roms.append(r[k])
         roms += [p["rom"] for p in r.get("parts", [])]
+        roms += [p["rom"] for p in r.get("seed", {}).get("parts", [])]
         if r["make"] in ("chd", "mode1"):
             discs.append((r["sha1"], r["disc"]))
     return roms, discs
@@ -2834,7 +2968,7 @@ def stage(src, t, out, dry, force, log):
                         os.remove(q)
             make_mode1(src.chd(r["sha1"], r["disc"]), out, r, t["set"], dry, log)
         elif m == "sav":
-            make_sav(out, name, r, dry, log)
+            make_sav(out, name, r, dry, log, src)
         else:
             raise Fail(f"{name}: unknown recipe {m}")
 

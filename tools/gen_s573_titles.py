@@ -162,7 +162,21 @@ class Gen:
         if ext == ".sav":
             mb, zs01, total = S.save_layout(t)
             older = sorted({mb << 20, (mb << 20) + (1024 if zs01 else 0)} - {total})
-            return {"make": "sav", "size": total, "older": older}
+            r = {"make": "sav", "size": total, "older": older}
+            # Upgrade titles (DrumMania 4th/6th/7th power-up, Guitar Freaks 5th, ...)
+            # refuse to install unless the PREVIOUS game is already in the onboard
+            # flash (ERROR 194 "a different game is installed ... <previous mix> must
+            # be installed beforehand"). MAME ships that previous install as the set's
+            # 29f016a ROMs (drmn4m's gea25jaa.31m/.27m hold GCA23 = DM 3rd Mix) and
+            # preloads it; the new save starts from the same image. Its first 16 MB IS
+            # the onboard flash in the core's layout (s573_flash_saver: linear from
+            # FLASH_START, the same layout the ioctl-2 flash download / hbbflash use).
+            reg = regions(body)
+            parts = [{"rom": self.rom(setname, reg[tag], lines), "base": base, "lane": lane}
+                     for tag, base, lane in flash_lanes(self.src) if tag in reg and reg[tag] in lines]
+            if parts:
+                r["seed"] = {"size": 16 << 20, "fill": 0xFF, "parts": parts}
+            return r
         if ext == ".u1":
             g = cas["game"]
             key = self.rom(setname, g["eeprom"][0], lines)
