@@ -126,3 +126,27 @@ built on that same release.
   kept, `/MiSTer.version` = 260912), a second run is a no-op, a differing `uboot.img`
   refuses with nothing changed, and an injected `hostname` lands in the card's image
   while the release image keeps its own.
+
+## What other users need (added the same day)
+
+Only the two steps: `MiSTer_System573` next to their `MiSTer`, and the
+`[System573]` / `main=MiSTer_System573` section in the INI they boot with. The
+deploy stage's stock-Main, menu and Linux updates are for Ricky's console only.
+
+* `main=` is read by stock Main since commit e61b111 (2024-03-25, "Add INI option
+  Main for custom binary"); the first stable release carrying it is
+  **MiSTer_20240505** (its binary has the "core requires exec" string;
+  MiSTer_20240110 does not).
+* Runtime: the stable binaries from MiSTer_20211112 on already need GLIBC_2.29
+  (`pow`) and GLIBCXX_3.4.21; MiSTer_20261010 needs the same maxima (readelf -V on
+  `Main_MiSTer/releases/`), and the build's ABI gate refuses a `MiSTer_System573`
+  that needs more than the release it is built from. Shared libraries are the
+  same set as stock (20261010 adds `libdl.so.2`, part of glibc). So any Linux
+  that runs a stock Main from late 2021 on runs it; no kernel or rootfs change is
+  involved (`/dev/mem` + the existing SPI path).
+* Launchers: `<setname>` in MGL since Main 2022-07-13, `<reset>` since
+  2022-03-03; no newer MGL features are used.
+* Fallback: if the switch does not happen (old Main, missing line, file not
+  there) the core runs on stock Main without music. The card reader also lives in
+  `MiSTer_System573`; with it switched on and no service, the game's JVS requests
+  go unanswered, as on a cabinet whose reader is dead -- so it stays Off by default.

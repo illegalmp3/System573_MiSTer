@@ -107,10 +107,17 @@ three downloads:
    `MiSTer_System573` is not one of its files. Hyper Bishi Bashi Champ and Gacha Gachamp have no MP3 board and do not
    need it.
 
-   `MiSTer_System573` is built on the source of a **stable** Main release (the
-   release's own commit, not master); the release notes name which one. Keeping
-   the stock `MiSTer` on that release or newer is enough -- any Main that reads
-   `main=` performs the switch.
+   **Nothing else on your setup needs updating.** Your own `MiSTer` and Linux
+   stay as they are. The one requirement is that your stock `MiSTer` reads
+   `main=`, which every stable release since **MiSTer_20240505** (May 2024) does
+   (added in Main commit e61b111, 2024-03-25). `MiSTer_System573` is a complete
+   Main of its own, built from a stable release's source (the release notes name
+   which one) with Main's own pinned toolchain, so it needs nothing newer from
+   Linux than stock Main has needed since late 2021 (glibc 2.29, libstdc++
+   GLIBCXX 3.4.21). The launchers use only MGL features from 2022 (`setname`,
+   `reset`). Without the `main=` line, or on a Main older than 20240505, the
+   core still runs, just without music (keep *573 Card Reader* Off then: the
+   reader lives in `MiSTer_System573`).
 
    Upgrading from v0.1.x, which replaced `/media/fat/MiSTer`: put the stock binary
    back (run the updater, or copy your `MiSTer.orig` over `MiSTer`), then do the
