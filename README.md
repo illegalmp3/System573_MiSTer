@@ -107,6 +107,11 @@ three downloads:
    `MiSTer_System573` is not one of its files. Hyper Bishi Bashi Champ and Gacha Gachamp have no MP3 board and do not
    need it.
 
+   `MiSTer_System573` is built on the source of a **stable** Main release (the
+   release's own commit, not master); the release notes name which one. Keeping
+   the stock `MiSTer` on that release or newer is enough -- any Main that reads
+   `main=` performs the switch.
+
    Upgrading from v0.1.x, which replaced `/media/fat/MiSTer`: put the stock binary
    back (run the updater, or copy your `MiSTer.orig` over `MiSTer`), then do the
    two steps above.

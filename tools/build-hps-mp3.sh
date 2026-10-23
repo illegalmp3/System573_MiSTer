@@ -11,7 +11,10 @@
 # downloads the three inputs below into $DOCS when the environment has network.
 #
 # Three inputs must be present in $DOCS:
-#   Main_MiSTer*.tar.gz
+#   Main_MiSTer-release-<YYYYMMDD>-<sha>.tar.gz  (the newest is used, or
+#                            MAIN_RELEASE=YYYYMMDD) -- the source of a STABLE Main
+#                            release; the matching stock binary MiSTer_<YYYYMMDD>
+#                            is the ABI reference and what deploy installs
 #   gcc-arm-10.2-2020.11-<host>-arm-none-linux-gnueabihf.tar.xz  (host = the
 #                                                                 machine running this)
 #   minimp3.h
@@ -66,7 +69,16 @@ stage_setup() {
 
   local tctar srctar mp3h
   tctar="$(need_input "gcc-arm-10.2-*-$(uname -m)-arm-none-linux-gnueabihf.tar.xz" 'ARM toolchain')"
-  srctar="$(need_input 'Main_MiSTer*.tar.gz' 'Main_MiSTer source')"
+  # The base is a STABLE Main release, chosen explicitly -- never "whatever tarball
+  # happens to be in Documents" (an older Main_MiSTer-<sha>.tar.gz may still be there).
+  if [ -n "${MAIN_RELEASE:-}" ] && [ "${MAIN_RELEASE}" != latest ]; then
+    srctar="$(need_input "Main_MiSTer-release-$MAIN_RELEASE-*.tar.gz" "Main_MiSTer release $MAIN_RELEASE source")"
+  else
+    srctar="$(ls -1 "$DOCS"/Main_MiSTer-release-*-*.tar.gz 2>/dev/null | sort | tail -1 || true)"
+    [ -n "$srctar" ] || die "missing input: Main_MiSTer-release-<YYYYMMDD>-<sha>.tar.gz (run tools/wsl/fetch-firmware-inputs.sh)"
+  fi
+  BASE="$(basename "$srctar" .tar.gz)"            # Main_MiSTer-release-<date>-<sha>
+  say "base: $BASE"
   mp3h="$(need_input 'minimp3.h' 'minimp3 single header')"
 
   if [ ! -x "$TC/bin/arm-none-linux-gnueabihf-gcc" ]; then
@@ -92,11 +104,12 @@ loader refuses the binary and the console never boots. Point TC at the 10.2
 toolchain or delete $TC and re-run setup to extract it." ;;
   esac
 
-  if [ ! -f "$MAIN/Makefile" ]; then
-    say "extracting Main_MiSTer"
+  if [ ! -f "$MAIN/Makefile" ] || [ "$(cat "$MAIN/.s573_base" 2>/dev/null)" != "$BASE" ]; then
+    say "extracting $BASE (fresh tree: the graft must start from pristine upstream)"
     rm -rf "$MAIN.tmp"; mkdir -p "$MAIN.tmp"
     tar -xzf "$srctar" -C "$MAIN.tmp" --strip-components=1
     rm -rf "$MAIN"; mv "$MAIN.tmp" "$MAIN"
+    printf '%s' "$BASE" > "$MAIN/.s573_base"
   else
     say "Main_MiSTer already extracted"
   fi
@@ -246,7 +259,13 @@ stage_build() {
   # stage anything that asks for more.
   # The card is not mounted in WSL; a copy of the stock binary the board runs is
   # kept in the project (out/MiSTer.upstream-nos573, 2026-09-12 stock install).
-  local ref="$SD/MiSTer.orig"
+  # Reference = the STOCK binary of the same release (fetched beside its source),
+  # i.e. exactly what the console's /media/fat/MiSTer will be.
+  local base rel ref
+  base="$(cat "$MAIN/.s573_base" 2>/dev/null || true)"
+  rel="$(printf '%s' "$base" | sed -nE 's/^Main_MiSTer-release-([0-9]{8})-.*/\1/p')"
+  ref="$DOCS/MiSTer_$rel"
+  [ -n "$rel" ] && [ -f "$ref" ] || ref="$SD/MiSTer.orig"
   if [ ! -f "$ref" ] && [ -f "$SD/MiSTer" ] && ! strings -a "$SD/MiSTer" | grep -q s573mp3; then
     ref="$SD/MiSTer"          # the card's own stock binary
   fi
@@ -272,16 +291,42 @@ needing only GLIBC_$hi_ref. It would not boot. Use the 10.2 toolchain."
 
   mkdir -p "$DOCS/System573_MiSTer/out"
   cp -f "$out" "$DOCS/System573_MiSTer/out/MiSTer_System573"
-  say "binary copied to System573_MiSTer/out/MiSTer_System573"
+  printf '%s\n' "$base" > "$DOCS/System573_MiSTer/out/MiSTer_System573.base"
+  say "binary copied to System573_MiSTer/out/MiSTer_System573 (built on $base)"
 }
 
 stage_deploy() {
   [ -d "$SD" ] || die "SD card not mounted at $SD"
   local bin="$DOCS/System573_MiSTer/out/MiSTer_System573"
   [ -f "$bin" ] || die "build first"
-  # Earlier deploys REPLACED /media/fat/MiSTer and kept the stock one as MiSTer.orig.
-  # Put the stock binary back first, so nothing but this core runs the fork.
-  if [ -f "$SD/MiSTer" ] && strings -a "$SD/MiSTer" | grep -q s573mp3; then
+  # /media/fat/MiSTer = the STOCK binary of the release the fork was built on, so the
+  # console runs one Main version whichever binary is active (the console has no
+  # network, so the updater cannot do this). The previous one is kept as MiSTer.prev.
+  local base rel stock
+  base="$(cat "$DOCS/System573_MiSTer/out/MiSTer_System573.base" 2>/dev/null || true)"
+  rel="$(printf '%s' "$base" | sed -nE 's/^Main_MiSTer-release-([0-9]{8})-.*/\1/p')"
+  stock="$DOCS/MiSTer_$rel"
+  if [ -n "$rel" ] && [ -f "$stock" ]; then
+    if ! cmp -s "$stock" "$SD/MiSTer"; then
+      [ -f "$SD/MiSTer" ] && cp -f "$SD/MiSTer" "$SD/MiSTer.prev"
+      cp -f "$stock" "$SD/MiSTer"
+      say "installed the stock Main release $rel as MiSTer (previous kept as MiSTer.prev)"
+    else
+      say "MiSTer is already the stock release $rel"
+    fi
+    # ...and the menu core released with it (the newest menu_<date>.rbf not after it)
+    local menu
+    menu="$(ls -1 "$DOCS"/menu_*.rbf 2>/dev/null | awk -v d="$rel" '{ n = $0; sub(/.*menu_/, "", n); if (substr(n, 1, 8) <= d) print }' | sort | tail -1 || true)"
+    if [ -n "$menu" ]; then
+      if ! cmp -s "$menu" "$SD/menu.rbf"; then
+        [ -f "$SD/menu.rbf" ] && cp -f "$SD/menu.rbf" "$SD/menu.rbf.prev"
+        cp -f "$menu" "$SD/menu.rbf"
+        say "installed $(basename "$menu") as menu.rbf (previous kept as menu.rbf.prev)"
+      fi
+    else
+      say "NOTE: no menu_<date>.rbf in $DOCS -- menu.rbf left as it is"
+    fi
+  elif [ -f "$SD/MiSTer" ] && strings -a "$SD/MiSTer" | grep -q s573mp3; then
     if [ -f "$SD/MiSTer.orig" ] && ! strings -a "$SD/MiSTer.orig" | grep -q s573mp3; then
       say "restoring the stock MiSTer from MiSTer.orig (the old deploy had replaced it)"
       cp -f "$SD/MiSTer.orig" "$SD/MiSTer"

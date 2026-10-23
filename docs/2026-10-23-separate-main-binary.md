@@ -64,3 +64,35 @@ No firmware change: the binary is the same build under another name.
    requires exec /media/fat/MiSTer_System573").
 4. Back to the menu, start another core (e.g. PSX or N64) -- it must run normally; and
    load a DDR title again to confirm the switch happens every time.
+
+## Base: the newest STABLE Main release, not master (added the same day)
+
+Ricky's requirement: the console runs the latest stable Main, and `MiSTer_System573` is
+built on that same release.
+
+* Stable releases are the binaries Sorgelig commits to `Main_MiSTer/releases/`. Newest
+  as of 2026-10-23: **`MiSTer_20261010`**, committed by `738cb7a` ("Release 20261010.",
+  2026-10-10); that commit only adds the binary, so its tree is the release's source.
+  Master has moved on 23 commits since (Minimig, PCAT-286, ...), which is why the base
+  is the release commit and not master. The stock binary's `.comment` reads
+  "GCC ... 10.2-2020.11 ... 10.2.1" and its highest symbol version is GLIBC_2.29 --
+  the same toolchain pin this build enforces.
+* The menu core is released alongside: `Menu_MiSTer/releases/menu_20261010.rbf`.
+* `tools/wsl/fetch-firmware-inputs.sh` now fetches, for `MAIN_RELEASE` (default the
+  newest release; `MAIN_RELEASE=YYYYMMDD` pins one): the source at the release commit
+  (`Main_MiSTer-release-<date>-<sha>.tar.gz`), the stock binary `MiSTer_<date>`, and
+  the menu release of the same date or the newest before it.
+* `tools/build-hps-mp3.sh`: setup takes that tarball explicitly (newest by name, or
+  `MAIN_RELEASE`) and re-extracts when the base changes (stamp `.s573_base`), so an
+  old tree or an old `Main_MiSTer-<sha>.tar.gz` in Documents can never be built by
+  accident; the ABI gate compares against the same release's stock binary; the output
+  is stamped `out/MiSTer_System573.base`; deploy installs that release's stock binary
+  as `MiSTer` and its menu as `menu.rbf` (previous ones kept as `.prev` -- the console
+  has no network, so the updater cannot do it), then `MiSTer_System573` and the INI.
+* Checked here (no ARM toolchain reachable from this environment): the four graft
+  edits apply to the 20261010 tree, and the grafted `user_io.cpp`, `s573mp3.cpp`,
+  `s573mp3_core.c` and `s573_descramble.c` type-check against its headers
+  (`g++/gcc -fsyntax-only` with Main's include paths). The ARM build itself runs on
+  the Windows PC (job runner 003 + 004).
+* Not covered by this: the Linux image. The newest SD-installer release is
+  `release_20260912`; the console's Linux is from the 260907 install.
