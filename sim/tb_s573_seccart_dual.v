@@ -23,8 +23,11 @@
 //             password is accepted (wrong one NAKed); data[0..3] read back are the
 //             REAL install-image bytes (so the restore did NOT overwrite them, and a
 //             ZS01 image did not wrap over them); DS2401 ROM == gea33aa.u6;
-//          A3 game in the slot: ZS01 RTR 5A 53 00 01; DS2401 ROM == gca33aa.u6
-//             (which differs from the install's -- asserted, so the check is real);
+//          A3 game in the slot: ZS01 RTR 5A 53 00 01; NO 1-Wire presence on I6 --
+//             psx-spx "ZS01 cartridge variants": the game cassette's DS2401 hangs
+//             off a ZS01 GPIO, not D4/I6 (read through ZS01 address 0xFD instead,
+//             573in1 ZS01_ADDR_DS2401_ID; tb_zs01 covers that path). Was "ROM ==
+//             gca33aa.u6", modelled on MAME k573cass.cpp, which exposes it on D4;
 //             an X76-style RTR read does NOT return 19 55 AA 55 (the X76F041 really
 //             is deselected).
 //  Part B  ddr4m again, REVERSED file order (.cas first, then the 4116-B .u1 whose
@@ -236,6 +239,9 @@ module tb_s573_seccart_dual;
     task ow_read_bit(input integer w, output b); begin
         put(w,4,1); wait_us(4); put(w,4,0); wait_us(8); b=ds_in(w); wait_us(63); end
     endtask
+    task ow_presence(input integer w, output p); begin    // reset pulse, sample at 70 us
+        put(w,4,1); wait_us(500); put(w,4,0); wait_us(70); p = ~ds_in(w); wait_us(180); end
+    endtask
     task ow_read_rom(input integer w, output [63:0] rom);
         integer j; reg bv; begin
             ow_reset(w);
@@ -356,11 +362,13 @@ module tb_s573_seccart_dual;
             if ({b0,b1,b2,b3} === 32'h19_55_AA_55) begin
                 $display("FAIL: X76F041 still answers with the GAME cassette selected"); errors=errors+1; end
             x_deselect(1);
-            ow_read_rom(1, rom);
-            want = {d4_cas[0],d4_cas[1],d4_cas[2],d4_cas[3],d4_cas[4],d4_cas[5],d4_cas[6],d4_cas[7]};
-            if (rom !== want) begin $display("FAIL: ddr4m game DS2401 %016h (want gca33aa.u6 %016h)", rom, want); errors=errors+1; end
-            if (want === {d4_cas[8],d4_cas[9],d4_cas[10],d4_cas[11],d4_cas[12],d4_cas[13],d4_cas[14],d4_cas[15]}) begin
-                $display("FAIL: ddr4m game and install serials are identical -- the DS2401 check proves nothing"); errors=errors+1; end
+            ow_presence(1, ack);
+            if (ack !== 1'b0) begin $display("FAIL: ddr4m ZS01 game cassette answers 1-Wire on I6 (psx-spx: not exposed)"); errors=errors+1; end
+            // and the install cassette's DS2401 still answers once it is selected again
+            sel_a = 1; tk;
+            ow_presence(1, ack);
+            if (ack !== 1'b1) begin $display("FAIL: ddr4m install DS2401 lost its presence pulse"); errors=errors+1; end
+            sel_a = 0; tk;
 
             // =================================================================
             // Part B: REVERSED order -- .cas first, then the 4116-B .u1

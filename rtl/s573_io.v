@@ -47,8 +47,16 @@ module s573_io (
     output reg         adc_cs_n,
     output reg         adc_clk,
     output reg  [1:0]  coin_counter,   // energize signals
+    // Audio bits, psx-spx "Konami ASIC registers" + 573in1 registers573.h:
+    //  5 = built-in amp enable (1 = on; RCA line outputs are never affected)
+    //  6 = external (CD-ROM / Digital I/O) audio input enable, 1 = on. Despite the
+    //      port name this is an ENABLE, not a mute; psx-spx measured it as an
+    //      attenuator (still faintly audible at 0); meaningless on GF/DM cabinets.
+    //  7 = SPU DAC output enable per psx-spx (0 = muted) -- but 573in1's io::init()
+    //      writes bit 7 = 0 and never sets it, yet plays SPU sound. Sources
+    //      disagree, so none of these bits gates the core's audio.
     output reg         audio_amp_en,
-    output reg         audio_mute,
+    output reg         audio_mute,     // = bit 6, external audio ENABLE (see above)
     output reg         spu_dac_en,
     output reg         jvs_mcu_rst_n
 );

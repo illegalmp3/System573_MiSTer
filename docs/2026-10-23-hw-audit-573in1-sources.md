@@ -1,10 +1,14 @@
-# Hardware audit against non-MAME sources (573in1, NaokiS28 schematics, Naoki's video)
+# Hardware audit against non-MAME sources (573in1, NaokiS28 schematics, Naoki's video, psx-spx)
 
 **Date:** 2026-10-23
 **Branch:** `hw-audit-573in1` (on top of `5bcd741`, the public v0.1.1 tree)
-**Status:** 3 RTL fixes + 1 portability fix, simulated: 67/67 suite benches green
-**with the real game-dump fixtures** (pnchmn2, gtrfrk5m, ddrusa, ddr4m, ddr3ma).
-**Not yet built or cabinet-tested.**
+**Status:** 5 RTL fixes + 1 portability fix, simulated: 68/68 suite benches green
+**with the real game-dump fixtures** (pnchmn2, gtrfrk5m, ddrusa, ddr4m, ddr3ma) and
+573in1's own Digital I/O bitstream. **Not yet built or cabinet-tested.**
+
+Update 2 (same day, psx-spx /dev/ System 573 pages, S4): F5 (Digital I/O CPLD) and F6
+(ZS01 has no CS and no exposed DS2401) added; O1 closed by F5; O3 rewritten (the
+sources disagree on bit 7, so no audio gating). psx-spx independently confirms F1.
 
 Update (same day, with the dumps): two bench expectations that had never run were
 wrong and are corrected -- `tb_s573_seccart` expected pnchmn2 BCR2 = 0x00 (the dump
@@ -21,6 +25,7 @@ rejects, so on those hosts the fixtures were never generated. Now `bash`.
 | S1 | spicyjpeg/573in1 | `b57da08` (2025-04-13) | Register/bit definitions (`src/ps1/registers573.h`), drivers proven on real boards (`src/common/io.cpp`, `ide.cpp`, `rom.cpp`, `romdrivers.cpp`, `src/main/cart/cartio.cpp`), its own DIO FPGA design (`fpga/src/main.v`, `doc/fpga.md`, `data/fpga.bit`) |
 | S2 | NaokiS28/Konami-System-573-Documentation | `3b981a9` (2025-11-19) | GX700-PWB KiCad schematics, M48T58Y datasheet, Konami flash-card schematic + MBM29F017A datasheet. **The author flags the security-cart sheet as unverified** -- every conclusion below that uses it is cross-checked against S1 or game code. |
 | S3 | "Konami's System 573 - Everything you wanted to know about it!" (Naoki's Retro Corner, 2022-10-05) | author's English (UK) caption track | Watchdog part/timeout, IDE PIO-only, PCMCIA single-CE wiring, audio path of the I/O boards |
+| S4 | psx-spx "Konami System 573" (`psx-spx.consoledev.net/dev/arcade/konami/573/`, repo `psx-spx/psx-spx.github.io` `b56e4c5`, 2026-10-23) | `registers.md`, `builtin-io.md`, `expansion-io.md`, `security-cartridges.md` | Hardware-tested register behaviour: DIO CPLD/FPGA map, cassette pinouts per variant, audio-control bits, watchdog |
 | ref | MAME `cde9d51` (2026-10-23): `ksys573.cpp`, `k573dio.cpp`, `x76f041.cpp`, `atahle.cpp`, `linflash.cpp` | | Baseline the core was built from |
 
 Schematic connectivity was extracted with a small KiCad-sheet netlister (wires, labels,
@@ -80,12 +85,73 @@ toggles at the 99->00 rollover when CEB is set.
 Icarus 13+ rejects that; six benches (system573_top, zs01_detect, drivecheck, cdboot,
 atapi_inquiry, s573_cdtoc) did not compile. Declarations moved up; no logic change.
 
+### F5. Digital I/O CPLD: real FPGA configuration status (`rtl/k573dio_cpld.v`, new)
+
+Closes O1. psx-spx (S4, `expansion-io.md` "0x1f6400f6"): status bit 12 = /INIT, 13 =
+DONE from the FPGA; control writes 12 = /INIT, 13 = DONE, 14 = /PROGRAM; **Konami's
+driver writes `0x8000`, then `0xc000`, then `0xf000`** before streaming the 41,337-byte
+image on `0xf8` bit 15 -- the same three writes 573in1 uses, which settles the doubt
+raised by MAME's one-line note ("write 8000 to +f6.w"). Also from S4: **every register in
+`0xf0-0xff` reads back the `0xf6` value** (incomplete CPLD decode), `0xf4` bit 15 is the
+DAC reset (0 = reset), and the bitstream is 330,696 bits.
+
+Core before: `0xf6` = constant `0xB000` (MAME), other `0xf0-0xfe` read 0. 573in1 needs
+`(0xf6 & 0x3000) == 0x1000` before the upload, so it retried three times, logged
+"bitstream upload failed" and never read the board DS2401.
+
+Now: a small CPLD + FPGA-config model. `/PROGRAM` low (or reset) clears the FPGA;
+/INIT reads high 64 clocks (~2 us) after `/PROGRAM` rises and the CPLD stops holding it
+low (MAME shows /INIT = 1 at all times and every Konami title boots on it; 573in1 waits
+5 ms -- 2 us satisfies both); DONE rises when the bit count reaches the length count
+parsed from the stream itself (>= 4 ones, preamble `0010`, 24-bit count -- 573in1's
+`fpga.bit`: 330,689, i.e. 7 bits before the end), or at 330,696 bits if no preamble is
+seen. CPLD drive bits 12/13 are open-drain: 0 holds the line low. Status after a full
+upload is `0xB000`, MAME's constant, so nothing Konami checks after programming changes.
+"LSB first" in S4 is byte storage order only: both drivers reverse it in software, so
+the serial stream at DIN is identical either way (bench case 2 proves the model
+does not care). Board-ID bits stay bit 15 = 1, bit 14 = 0 (MAME's `0xB000`, 573in1
+`isDigitalIOPresent`, ddrsbm `& 0xc000 == 0x8000`); S4's table has 14/15 swapped --
+three code sources against one table, so the table is taken as the typo.
+
+Same pass, from S4: FPGA magic `0x1234` now reads across `0x80-0x9f` and `0xd0-0xdf`
+(S4: "the magic number at 0x1f640080 is mirrored throughout ..."), and `0xc6`/`0xc8`
+read `0x7654`. `0xf4` bit 15 is latched to a `dac_en` port (reset 1) but **not yet used
+to mute MP3 audio** -- see O9.
+
+### F6. ZS01 cassette: no chip select, no DS2401 on D4/I6 (`rtl/s573_seccart.v`)
+
+psx-spx `security-cartridges.md` "ZS01 cartridge variants": the ZS01 pins are `/DSR`,
+D0 (SDA drive via IO0), D1 (SCL), D3 (reset), IO0 (SDA readout) -- **no D2**; and "All
+cartridges are fitted with a DS2401, however it is connected to a GPIO pin on the
+ZS01 rather than being directly exposed to the 573". 573in1 agrees on both:
+`I2CDriver::resetZS01` -- "the reset pin is also active-low ... and CS is ignored" --
+and `ZS01Driver::readCartID` reads the serial through ZS01 command address
+`ZS01_ADDR_DS2401_ID`, never through D4. MAME `k573cass.cpp` (ZI device) wires D2 to
+`write_cs` and D4 to the DS2401; the core had copied that.
+
+Now the ZS01 model's CS is tied active whenever the ZS01 cassette is selected, and the
+game cassette's DS2401 does not pull I6 when it is a ZS01 (zs01.v still serves the same
+`.u6` serial internally). The install cassette (X76F041/X76F100) keeps its DS2401 on
+D4/I6, per S4's X76F041 pin table. Konami's ZS01 driver never relies on either
+(it leaves D2 low and reads the ID through the ZS01), so this only removes behaviour
+real cassettes do not have.
+
+Bench updates: `tb_s573_seccart_dual` A3 expected the ddr4m ZS01 game cassette's
+serial on I6 (modelled on MAME); it now asserts no 1-Wire presence there and that the
+install cassette's DS2401 still answers. `tb_573in1_cart` ran its cassette-DS2401 step
+with the ZS01 selected, which 573in1 never does (`X76Driver::readCartID` only); it now
+asserts silence on I6 for the ZS01 and reads the serial with an X76 cassette.
+Related, not changed: S4 gives ZS01 address `0xfc` as the ZS01's own internal serial
+and `0xfd` as the DS2401; `zs01.v` (like MAME) returns the DS2401 for both. No dump of
+the internal serial exists and S4 says games do not use it.
+
 ## New benches
 
 | bench | replays | before -> after |
 |---|---|---|
 | `tb_573in1_ide` (in TESTS) | `ide.cpp` enumerate both devices, TEST UNIT READY, PIO READ | RED (phantom dev 1) -> GREEN |
 | `tb_573in1_rtc` (in TESTS) | `io.cpp` setRTCTime/getRTCTime/isRTCBatteryLow across a midnight, month end and century | RED (date 03-14 -> 04-01) -> GREEN |
+| `tb_k573dio_cpld` (in TESTS) | 573in1 `loadDigitalIORawBitstream` with its real `data/fpga.bit` (MSB writer), the same stream as a Konami-style LSB-first image, a synthetic header stream, a no-preamble stream, CPLD DONE hold, back-to-back control writes, `0xf0-0xfe` mirror, `0xf4` | RED (status 0xB000 before upload) -> GREEN |
 | `tb_573in1_cart` (standalone, `make 573in1_cart`) | `io.cpp` + `cartio.cpp`: ZS01-then-X76 detection, X76F100/X76F041 reads, cassette DS2401 | X76F100 read RED -> GREEN; **X76F041 read still RED** (O2) |
 
 ## Matches -- checked, no change needed
@@ -113,20 +179,8 @@ atapi_inquiry, s573_cdtoc) did not compile. Declarations moved up; no logic chan
 
 ## Open -- deliberately NOT changed (need one more piece of evidence each)
 
-**O1. DIO CPLD status `0xf6` is a constant `0xB000` (copied from MAME).**
-573in1 `loadDigitalIORawBitstream` writes `0xf4 = 0`, `0xf6 = 0x8000, 0xC000, 0xF000`,
-waits 5 ms and requires INIT = 1, DONE = 0 (`(stat & 0x3000) == 0x1000`), streams the
-bitstream on `0xf8` bit 15, waits 50 ms and requires INIT = DONE = 1. With the constant it
-retries three times, logs "bitstream upload failed" and skips the board DS2401. Real
-hardware: those bits are the XCS40XL INIT/DONE pins. Our `data/fpga.bit` parse: preamble
-`0010` at bit 8, 24-bit length count 330,689, 330,696 data bits -- so DONE can be modelled
-from the stream itself. **Missing:** Konami's exact control-write sequence. ddrsbm checks
-`0xf6 & 0xc000 == 0x8000` around its programming path
-(`docs/2026-07-01-ddrsbm-dio-i2c-transactions.md`) and under MAME streams the bitstream
-on `0xf8` (`docs/2026-07-31-mame-oracle-gc-trap.md`), but MAME's own note says Konami
-writes only `0x8000` to `0xf6` -- if that is the whole sequence, bit 14 (PROGRAM in
-573in1's naming) never rises, and a DONE-low model would trap every DIO title. `tools/mame_dio_regs.lua` already logs `f4/f6/f8`; one run on a title that
-uploads (ddrextrm) settles it.
+**O1. (closed by F5.)** The missing piece -- Konami's control-write sequence -- is in
+S4: `0x8000`, `0xc000`, `0xf000`, then the upload.
 
 **O2. X76F041 re-addressed read (573in1 `X76F041Driver::readPrivateData`).**
 Now settled by the Xicor X76F041 datasheet (supplied 2026-10-23), pages 6 and 9-11:
@@ -151,11 +205,17 @@ datasheet-exact. The Konami X76F041 driver is in the CD executables (it is not i
 (dsem or ddr4m) to extract `PSX.EXE` from, or the `hw_audit_tap.lua` MAME log of
 dsem, settles it. `tb_573in1_cart` stays RED on this step until then.
 
-**O3. `0x1f400000` bits 5/6/7 (amp enable / CD-DA-aux input enable / SPU DAC enable).**
-573in1 names bit 6 `CDDA_ENABLE`; S3 says the digital board's MP3 audio enters through
-that same CD-audio input. The core ignores all three (MP3 and SPU always audible).
-Polarity of bit 6 is unconfirmed (our memory map calls it "mute"); trace a Konami title
-before gating audio on it.
+**O3. `0x1f400000` bits 5/6/7 -- the sources disagree; nothing gated.**
+S4 (`builtin-io.md`): 5 = built-in amp enable (RCA line outputs unaffected), 6 = external
+(CD/DIO) audio input enable, measured as an attenuator rather than a hard mute, and
+meaningless on GuitarFreaks-style cabinets that route MP3 to separate jacks; 7 = "SPU
+DAC output enable (0 = muted)". But 573in1 -- same author -- writes bit 7 = 0 in
+`io::init()` and never sets it (`MISC_OUT_SPU_ENABLE` has no user), while its UI and
+audio test play SPU sound. Gating the SPU on bit 7 would silence 573in1 if S4's
+polarity is wrong. Port comments in `s573_io.v` now state the bit meanings (the port
+called `audio_mute` is bit 6, an ENABLE); MiSTer outputs are line level, so bit 5 never
+applies. To settle bit 7: a scope or ear on a real 573 running 573in1's audio test
+(SPU tone with bit 7 = 0), or a Konami title's write log.
 
 **O4. Empty drive answers TEST UNIT READY with GOOD.** A real CR-589 with no disc
 reports NOT READY. Only matters for 573in1 run with no CD; changing it touches the BIOS
@@ -177,12 +237,60 @@ mounts CHD or cue + raw 2352-byte bins, so the image needs converting
 (`tools/chd_to_raw2352.py` already holds the MODE1/2048 -> 2352 recipe). These sources
 do not show what stops it booting under MAME; none of O1-O7 is fatal to its startup.
 
+**O9. DIO `0xf4` DAC reset not applied to MP3 audio.** S4: "Konami's code uses this
+register to mute the DAC during FPGA and MAS3507D initialization." The latch exists
+(`k573dio.dac_en`, reset 1) but is unconnected: the exact Konami write order (which
+value it leaves behind) is not in any source here, and getting it wrong mutes every MP3
+title. `tools/mame_dio_regs.lua` logs `f4` writes; one MAME run of a DIO title shows the
+final value. 573in1 writes 0 and never re-enables (it plays no MP3).
+
+**O10. psx-spx DIO details that differ from the core's MAME-derived model** (MP3 path
+is HPS-side and not yet live, so none is changed in this pass; each matters for P4):
+* MP3 feeder: "The first word fetched from DRAM is the one at the start address plus
+  2; the word at the start address itself is never sent", and the word at the end
+  address IS sent (fetch address ends at end + 4). `k573_mp3stream.v` sends
+  `[mp3_start, mp3_end)`. With a per-word descrambler counter an extra/missing word
+  shifts the key stream, so check this against a real title before P4 sign-off.
+* DRAM: "There is a single DRAM address pointer, used for both reads and writes" --
+  `0xb0/b2` and `0xb6/b8` both set it, only `0xb4` reads advance and prefetch, and every
+  `0xb0-0xbf` read returns the current word. The core (like MAME) keeps two pointers.
+  Konami's loaders always set the matching pointer before use, so no known title can
+  tell; 573in1's bitstream is not used by the core.
+* `0xca`/`0xcc`/`0xce` sample counter: 28-bit LRCK counter, `0xce` returns `0xcc` and
+  clears bits 0-15 (3rdMIX), Solo Bass Mix reads `0xca` as `0x7654`; held at 0 while
+  `0xe8` bit 13 is clear. The core models MAME's counter/diff pair and ignores `0xe8`.
+* Before a bitstream is loaded the real FPGA registers (`0x80-0xef`) do not answer; the
+  core always presents Konami's map. Every DIO title uploads first, so this is inert.
+
+**O11. Watchdog (S4 agrees with S3): 350-400 ms, reset held ~50 ms; jumper S86
+disables it.** Same conclusion as O7.
+
+## psx-spx cross-check -- matches
+
+* F1's electrical model is stated outright in S4 `registers.md` "0x1f500000": bit 6 is
+  the `IO0` direction, "If set, IO0 will output the same logic level as D0".
+* X76F041 / X76F100 / ZS01 response-to-reset IDs (`19 55 aa 55`, `19 00 aa 55` LSB
+  first; `5a 53 00 01` MSB first) = the core's models and 573in1.
+* X76F041 cassette pins (D0 SDA via IO0, D1 SCL, D2 /CS, D3 reset, D4/I6 DS2401) = core.
+* ZS01 12-byte packets with CRC-16 poly 0x1021 = `zs01.v` (the ddrusa/gtrfrk5m dump
+  benches exercise it). S4 gives the scrambler as the HOST-side algorithm; `zs01.v`
+  implements MAME's device-side cipher, so the two were not compared line by line.
+* DIO `0xee` (write bit 12 = 1 pulls the 1-Wire line low, read bit 12) and the lamp
+  bank addresses `0xe0-0xe6`, `0xfa-0xfe` (bits 15:12) = core.
+* IDE via DMA5 is the drive's PIO data port read as a burst (S4 `registers.md`), which
+  is what the core's hardwired DMA5 -> `atapi.v` data-port path does.
+
 ## Before a build
 
 1. On the build PC with dumps present: `cd sim && make` (the three dump-fed benches --
    `s573_seccart`, `s573_seccart_dual`, `zs01` -- are the real-dump proof of F1 for
    pnchmn2 X76F041, ddr4m/ddr3ma dual cassettes and gtrfrk5m ZS01) and
-   `make gate5_replay 573in1_cart`.
-2. Cabinet regression set for F1/F2: hyperbbc or ddrs2k (X76F100 + BIOS identify),
+   `make gate5_replay 573in1_cart`. `tb_k573dio_cpld` uses 573in1's real `data/fpga.bit`
+   when a 573in1 checkout sits next to this repo (or `S573IN1=<path>`); without it the
+   synthetic-stream cases still run.
+2. Cabinet regression set for F1/F2/F5/F6: hyperbbc or ddrs2k (X76F100 + BIOS identify),
    dsem (X76F041), ddrusa (ZS01), ddr4m and ddr3ma (dual cassette), plus one flash-boot
-   and one CD-install boot (drive check, F2).
+   and one CD-install boot (drive check, F2). F5: any DIO title boots to attract
+   with MP3 (ddr3ma/ddr4m/ddrextrm), and 573in1's cartridge screen shows the Digital
+   I/O board ID instead of "bitstream upload failed". F6: ddrusa / gtrfrk5m (ZS01)
+   still pass the cassette check; ddr4m's dual cassette still installs.

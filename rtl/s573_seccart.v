@@ -264,7 +264,10 @@ module s573_seccart #(
     wire zs01_nv_wr_raw;   // declared before the instance that drives it
     zs01 eeprom_zs01 (
         .clk(clk), .rst(rst),
-        .cs(sel_zs01 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
+        // ZS01 has no chip select: psx-spx "ZS01 cartridge variants" lists only
+        // D0/D1/D3/IO0/DSR, and 573in1 io.cpp resetZS01() notes "CS is ignored".
+        // (MAME k573cass.cpp wires D2 to write_cs; both sources above disagree.)
+        .cs(sel_zs01 ? 1'b0 : 1'b1), .sec_rst(d_q[3]),
         .scl(d_q[1]), .sda_i(zs01_sda_i), .sda_o(sda_zs01_o),
         .load_we(load_eep_we), .load_addr(load_eep_addr), .load_data(load_eep_data),
         // the same .u6 serial feeds the ZS01's internal DS2401 (0xFC/0xFD reads)
@@ -284,11 +287,18 @@ module s573_seccart #(
     // "cassette:install:id" separately -- ddr4m's gca33aa.u6 vs gea33aa.u6 differ).
     // Two slaves, both listening; only the selected cassette's pull-down reaches
     // the wire.
-    wire ds_pd_game, ds_pd_inst;
+    // ZS01 game cassettes are the exception: psx-spx "ZS01 cartridge variants":
+    // the DS2401 "is connected to a GPIO pin on the ZS01 rather than being
+    // directly exposed to the 573" -- it is read through the ZS01 command set
+    // (573in1 ZS01Driver::readCartID, address ZS01_ADDR_DS2401_ID; zs01.v loads
+    // the same .u6 serial). Nothing answers on D4/I6 then. MAME k573cass.cpp
+    // exposes it on D4 as well; the hardware sources say it is not.
+    wire ds_pd_game_raw, ds_pd_inst;
+    wire ds_pd_game = ds_pd_game_raw & ~sel_zs01;
     wire ds_pd   = inst_sel ? ds_pd_inst : ds_pd_game;
     wire ds_line = ~(d_q[4] | ds_pd);         // D4=1 pulls the 1-wire line low
     ds2401 #(.SERIAL(DS_SERIAL), .CLK_FREQ_HZ(DS_CLK_HZ)) board_id (
-        .clk(clk), .rst(rst), .dq_in(ds_line), .dq_pd(ds_pd_game),
+        .clk(clk), .rst(rst), .dq_in(ds_line), .dq_pd(ds_pd_game_raw),
         .load_we(load_ser_we), .load_addr(load_ser_addr), .load_data(load_ser_data)
     );
     ds2401 #(.SERIAL(DS_SERIAL), .CLK_FREQ_HZ(DS_CLK_HZ)) inst_id (

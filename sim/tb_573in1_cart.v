@@ -294,8 +294,17 @@ module tb_573in1_cart;
         cart_type = 2'd2;
         resetZS01(id); expect32("ZS01 reset id", id, 32'h5a530001);
 
-        // ============ cassette DS2401 (CartDS2401Driver::readCartID path) ============
+        // ZS01: 573in1 ZS01Driver::readCartID reads the serial through the ZS01
+        // (address 0xFD), and psx-spx says the DS2401 is not on D4/I6 -- so nothing
+        // may answer a 1-Wire reset here.
+        ow_reset(pres);
+        if (pres) begin $display("  FAIL ZS01 cassette answers 1-Wire on I6"); errors = errors + 1; end
+        else $display("  ok   ZS01 cassette: no DS2401 on I6");
+
+        // ============ cassette DS2401 (X76Driver::readCartID -> io::cartDS2401) ============
+        // 573in1 only takes this path for X76F041/X76F100 cassettes.
         $display("[cassette DS2401]");
+        cart_type = 2'd0;
         ow_reset(pres);
         if (!pres) begin $display("  FAIL no presence pulse on I6"); errors = errors + 1; end
         else begin
