@@ -136,6 +136,24 @@ module s573_seccart #(
         else if (latch_we) d_q <= d_latch;
     end
 
+    // ----- cassette SDA (cart pin 28): ONE electrical model for every cassette -----
+    // GX700-PWB (NaokiS28 Konami-System-573-Documentation, Ksys573 + Security-cart
+    // sheets): the 0x1f500000 bank latch 27G Q6 (bit 6) -> 74LS14 24E (pins 13->12)
+    // -> /OE (pin 10) of 74LS125 gate 35H (pins 9->8). The gate's input is the cart
+    // latch 35K Q0 (D0); its output is cart pin 28, which is also the net the ASIC
+    // reads back as IO0 (KCUS-93 -> 0x1f400006 bit 2). So the host's level on SDA is
+    //     bit6 ? D0 : released (pulled up)
+    // and the read-back is that line wired-AND the device's open-drain pull-down.
+    // This one equation covers all three drivers that exist:
+    //   * Konami X76 driver: bit6=1 while sending, data on D0 (unchanged behaviour);
+    //   * Konami ZS01 driver: D0 left at 0, SDA moved by bit6 alone (== the old
+    //     zs01_sda_i = ~io0_dir, see below);
+    //   * 573in1 (src/common/io.cpp CartI2CDriver::_setSDA): D0 forced 0, SDA moved by
+    //     bit6 alone -- which the old X76 wiring (sda_i = D0) could never see, so every
+    //     X76 command after the reset-ID probe failed (sim/tb_573in1_cart.v).
+    // MAME k573cass.cpp models only the two Konami cases separately.
+    wire host_sda = io0_dir ? d_q[0] : 1'b1;
+
     // ----- EEPROM on D0..D3 : one of X76F100 / X76F041 / ZS01, gated by eff_type -----
     // All three EEPROM models are instantiated; only the selected one's chip-select is
     // driven (the others held deselected, cs=1) and the read-back SDA is muxed.
@@ -168,7 +186,7 @@ module s573_seccart #(
     x76f100 #(.READ_PASSWORD(READ_PASSWORD), .WRITE_PASSWORD(WRITE_PASSWORD)) eeprom100 (
         .clk(clk), .rst(rst),
         .cs(sel100 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
-        .scl(d_q[1]), .sda_i(d_q[0]), .sda_o(sda100_o),
+        .scl(d_q[1]), .sda_i(host_sda), .sda_o(sda100_o),
         // All three game models are loaded unconditionally (cart_type may still be
         // settling as the image streams in); each consumes only the bytes it understands.
         // The x76f100 image is <=132 B so it takes the low 10 addr bits; higher addresses
@@ -193,7 +211,7 @@ module s573_seccart #(
     x76f041 eeprom041 (
         .clk(clk), .rst(rst),
         .cs(sel041 ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
-        .scl(d_q[1]), .sda_i(d_q[0]), .sda_o(sda041_o),
+        .scl(d_q[1]), .sda_i(host_sda), .sda_o(sda041_o),
         // The x76f041 takes the low 10 addr bits (its image is <=548 B); for a ZS01 .u1
         // (4116 B) the high addresses wrap harmlessly into its unused data RAM and the
         // mux ignores eeprom041 anyway.
@@ -206,7 +224,7 @@ module s573_seccart #(
     x76f100 inst100 (
         .clk(clk), .rst(rst),
         .cs(sel100i ? eeprom_cs : 1'b1), .sec_rst(d_q[3]),
-        .scl(d_q[1]), .sda_i(d_q[0]), .sda_o(sda100i_o),
+        .scl(d_q[1]), .sda_i(host_sda), .sda_o(sda100i_o),
         .load_we(load_ieep_we), .load_addr(load_ieep_addr), .load_data(load_ieep_data)
     );
 
@@ -240,7 +258,9 @@ module s573_seccart #(
     // fabric reported i2c_starts=0, pkts=0 while the response-to-reset still worked
     // (cs_seen=1, rtr_probes=1, rtr_edges=33) -- the ZS01 verify therefore failed and
     // the installer reported ERROR 121 (3). SCL/CS/RST stay on D1/D2/D3.
-    wire zs01_sda_i = ~io0_dir;   // CONTROL bit 6, active-low. D0 is NOT wired to the ZS01.
+    // Superseded by host_sda (above), which reduces to ~io0_dir whenever D0 = 0 --
+    // the state the Konami ZS01 driver always leaves it in (it never writes D0).
+    wire zs01_sda_i = host_sda;
     wire zs01_nv_wr_raw;   // declared before the instance that drives it
     zs01 eeprom_zs01 (
         .clk(clk), .rst(rst),
@@ -276,7 +296,7 @@ module s573_seccart #(
         .load_we(load_iser_we), .load_addr(load_iser_addr), .load_data(load_iser_data)
     );
 
-    assign sec_io0  = eeprom_sda_o;
+    assign sec_io0  = eeprom_sda_o & host_sda;   // pin 28 = host drive wired-AND device
     assign sec_in   = {7'b0, ds_line};
     assign sec_irdy = 1'b1;                   // bit-banged device is always ready
 

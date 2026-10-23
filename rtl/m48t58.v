@@ -199,7 +199,7 @@ module m48t58 #(
         end
     end
 
-    reg [8:0] c_sec, c_min, c_hour, c_dom, c_dow, c_month;
+    reg [8:0] c_sec, c_min, c_hour, c_dom, c_dow, c_month, c_year;
     reg       set_armed = 1'b1;       // apply the next host reading (once) after rst
 
     // 1 Hz strobe. Free-running so the clock keeps time through the (long) core
@@ -238,15 +238,23 @@ module m48t58 #(
                         c_hour = inc_field(thour, 8'h00, 8'h23);
                         thour <= c_hour[7:0];
                         if (c_hour[8]) begin
-                            c_dow = inc_field(tdow, 8'h01, 8'h07);
-                            c_dom = inc_field(tdom, 8'h01, 8'h31);
-                            tdow <= c_dow[7:0];
-                            tdom <= c_dom[7:0];
+                            // Count only the BCD fields; the control bits that share
+                            // these registers are not part of the count (M48T58Y
+                            // datasheet Table 5: date[7]=BLE, date[6]=BL;
+                            // day[6]=FT, day[5]=CEB, day[4]=CB).
+                            c_dow = inc_field(tdow & 8'h07, 8'h01, 8'h07);
+                            c_dom = inc_field(tdom & 8'h3f, 8'h01, 8'h31);
+                            tdow <= {tdow[7:3], c_dow[2:0]};
+                            tdom <= {tdom[7:6], c_dom[5:0]};
                             if (c_dom[8]) begin
-                                c_month = inc_field(tmonth, 8'h01, 8'h12);
+                                c_month = inc_field(tmonth & 8'h1f, 8'h01, 8'h12);
                                 tmonth <= c_month[7:0];
-                                if (c_month[8])
-                                    tyear <= inc_field(tyear, 8'h00, 8'h99);
+                                if (c_month[8]) begin
+                                    c_year = inc_field(tyear, 8'h00, 8'h99);
+                                    tyear <= c_year[7:0];
+                                    // CB toggles at the century rollover when CEB is set
+                                    if (c_year[8] && tdow[5]) tdow <= {tdow[7:5], ~tdow[4], 1'b0, c_dow[2:0]};
+                                end
                             end
                         end
                     end
@@ -270,7 +278,7 @@ module m48t58 #(
                     3'd2: tmin   <= din;
                     3'd3: thour  <= din;
                     3'd4: tdow   <= din;
-                    3'd5: tdom   <= din;
+                    3'd5: tdom   <= {din[7], 1'b0, din[5:0]};  // BL (bit 6) is read-only: battery OK
                     3'd6: tmonth <= din;
                     3'd7: tyear  <= din;
                 endcase
@@ -288,15 +296,23 @@ module m48t58 #(
                         c_hour = inc_field(thour, 8'h00, 8'h23);
                         thour <= c_hour[7:0];
                         if (c_hour[8]) begin
-                            c_dow = inc_field(tdow, 8'h01, 8'h07);
-                            c_dom = inc_field(tdom, 8'h01, 8'h31);
-                            tdow <= c_dow[7:0];
-                            tdom <= c_dom[7:0];
+                            // Count only the BCD fields; the control bits that share
+                            // these registers are not part of the count (M48T58Y
+                            // datasheet Table 5: date[7]=BLE, date[6]=BL;
+                            // day[6]=FT, day[5]=CEB, day[4]=CB).
+                            c_dow = inc_field(tdow & 8'h07, 8'h01, 8'h07);
+                            c_dom = inc_field(tdom & 8'h3f, 8'h01, 8'h31);
+                            tdow <= {tdow[7:3], c_dow[2:0]};
+                            tdom <= {tdom[7:6], c_dom[5:0]};
                             if (c_dom[8]) begin
-                                c_month = inc_field(tmonth, 8'h01, 8'h12);
+                                c_month = inc_field(tmonth & 8'h1f, 8'h01, 8'h12);
                                 tmonth <= c_month[7:0];
-                                if (c_month[8])
-                                    tyear <= inc_field(tyear, 8'h00, 8'h99);
+                                if (c_month[8]) begin
+                                    c_year = inc_field(tyear, 8'h00, 8'h99);
+                                    tyear <= c_year[7:0];
+                                    // CB toggles at the century rollover when CEB is set
+                                    if (c_year[8] && tdow[5]) tdow <= {tdow[7:5], ~tdow[4], 1'b0, c_dow[2:0]};
+                                end
                             end
                         end
                     end

@@ -80,6 +80,8 @@ module s573_cdtoc (
     // read, in a block of its own. (The first cut kept the read as two part-selects
     // inside the big always block and Quartus 17 still built registers: map report
     // of job 213, 2,733 registers, no altsyncram.)
+    reg [18:0] pend_start = 19'd0;    // staged per-track fields between words (declared before first use: Icarus 13+ rejects use-before-declaration)
+    reg        pend_audio = 1'b0;
     reg [19:0] track_tbl [0:127];
     reg        t1_fallback = 1'b0;    // track 1 reads as {data, LBA 0} until cdinfo writes it
     reg [19:0] tbl_q = 20'd0;         // registered read (the 1-clk lookup latency)
@@ -92,8 +94,6 @@ module s573_cdtoc (
     assign toc_qstart = t1_sel ? 32'd0 : {13'd0, tbl_q[18:0]};
     assign toc_qaudio = t1_sel ? 1'b0  : tbl_q[19];
 
-    reg [18:0] pend_start = 19'd0;    // staged per-track fields between words
-    reg        pend_audio = 1'b0;
     reg        cdinfo_seen = 1'b0;    // a disk_t arrived since the last mount
 
     // serial divider: toc_leadout = img_size / 2352 (40-bit / 12-bit restoring)

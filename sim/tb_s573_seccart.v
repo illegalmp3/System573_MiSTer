@@ -55,11 +55,16 @@ module tb_s573_seccart;
     wire       sec_io0, sec_irdy, sec_drdy;
     wire [7:0] sec_in;
     integer errors = 0;
+    // SDA output enable (0x1f500000 bit 6). The BIOS identify reads the RTR with the
+    // driver RELEASED (D0 is 0 there: with the enable set the 74LS125 would hold pin 28
+    // low and no board could read the id); the byte-level parts below drive D0 with
+    // the enable set, as the Konami X76 driver does (docs/2026-09-14-ddrusa-zs01-sda-is-control-bit6.md).
+    reg x_oe = 1'b0;
 
     s573_seccart #(.READ_PASSWORD(READ_PASSWORD), .DS_SERIAL(DS_SERIAL), .DS_CLK_HZ(1_000_000)) dut (
         .clk(clk), .rst(rst),
         .cart_type(2'd0),
-        .latch_we(latch_we), .d_latch(dl), .io0_dir(1'b0),
+        .latch_we(latch_we), .d_latch(dl), .io0_dir(x_oe),   // 0x1f500000 bit 6: SDA output enable (s573_seccart host_sda)
         .load_eep_we(1'b0), .load_eep_addr(10'd0), .load_eep_data(8'd0),
         .load_ser_we(1'b0), .load_ser_addr(3'd0), .load_ser_data(8'd0),
         // second (install) cassette + restore flag: not used by this bench
@@ -79,7 +84,7 @@ module tb_s573_seccart;
     s573_seccart #(.DS_CLK_HZ(1_000_000)) dut2 (
         .clk(clk), .rst(rst),
         .cart_type(2'd1),                 // X76F041
-        .latch_we(1'b1), .d_latch(dl2), .io0_dir(1'b0),
+        .latch_we(1'b1), .d_latch(dl2), .io0_dir(1'b1),  // Konami X76 driver: bit6=1 = drive D0 (s573_seccart host_sda)
         .load_eep_we(e_load_we), .load_eep_addr(e_load_addr), .load_eep_data(e_load_data),
         .load_ser_we(s_load_we), .load_ser_addr(s_load_addr), .load_ser_data(s_load_data),
         // second (install) cassette + restore flag: not used by this bench
@@ -459,7 +464,7 @@ module tb_s573_seccart;
         // From here on the legacy parts change dl bit-at-a-time: hold latch_we
         // HIGH so every dl change is an intended latch write (the registered
         // latch follows one clk later, inside every task's >=3-clk pacing).
-        @(negedge clk); dl = 8'b0000_0101; latch_we = 1;
+        @(negedge clk); dl = 8'b0000_0101; latch_we = 1; x_oe = 1'b1;
         tk; tk;
 
         // =====================================================================

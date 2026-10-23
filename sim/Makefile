@@ -10,7 +10,7 @@ IVFLAGS := -g2005-sv -Wall
 RTL     := ../rtl
 BUILD   := build
 
-TESTS := s573_cfg_trailer s573_flash_pccard1 gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdimg_ack s573_cdtoc atapi_cdread cdboot
+TESTS := s573_cfg_trailer s573_flash_pccard1 573in1_ide 573in1_rtc gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdimg_ack s573_cdtoc atapi_cdread cdboot
 
 # `make` with no target must run the whole suite: the secdata/cddata helper
 # targets were added ABOVE `all`, silently turning `make -C sim` into a no-op
@@ -47,6 +47,9 @@ SRC_zs01_detect   := $(RTL)/system573_top.v $(RTL)/s573_prof.v $(RTL)/s573_bus.v
                      $(RTL)/s573_flash.v $(RTL)/flash_nor.v $(RTL)/s573_seccart.v $(RTL)/s573_sectrace.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v \
                      $(RTL)/atapi.v $(RTL)/s573_cdimg.v $(RTL)/s573_cdtoc.v $(RTL)/k573dio.v $(RTL)/k573_mp3stream.v $(RTL)/k573_mp3dec.v $(RTL)/mas3507d_i2c.v
 SRC_sectrace_arm  := $(RTL)/s573_sectrace.v
+SRC_573in1_rtc    := $(RTL)/m48t58.v
+SRC_573in1_ide    := $(RTL)/atapi.v
+SRC_573in1_cart   := $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v $(RTL)/ds2401.v
 SRC_zs01_rtr      := $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v $(RTL)/ds2401.v
 SRC_zs01_cmd      := $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v $(RTL)/ds2401.v
 SRC_k573dio       := $(RTL)/k573dio.v $(RTL)/ds2401.v $(RTL)/k573_mp3stream.v $(RTL)/k573_mp3dec.v $(RTL)/mas3507d_i2c.v
@@ -372,6 +375,13 @@ $(foreach t,$(TESTS),$(eval $(call RUN_TEST,$(t))))
 # run it explicitly as the standalone gate-5 guard:
 #   make -C sim gate5_replay   -- GREEN
 $(eval $(call RUN_TEST,gate5_replay))
+
+# 573in1_cart -- 573in1's cassette driver (src/common/io.cpp, src/main/cart/cartio.cpp)
+# replayed against s573_seccart. Standalone (not in TESTS) while its X76F041 data-read
+# step stays RED: 573in1 re-sends the address after a repeated START without the key,
+# which the MAME-derived x76f041.v (like MAME) refuses for command 0x60. See
+# docs/2026-10-23-hw-audit-573in1-sources.md.
+$(eval $(call RUN_TEST,573in1_cart))
 
 $(BUILD):
 	@mkdir -p $(BUILD)

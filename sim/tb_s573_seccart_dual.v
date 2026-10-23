@@ -105,7 +105,7 @@ module tb_s573_seccart_dual;
     // DUT C (ddr3ma): cart_type 0 (X76F100 game)
     s573_seccart #(.DS_CLK_HZ(1_000_000)) dut_c (
         .clk(clk), .rst(rst), .cart_type(2'd0),
-        .latch_we(latch_we_c), .d_latch(dlc), .io0_dir(1'b0),
+        .latch_we(latch_we_c), .d_latch(dlc), .io0_dir(1'b1),   // X76-only DUT: SDA output enabled (host_sda)
         .load_eep_we(ec_we), .load_eep_addr(ec_addr), .load_eep_data(ec_data),
         .load_ser_we(c_ser_we), .load_ser_addr(c_ser_addr), .load_ser_data(c_ser_d),
         .load_eep_zs01_only(1'b0),
@@ -199,7 +199,12 @@ module tb_s573_seccart_dual;
             for (j=0;j<8;j=j+1) begin put(w,1,1); put(w,1,0); d[j]=io0(w); end
         end
     endtask
-    task x_select(input integer w);   begin put(w,2,0); put(w,3,1); end endtask   // CS low, RST high -> RTR
+    // The Konami X76 driver drives SDA from latch D0 with the 0x1f500000 bit-6 output
+    // enable SET (s573_seccart host_sda: pin 28 = bit6 ? D0 : released). Enable it for
+    // the X76 transaction; the ZS01 tasks below set io0_a/io0_b per bit themselves.
+    task x_select(input integer w);   begin
+        case (w) 1: io0_a=1'b1; 2: io0_b=1'b1; default: ; endcase
+        put(w,2,0); put(w,3,1); end endtask   // CS low, RST high -> RTR
     task x_deselect(input integer w); begin put(w,2,1); put(w,3,0); end endtask
     // X76F041 config-register read gated by the config password (image [20:27])
     task f041_cfg_auth(input integer w, input [63:0] pw, output ack);

@@ -294,7 +294,15 @@ module atapi #(
     // hanging the BIOS's IRQ-driven IDENTIFY wait (0x803cb4b8). irq_out below forces a
     // fresh 0->1 per event: whenever irq_event pulses while irq_out is already high, it
     // is dropped for exactly one clk so the next assert is a clean rising edge.
-    assign intrq = irq_out & ~r_devctl[1];       // nIEN = device control bit1
+    // Single-drive bus: the CR-589 is the only (master, device 0) device. With the
+    // DEV bit (device/head bit 4) selecting the absent device 1, the master still
+    // shadows the task-file registers but reads STATUS / ALT STATUS as 0, ignores
+    // COMMAND and DATA accesses and does not drive INTRQ -- MAME atahle.cpp
+    // device_ata_hle_interface::command_r/command_w/update_irq for m_single_device.
+    // 573in1 (src/common/ide.cpp Device::enumerate) probes BOTH devices; without this
+    // the core answered the device-1 probe as a second, phantom CD-ROM drive.
+    wire dev1_sel = r_device[4];
+    assign intrq = irq_out & ~r_devctl[1] & ~dev1_sel;  // nIEN = device control bit1
 
     // load the ATAPI device signature into the task-file
     task set_signature;
@@ -316,7 +324,7 @@ module atapi #(
     // ---- unified data-in consumption (PIO data-register read OR ch5 DMA read) ----
     // Both paths drive the SAME ridx/completion machinery, so PIO remains a working
     // fallback and the DMA drain follows the exact per-sector/completion contract.
-    wire pio_data_rd   = sel && re && (addr == 4'd0);
+    wire pio_data_rd   = sel && re && (addr == 4'd0) && !dev1_sel;
     wire data_consume  = (state == S_DATAIN) && (pio_data_rd || (dma_rd && datain_disc));
 
     always @(posedge clk) begin
@@ -350,7 +358,9 @@ module atapi #(
 
             if (sel && we) begin
                 case (addr)
-                    4'd0: if (state == S_PKT) begin           // packet bytes (16-bit)
+                    4'd0: if (dev1_sel) begin
+                              // data write to the absent device 1: ignored
+                          end else if (state == S_PKT) begin        // packet bytes (16-bit)
                               pkt[pkt_idx]   <= din[7:0];
                               pkt[pkt_idx+1] <= din[15:8];
                               pkt_idx <= pkt_idx + 7'd2;
@@ -516,7 +526,7 @@ module atapi #(
                     4'd4: r_bclo    <= din[7:0];
                     4'd5: r_bchi    <= din[7:0];
                     4'd6: r_device  <= din[7:0];
-                    4'd7: begin                                  // command register
+                    4'd7: if (!dev1_sel) begin                   // command register (device 1 absent: ignored)
                         irq_pending <= 1'b0;
                         case (din[7:0])
                             8'hA0: begin                         // PACKET
@@ -580,7 +590,7 @@ module atapi #(
 
             // reads with side effects
             if (sel && re) begin
-                if (addr == 4'd7)                                // status read clears INTRQ
+                if (addr == 4'd7 && !dev1_sel)                   // status read clears INTRQ
                     irq_pending <= 1'b0;
             end
 
@@ -744,7 +754,7 @@ module atapi #(
     // read mux
     always @(*) begin
         case (addr)
-            4'd0:    dout = (state != S_DATAIN) ? 16'h0000 :
+            4'd0:    dout = (state != S_DATAIN || dev1_sel) ? 16'h0000 :
                             datain_ident ? ident_word(ridx) :
                             datain_toc   ? {dresp_byte(resp_cmd, ridx[3:0] + 4'd1),
                                             dresp_byte(resp_cmd, ridx[3:0])} :
@@ -757,8 +767,8 @@ module atapi #(
             4'd4:    dout = {8'h00, r_bclo};
             4'd5:    dout = {8'h00, r_bchi};
             4'd6:    dout = {8'h00, r_device};
-            4'd7:    dout = {8'h00, r_status};
-            4'd8:    dout = {8'h00, r_status};   // alternate status (no INTRQ clear)
+            4'd7:    dout = dev1_sel ? 16'h0000 : {8'h00, r_status};
+            4'd8:    dout = dev1_sel ? 16'h0000 : {8'h00, r_status};   // alternate status (no INTRQ clear)
             default: dout = 16'h0000;
         endcase
     end
