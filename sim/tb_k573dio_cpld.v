@@ -62,6 +62,8 @@ module tb_k573dio_cpld;
     localparam integer NBYTES = 41337;
     localparam integer LENCNT = 330689;      // 573in1 fpga.bit length count
     reg [7:0] img [0:NBYTES-1];
+    reg [7:0] kimg [0:NBYTES-1];       // Konami image, stored LSB-first
+    integer   have_konami;
     reg [7:0] syn [0:NBYTES-1];
     integer   have_file, fd, i, k, nb;
     reg [15:0] v;
@@ -82,8 +84,10 @@ module tb_k573dio_cpld;
         begin
             n = 0;
             for (i = 0; i < NBYTES; i = i + 1) begin
-                by = (src == 0) ? img[i] : syn[i];
-                if (!msb) by = {by[0],by[1],by[2],by[3],by[4],by[5],by[6],by[7]};  // stored LSB-first
+                by = (src == 0) ? img[i] : (src == 2) ? kimg[i] : syn[i];
+                // src 0/1 images are MSB-first; turn them into LSB-first storage for
+                // the LSB writer. src 2 (Konami's own) already is.
+                if (!msb && src != 2) by = {by[0],by[1],by[2],by[3],by[4],by[5],by[6],by[7]};
                 for (bit_i = 0; bit_i < 8; bit_i = bit_i + 1) begin
                     if (msb) wr(8'hf8, {by[7 - bit_i], 15'd0});
                     else     wr(8'hf8, {by[bit_i],     15'd0});
@@ -113,6 +117,10 @@ module tb_k573dio_cpld;
         fd = $fopen("fpgadata/fpga_573in1_raw.hex", "r");
         have_file = (fd != 0);
         if (have_file) begin $fclose(fd); $readmemh("fpgadata/fpga_573in1_raw.hex", img); end
+        fd = $fopen("fpgadata/fpga_konami_lsb.hex", "r");
+        have_konami = (fd != 0);
+        if (have_konami) begin $fclose(fd); $readmemh("fpgadata/fpga_konami_lsb.hex", kimg); end
+        else $display("  NOTE: no Konami bitstream fixture -- Konami-image case skipped");
         // synthetic: 0xff, then 0010 + 24-bit length (MSB first), then 1s
         len_f = LENCNT;
         syn[0] = 8'hff;
@@ -163,6 +171,22 @@ module tb_k573dio_cpld;
         rd(8'hf6, v); chk(v, 16'h9000, "re-program clears DONE");
         stream(have_file ? 0 : 1, 0, "LSB-first image");
         rd(8'hf6, v); chk(v, 16'hB000, "LSB-first post-upload (MAME's 0xB000)");
+
+        // ---- case 2b: Konami's REAL 3rdMIX image, Konami's own driver ----
+        // ddr4m PSX.EXE 0x80321d18: 0xf4 = 0 (0x80321f30), then 0xf6 = 0x8000,
+        // 0xc000, 0xf000 back to back (0x80321cb4), wait >= 36 hblanks (~2.3 ms,
+        // VSync(1) deltas), require 0xf6 & 0x1000; 0x80321e04 sends each stored
+        // byte bit 0 first as -(b & 1) & 0x8000; 0x80321e54 then polls for
+        // 0xf6 & 0x3000 == 0x3000 (15 tries x 15 hblanks).
+        if (have_konami) begin
+            wr(8'hf4, 16'h0000);
+            wr(8'hf6, 16'h8000); wr(8'hf6, 16'hc000); wr(8'hf6, 16'hf000);
+            repeat (200) @(posedge clk);
+            rd(8'hf6, v); chk(v & 16'h1000, 16'h1000, "Konami: /INIT after reset");
+            stream(2, 0, "Konami 3rdMIX image (ddr4m)");
+            rd(8'hf6, v); chk(v & 16'h3000, 16'h3000, "Konami: DONE & /INIT poll");
+            rd(8'hf6, v); chk(v & 16'hc000, 16'h8000, "Konami: board id check 0x80321b80");
+        end
 
         // ---- case 3: synthetic header, MSB-first ----
         reset_seq_573in1;

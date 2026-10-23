@@ -127,6 +127,7 @@ module tb_s573_mp3_path;
     wire [15:0] audio_l, audio_r;
     s573_audio_mix u_audio_mix (
         .spu_l(spu_l), .spu_r(spu_r), .mp3_l(mp3_pcm_l), .mp3_r(mp3_pcm_r),
+        .spu_en(1'b1), .mp3_en(1'b1),   // both enables on: datapath test
         .out_l(audio_l), .out_r(audio_r)
     );
 

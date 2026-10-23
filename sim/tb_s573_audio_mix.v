@@ -3,10 +3,12 @@
 `timescale 1ns/1ps
 module tb_s573_audio_mix;
     reg  signed [15:0] spu_l, spu_r, mp3_l, mp3_r;
+    reg                spu_en = 1'b1, mp3_en = 1'b1;
     wire signed [15:0] out_l, out_r;
 
     s573_audio_mix dut (
         .spu_l(spu_l), .spu_r(spu_r), .mp3_l(mp3_l), .mp3_r(mp3_r),
+        .spu_en(spu_en), .mp3_en(mp3_en),
         .out_l(out_l), .out_r(out_r)
     );
 
@@ -43,6 +45,14 @@ module tb_s573_audio_mix;
         // just below / at the rails (boundary)
         chk( 16'sd16383,16'sd16384, 16'sd16384,16'sd16383,16'sd32767, 16'sd32767); // 32767 both (exact rail, no clip)
         chk( 16'sd16384,16'sd16384, 16'sd16384,16'sd16384,16'sd32767, 16'sd32767); // 32768 -> clip to 32767
+        // enables: 0x1f400000 bit 7 (SPU) and DIO 0xf4 bit 15 (MP3 DAC)
+        spu_en = 1'b0;
+        chk( 16'sd1000, 16'sd2000, 16'sd30,   16'sd40,   16'sd30,    16'sd40);    // SPU muted
+        spu_en = 1'b1; mp3_en = 1'b0;
+        chk( 16'sd1000, 16'sd2000, 16'sd30,   16'sd40,   16'sd1000,  16'sd2000);  // MP3 DAC in reset
+        spu_en = 1'b0;
+        chk( 16'sd1000, 16'sd2000, 16'sd30,   16'sd40,   16'sd0,     16'sd0);     // both off
+        spu_en = 1'b1; mp3_en = 1'b1;
 
         if (errors == 0) $display("RESULT: PASS (s573_audio_mix)");
         else             $display("RESULT: FAIL (s573_audio_mix, %0d errors)", errors);

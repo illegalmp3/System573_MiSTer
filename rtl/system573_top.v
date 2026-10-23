@@ -191,6 +191,7 @@ module system573_top #(
     output wire        audio_amp_en,
     output wire        audio_mute,
     output wire        spu_dac_en,
+    output wire        dio_dac_en,      // Digital I/O 0xf4 bit 15 (1 = DAC running)
     output wire        wdog_reset,      // watchdog bite (board reset request)
     output wire        cdrom_irq,       // ATAPI INTRQ (IRQ10)
     output wire [31:0] lamp_out,        // BEMANI Digital I/O lamp lines
@@ -462,7 +463,7 @@ module system573_top #(
         .sel(sel_digio), .off(exp1_addr[7:0]),
         .we(sel_digio & exp1_we), .re(sel_digio & exp1_re),
         .din(exp1_wdata), .dout(digio_dout), .lamp(lamp_out),
-        .dio_wait(dio_wait), .cfg_ddrsbm(cfg_ddrsbm), .chart_ofs_ms(chart_ofs_ms),
+        .dio_wait(dio_wait), .dac_en(dio_dac_en), .cfg_ddrsbm(cfg_ddrsbm), .chart_ofs_ms(chart_ofs_ms),
         .mem_rd_req(dio_mem_rd_req), .mem_rd_addr(dio_mem_rd_addr),
         .mem_rd_q(dio_mem_rd_q), .mem_rd_ack(dio_mem_rd_ack),
         .mem_wr_req(dio_mem_wr_req), .mem_wr_addr(dio_mem_wr_addr),

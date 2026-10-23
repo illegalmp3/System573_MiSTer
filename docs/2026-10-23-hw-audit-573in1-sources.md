@@ -2,9 +2,16 @@
 
 **Date:** 2026-10-23
 **Branch:** `hw-audit-573in1` (on top of `5bcd741`, the public v0.1.1 tree)
-**Status:** 5 RTL fixes + 1 portability fix, simulated: 68/68 suite benches green
+**Status:** 7 RTL fixes + 1 portability fix, simulated: 70/70 suite benches green
 **with the real game-dump fixtures** (pnchmn2, gtrfrk5m, ddrusa, ddr4m, ddr3ma) and
 573in1's own Digital I/O bitstream. **Not yet built or cabinet-tested.**
+
+Update 3 (same day, ddr4m CHDs `a33aaa02` / `a33jaa02`, S5): Konami's own drivers read
+out of the disc. F7 (X76F041 re-addressed read) closes O2 and turns `tb_573in1_cart`
+GREEN; F8 applies the two audio enables. F5's model is replayed with Konami's real
+3rdMIX bitstream and Konami's exact upload routine. **Correction:** Update 2 said
+573in1 never sets `0x1f400000` bit 7 -- wrong, an output cut-off in my search hid
+`src/main/main.cpp:59 setMiscOutput(MISC_OUT_SPU_ENABLE, true)`. The sources agree.
 
 Update 2 (same day, psx-spx /dev/ System 573 pages, S4): F5 (Digital I/O CPLD) and F6
 (ZS01 has no CS and no exposed DS2401) added; O1 closed by F5; O3 rewritten (the
@@ -26,6 +33,7 @@ rejects, so on those hosts the fixtures were never generated. Now `bash`.
 | S2 | NaokiS28/Konami-System-573-Documentation | `3b981a9` (2025-11-19) | GX700-PWB KiCad schematics, M48T58Y datasheet, Konami flash-card schematic + MBM29F017A datasheet. **The author flags the security-cart sheet as unverified** -- every conclusion below that uses it is cross-checked against S1 or game code. |
 | S3 | "Konami's System 573 - Everything you wanted to know about it!" (Naoki's Retro Corner, 2022-10-05) | author's English (UK) caption track | Watchdog part/timeout, IDE PIO-only, PCMCIA single-CE wiring, audio path of the I/O boards |
 | S4 | psx-spx "Konami System 573" (`psx-spx.consoledev.net/dev/arcade/konami/573/`, repo `psx-spx/psx-spx.github.io` `b56e4c5`, 2026-10-23) | `registers.md`, `builtin-io.md`, `expansion-io.md`, `security-cartridges.md` | Hardware-tested register behaviour: DIO CPLD/FPGA map, cassette pinouts per variant, audio-control bits, watchdog |
+| S5 | ddr4m CD (MAME `a33aaa02.chd` / `a33jaa02.chd`, supplied 2026-10-23) | `PSX.EXE` = Konami boot loader "BOOT VER1.8" (load 0x80300000; identical code on both discs); `GAME.DAT` = the flash image, game executable at offset 0x60000 (load 0x80010000; a second copy at 0x150000) | Konami's own cassette, Digital I/O and audio-control drivers, disassembled with `tools/s573_oracle/mipsdis.py` |
 | ref | MAME `cde9d51` (2026-10-23): `ksys573.cpp`, `k573dio.cpp`, `x76f041.cpp`, `atahle.cpp`, `linflash.cpp` | | Baseline the core was built from |
 
 Schematic connectivity was extracted with a small KiCad-sheet netlister (wires, labels,
@@ -145,6 +153,55 @@ Related, not changed: S4 gives ZS01 address `0xfc` as the ZS01's own internal se
 and `0xfd` as the DS2401; `zs01.v` (like MAME) returns the DS2401 for both. No dump of
 the internal serial exists and S4 says games do not use it.
 
+**Konami's code agrees (S5).** ddr4m `PSX.EXE` 0x80321a9c (also in the game exe at
+0x800a9e80-0x800aa230): present check `(0xf6 & 0xc000) == 0x8000` (0x80321b80); reset
+routine `0xf4 = 0`, then `0xf6 = 0x8000, 0xc000, 0xf000` back to back, wait 36 hblanks
+(PSY-Q `VSync(1)` deltas) and require `0xf6 & 0x1000`, three attempts (0x80321d18);
+each stored byte sent bit 0 first as `-(b & 1) & 0x8000` to `0xf8` (0x80321e04); then
+poll `(0xf6 & 0x3000) == 0x3000` up to 15 x 15 hblanks (0x80321e54); `0xe8` =
+0xf000/0/0xf000 (0x80321bd8); magic `0x80 == 0x1234` (0x80321bac). The embedded image
+at file offset 0x414a0 is psx-spx's 3rdMIX bitstream (SHA-1 `a53b8906...`); its length
+count is 330,689 like 573in1's. `tb_k573dio_cpld` case 2b replays exactly this.
+
+### F7. X76F041: a re-addressed read after the password stays authenticated (`rtl/x76f041.v`)
+
+Closes O2. Konami's driver (S5, `PSX.EXE` vtable 0x803594f0; read entry 0x8032477c):
+START + `0x60 | addr[8]` with ACK-poll retry, address, the 8-byte configuration
+password, ACK-poll START + `0xC0`, then 7 bytes read with ACK and the 8th read with an
+ACK followed by STOP on the same clock high; callers read in 8-byte chunks straight
+into the destination (0x80323534, 0x803239b0). **The first byte after the poll is data
+-- nothing is skipped**, which is what MAME and `x76f041.v` already did. Konami's
+password-less read (0x80324c44, command `0x20`) re-addresses every byte: 8 data bits
+with no ninth clock, START, next address. (ddr4m's install cassette has BCR = 0xff, so
+`0x20` is refused there and the `0x60` path is the one used.)
+
+573in1 reads the first byte, discards it, issues START and the same address again --
+no command, no password -- and reads 128 bytes. The datasheet (O2's text) allows this
+within the 128-byte block. MAME, and the core, ran `load_address()` again on that
+START, which for `0x60` demands the password a second time, so 573in1's data bytes
+were consumed as a password. Now: a START during a read that was entered through a
+verified password, followed by an address in the same 128-byte block, continues the
+read without a password. Different block, or an unauthenticated read: unchanged
+(MAME's `load_address()`). Konami's sequences never take the new path.
+
+### F8. Audio enables: SPU by `0x1f400000` bit 7, MP3 by DIO `0xf4` bit 15 (`rtl/s573_audio_mix.v`, `s573_io.v`, `emu.sv`)
+
+Replaces O3/O9. Bit 7: psx-spx "SPU DAC output enable (0 = muted)"; 573in1
+`main.cpp:59` sets it; ddr4m's game init calls the bits-7:5 setter with 7 (game exe
+0x8001bec4 -> 0x80096790 -> 0x800a4234; the boot loader writes 0 first, 0x8030136c).
+700B01's two embedded programs (ROM 0x28000 -> 0x80010000, 0x60000 -> 0x80380000)
+contain the setter but never call it (700A01 not traced), and no source gives the
+056879 latch's power-on value, so `spu_dac_en` reads 1 until the
+register is first written, then follows bit 7. DIO `0xf4`: psx-spx "Audio DAC
+reset/disable (0 = reset)"; ddr4m's MP3 init (game exe 0x800aa330) writes 0, initialises
+the MAS3507D, then writes 0x8000, 0, 0x8000 and leaves it there (the boot loader's
+FPGA upload also writes 0 and never re-enables -- the game does). Reset value 1
+(unwritten = running, same reasoning). Both gate the respective source in the mixer.
+**Bit 6 is still not applied:** ddr4m clears and sets it around a volume fade
+(0x80097200-0x800972a0), psx-spx measured it as an attenuator (still audible), and
+it does not reach GuitarFreaks-style separate MP3 jacks; the core has one output.
+Bit 5 (built-in amp) never applies to MiSTer's line-level output.
+
 ## New benches
 
 | bench | replays | before -> after |
@@ -152,7 +209,8 @@ the internal serial exists and S4 says games do not use it.
 | `tb_573in1_ide` (in TESTS) | `ide.cpp` enumerate both devices, TEST UNIT READY, PIO READ | RED (phantom dev 1) -> GREEN |
 | `tb_573in1_rtc` (in TESTS) | `io.cpp` setRTCTime/getRTCTime/isRTCBatteryLow across a midnight, month end and century | RED (date 03-14 -> 04-01) -> GREEN |
 | `tb_k573dio_cpld` (in TESTS) | 573in1 `loadDigitalIORawBitstream` with its real `data/fpga.bit` (MSB writer), the same stream as a Konami-style LSB-first image, a synthetic header stream, a no-preamble stream, CPLD DONE hold, back-to-back control writes, `0xf0-0xfe` mirror, `0xf4` | RED (status 0xB000 before upload) -> GREEN |
-| `tb_573in1_cart` (standalone, `make 573in1_cart`) | `io.cpp` + `cartio.cpp`: ZS01-then-X76 detection, X76F100/X76F041 reads, cassette DS2401 | X76F100 read RED -> GREEN; **X76F041 read still RED** (O2) |
+| `tb_573in1_cart` (now in TESTS) | `io.cpp` + `cartio.cpp`: ZS01-then-X76 detection, X76F100/X76F041 reads, cassette DS2401 | X76F100 read RED -> GREEN (F1); X76F041 read RED -> GREEN (F7) |
+| `tb_x76f041_konami` (in TESTS) | ddr4m's own X76F041 driver on the real `gea33aa.u1` image: 0x60 8-byte reads of all 512 bytes, 0x40 writes, 0x20 refused by BCR, 0x20 per-byte re-address on a BCR-0 device; plus 573in1's setup-byte + re-address read and a cross-block re-address | 573in1 part RED (510/512 wrong) -> GREEN; Konami parts GREEN before and after |
 
 ## Matches -- checked, no change needed
 
@@ -182,40 +240,9 @@ the internal serial exists and S4 says games do not use it.
 **O1. (closed by F5.)** The missing piece -- Konami's control-write sequence -- is in
 S4: `0x8000`, `0xc000`, `0xf000`, then the upload.
 
-**O2. X76F041 re-addressed read (573in1 `X76F041Driver::readPrivateData`).**
-Now settled by the Xicor X76F041 datasheet (supplied 2026-10-23), pages 6 and 9-11:
-* Operational-modes table: first byte `001xxxxA` = read with the READ password,
-  `011xxxxA` = read with the CONFIGURATION password, `100xxxxx` = configuration ops.
-* Random/sequential read WITH a password (Fig. 8, 10, 12 -- the `0x60` config read is
-  the same shape): command, address, 8-byte password, ACK-poll `0xC0`, then the chip
-  outputs **8 bits of "secure read setup" to be ignored**; the host then issues a
-  START and an address and reads data. "Once the first byte has been read, another
-  start can be issued followed by a new 8-bit address" -- **no password again**,
-  within the original 1K block only.
-* Random read WITHOUT a password (Fig. 9): command, address, ACK, data at once;
-  further START + address within the block.
-That is exactly 573in1's sequence. `x76f041.v` (and MAME `x76f041.cpp`) has no setup
-byte -- the first byte after the poll is `data[address]` -- and turns the repeated
-START into a fresh `load_address()`, which for `0x60` demands the password again.
-**Not changed yet**, deliberately: Konami's own X76F041 traffic (dsem, the ddr4m and
-ddr3ma-class install cassettes) works on the core today under MAME's semantics, so
-the sequence Konami actually sends must be read before the model is made
-datasheet-exact. The Konami X76F041 driver is in the CD executables (it is not in the
-700A01/700B01 BIOS: neither contains a single `0x1f6a` reference), so one CHD
-(dsem or ddr4m) to extract `PSX.EXE` from, or the `hw_audit_tap.lua` MAME log of
-dsem, settles it. `tb_573in1_cart` stays RED on this step until then.
+**O2. (closed by F7.)** Konami's X76F041 sequence was read from ddr4m (S5).
 
-**O3. `0x1f400000` bits 5/6/7 -- the sources disagree; nothing gated.**
-S4 (`builtin-io.md`): 5 = built-in amp enable (RCA line outputs unaffected), 6 = external
-(CD/DIO) audio input enable, measured as an attenuator rather than a hard mute, and
-meaningless on GuitarFreaks-style cabinets that route MP3 to separate jacks; 7 = "SPU
-DAC output enable (0 = muted)". But 573in1 -- same author -- writes bit 7 = 0 in
-`io::init()` and never sets it (`MISC_OUT_SPU_ENABLE` has no user), while its UI and
-audio test play SPU sound. Gating the SPU on bit 7 would silence 573in1 if S4's
-polarity is wrong. Port comments in `s573_io.v` now state the bit meanings (the port
-called `audio_mute` is bit 6, an ENABLE); MiSTer outputs are line level, so bit 5 never
-applies. To settle bit 7: a scope or ear on a real 573 running 573in1's audio test
-(SPU tone with bit 7 = 0), or a Konami title's write log.
+**O3. (replaced by F8.)**
 
 **O4. Empty drive answers TEST UNIT READY with GOOD.** A real CR-589 with no disc
 reports NOT READY. Only matters for 573in1 run with no CD; changing it touches the BIOS
@@ -237,12 +264,7 @@ mounts CHD or cue + raw 2352-byte bins, so the image needs converting
 (`tools/chd_to_raw2352.py` already holds the MODE1/2048 -> 2352 recipe). These sources
 do not show what stops it booting under MAME; none of O1-O7 is fatal to its startup.
 
-**O9. DIO `0xf4` DAC reset not applied to MP3 audio.** S4: "Konami's code uses this
-register to mute the DAC during FPGA and MAS3507D initialization." The latch exists
-(`k573dio.dac_en`, reset 1) but is unconnected: the exact Konami write order (which
-value it leaves behind) is not in any source here, and getting it wrong mutes every MP3
-title. `tools/mame_dio_regs.lua` logs `f4` writes; one MAME run of a DIO title shows the
-final value. 573in1 writes 0 and never re-enables (it plays no MP3).
+**O9. (replaced by F8.)**
 
 **O10. psx-spx DIO details that differ from the core's MAME-derived model** (MP3 path
 is HPS-side and not yet live, so none is changed in this pass; each matters for P4):
@@ -251,6 +273,9 @@ is HPS-side and not yet live, so none is changed in this pass; each matters for 
   address IS sent (fetch address ends at end + 4). `k573_mp3stream.v` sends
   `[mp3_start, mp3_end)`. With a per-word descrambler counter an extra/missing word
   shifts the key stream, so check this against a real title before P4 sign-off.
+  S5 gets one step closer: ddr4m's setters (0x800abe9c / 0x800abed8) subtract 2 from
+  an odd start and add 2 to an odd end before writing `0xa0/a2` and `0xa4/a6`; they
+  are reached through function pointers, so the values were not traced further.
 * DRAM: "There is a single DRAM address pointer, used for both reads and writes" --
   `0xb0/b2` and `0xb6/b8` both set it, only `0xb4` reads advance and prefetch, and every
   `0xb0-0xbf` read returns the current word. The core (like MAME) keeps two pointers.
@@ -288,9 +313,12 @@ disables it.** Same conclusion as O7.
    `make gate5_replay 573in1_cart`. `tb_k573dio_cpld` uses 573in1's real `data/fpga.bit`
    when a 573in1 checkout sits next to this repo (or `S573IN1=<path>`); without it the
    synthetic-stream cases still run.
-2. Cabinet regression set for F1/F2/F5/F6: hyperbbc or ddrs2k (X76F100 + BIOS identify),
+2. Cabinet regression set for F1/F2/F5-F8: hyperbbc or ddrs2k (X76F100 + BIOS identify),
    dsem (X76F041), ddrusa (ZS01), ddr4m and ddr3ma (dual cassette), plus one flash-boot
    and one CD-install boot (drive check, F2). F5: any DIO title boots to attract
    with MP3 (ddr3ma/ddr4m/ddrextrm), and 573in1's cartridge screen shows the Digital
    I/O board ID instead of "bitstream upload failed". F6: ddrusa / gtrfrk5m (ZS01)
-   still pass the cassette check; ddr4m's dual cassette still installs.
+   still pass the cassette check; ddr4m's dual cassette still installs. F7: 573in1's
+   cartridge dump of an X76F041 cassette (pnchmn2 / ddr4m install) shows real data.
+   F8: game sound effects and MP3 music are audible in attract and in play (SPU
+   muted until the game's init, as on a cabinet); the BIOS screens sound as before.

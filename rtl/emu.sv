@@ -2748,6 +2748,9 @@ end
 wire [7:0] p1_gf = {~joy[9],  ~joy[6],  ~joy[5],  ~joy[4],  ~joy[7],  ~(joy[3]  | joy[2]),  gf_knob1};
 wire [7:0] p2_gf = {~joy2[9], ~joy2[6], ~joy2[5], ~joy2[4], ~joy2[7], ~(joy2[3] | joy2[2]), gf_knob2};
 
+// Audio enables from the board (see s573_audio_mix.v): 0x1f400000 bit 7 gates
+// the SPU, Digital I/O 0x1f6400f4 bit 15 gates the MP3 PCM.
+wire s573_spu_dac_en, s573_dio_dac_en;
 system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
 (
    .clk            (clk_1x),
@@ -2926,7 +2929,8 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .coin_counter   (),
    .audio_amp_en   (),
    .audio_mute     (),
-   .spu_dac_en     (),
+   .spu_dac_en     (s573_spu_dac_en),
+   .dio_dac_en     (s573_dio_dac_en),
    .wdog_reset     (),
    .cdrom_irq      (exp_irq10),
    .lamp_out       (),
@@ -3196,6 +3200,7 @@ wire        psx_ddram_we;
 
 // SPU output (was wired straight to AUDIO_L/R; now one mixer hop away)
 wire [15:0] spu_l, spu_r;
+// (s573_spu_dac_en / s573_dio_dac_en are declared ahead of u_s573, which drives them)
 
 // mailbox <-> transport plumbing
 wire [15:0] mp3_fab_pcm_rd;
@@ -3304,6 +3309,8 @@ s573_audio_mix u_audio_mix (
    .spu_r (spu_r),
    .mp3_l (mp3_pcm_l),
    .mp3_r (mp3_pcm_r),
+   .spu_en(s573_spu_dac_en),
+   .mp3_en(s573_dio_dac_en),
    .out_l (AUDIO_L),
    .out_r (AUDIO_R)
 );

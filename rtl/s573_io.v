@@ -52,9 +52,12 @@ module s573_io (
     //  6 = external (CD-ROM / Digital I/O) audio input enable, 1 = on. Despite the
     //      port name this is an ENABLE, not a mute; psx-spx measured it as an
     //      attenuator (still faintly audible at 0); meaningless on GF/DM cabinets.
-    //  7 = SPU DAC output enable per psx-spx (0 = muted) -- but 573in1's io::init()
-    //      writes bit 7 = 0 and never sets it, yet plays SPU sound. Sources
-    //      disagree, so none of these bits gates the core's audio.
+    //  7 = SPU DAC output enable (0 = muted): psx-spx; 573in1 main.cpp sets it;
+    //      ddr4m's game writes bits 7:5 = 111 at init (its boot loader writes 000
+    //      first). spu_dac_en gates the SPU in s573_audio_mix -- but only once
+    //      software has written this register: the latch's power-on value is in
+    //      no source, and 700B01 never calls its bits-7:5 setter, so until the
+    //      first write the SPU stays on (as before, and as MAME).
     output reg         audio_amp_en,
     output reg         audio_mute,     // = bit 6, external audio ENABLE (see above)
     output reg         spu_dac_en,
@@ -62,12 +65,15 @@ module s573_io (
 );
     // --- write-only control register (0x1f400000) ---
     reg [15:0] ctrl;
+    reg        ctrl_written;
 
     always @(posedge clk) begin
         if (rst) begin
             ctrl <= 16'h0000;
+            ctrl_written <= 1'b0;
         end else if (sel && we && (off == 4'h0)) begin
             ctrl <= din;
+            ctrl_written <= 1'b1;
         end
     end
 
@@ -78,7 +84,7 @@ module s573_io (
         coin_counter  = ctrl[4:3];
         audio_amp_en  = ctrl[5];
         audio_mute    = ctrl[6];
-        spu_dac_en    = ctrl[7];
+        spu_dac_en    = ctrl_written ? ctrl[7] : 1'b1;
         jvs_mcu_rst_n = ctrl[8];
     end
 

@@ -93,6 +93,13 @@ module tb_s573_io;
     initial begin
         repeat (3) @(posedge clk); @(negedge clk); rst = 0;
 
+        // Before any write the SPU DAC enable reads 1 (power-on latch value is in
+        // no source; see s573_io.v), then it follows bit 7.
+        if (spu_dac_en !== 1'b1) begin
+            $display("FAIL: spu_dac_en before first ctrl write = %b (want 1)", spu_dac_en);
+            errors = errors + 1;
+        end
+
         // Control register: drive a pattern and check decoded outputs.
         // bit0 DI, bit1 /CS, bit2 CLK, bits4:3 coin, bit5 amp, bit6 mute,
         // bit7 dac, bit8 jvs_rst_n
