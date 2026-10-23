@@ -2,8 +2,17 @@
 
 **Date:** 2026-10-23
 **Branch:** `hw-audit-573in1` (on top of `5bcd741`, the public v0.1.1 tree)
-**Status:** 3 RTL fixes + 1 portability fix, simulated (64/64 runnable benches green;
-the 3 that need game dumps did not run here). **Not yet built or cabinet-tested.**
+**Status:** 3 RTL fixes + 1 portability fix, simulated: 67/67 suite benches green
+**with the real game-dump fixtures** (pnchmn2, gtrfrk5m, ddrusa, ddr4m, ddr3ma).
+**Not yet built or cabinet-tested.**
+
+Update (same day, with the dumps): two bench expectations that had never run were
+wrong and are corrected -- `tb_s573_seccart` expected pnchmn2 BCR2 = 0x00 (the dump
+holds 0xff; fails identically on the pre-audit RTL), and `tb_zs01_rtr` expected the
+id to read back with the SDA driver ENABLED and D0 = 0, which the 74LS125 makes
+impossible (the game releases bit 6 first). And `sim/Makefile` ran
+`sh gen_secdata.sh`; the script uses `set -o pipefail`, which dash (Ubuntu/WSL `sh`)
+rejects, so on those hosts the fixtures were never generated. Now `bash`.
 
 ## Sources used
 
@@ -120,13 +129,27 @@ writes only `0x8000` to `0xf6` -- if that is the whole sequence, bit 14 (PROGRAM
 uploads (ddrextrm) settles it.
 
 **O2. X76F041 re-addressed read (573in1 `X76F041Driver::readPrivateData`).**
-573in1: command `0x60 | addr>>8`, address, 8-byte key, ACK-poll `0xC0`, discard one
-"secure read setup" byte, repeated START, resend the address, read 128 bytes.
-`x76f041.v` (like MAME `x76f041.cpp`) treats the repeated START as a new
-`load_address()` and, for command group `0x60`, demands the key again, so 573in1 reads
-zeros. 573in1 works on real cassettes, so MAME's state machine is wrong here, but the
-exact rule (and the setup byte) must come from the X76F041 datasheet's read section,
-which I could not retrieve. Konami's own dsem traffic passes today and must keep passing.
+Now settled by the Xicor X76F041 datasheet (supplied 2026-10-23), pages 6 and 9-11:
+* Operational-modes table: first byte `001xxxxA` = read with the READ password,
+  `011xxxxA` = read with the CONFIGURATION password, `100xxxxx` = configuration ops.
+* Random/sequential read WITH a password (Fig. 8, 10, 12 -- the `0x60` config read is
+  the same shape): command, address, 8-byte password, ACK-poll `0xC0`, then the chip
+  outputs **8 bits of "secure read setup" to be ignored**; the host then issues a
+  START and an address and reads data. "Once the first byte has been read, another
+  start can be issued followed by a new 8-bit address" -- **no password again**,
+  within the original 1K block only.
+* Random read WITHOUT a password (Fig. 9): command, address, ACK, data at once;
+  further START + address within the block.
+That is exactly 573in1's sequence. `x76f041.v` (and MAME `x76f041.cpp`) has no setup
+byte -- the first byte after the poll is `data[address]` -- and turns the repeated
+START into a fresh `load_address()`, which for `0x60` demands the password again.
+**Not changed yet**, deliberately: Konami's own X76F041 traffic (dsem, the ddr4m and
+ddr3ma-class install cassettes) works on the core today under MAME's semantics, so
+the sequence Konami actually sends must be read before the model is made
+datasheet-exact. The Konami X76F041 driver is in the CD executables (it is not in the
+700A01/700B01 BIOS: neither contains a single `0x1f6a` reference), so one CHD
+(dsem or ddr4m) to extract `PSX.EXE` from, or the `hw_audit_tap.lua` MAME log of
+dsem, settles it. `tb_573in1_cart` stays RED on this step until then.
 
 **O3. `0x1f400000` bits 5/6/7 (amp enable / CD-DA-aux input enable / SPU DAC enable).**
 573in1 names bit 6 `CDDA_ENABLE`; S3 says the digital board's MP3 audio enters through

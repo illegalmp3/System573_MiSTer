@@ -87,7 +87,7 @@ module tb_zs01_rtr;
     reg cfg_io0, cfg_d0;
     reg [7:0] u1 [0:4115];
     reg [7:0] u6 [0:7];
-    reg [31:0] id; integer i; reg present; integer fh;
+    reg [31:0] id, want; integer i; reg present; integer fh;
     reg b; integer errors;
 
 
@@ -114,20 +114,23 @@ module tb_zs01_rtr;
         @(negedge clk); Ls_we=0;
         repeat (4) @(negedge clk); rst = 0; repeat (4) @(negedge clk);
 
-        // ---- sweep the two host-side drive signals the board may leave in any
-        // ---- state: io0_dir (control bit 6) and D0. Neither should affect what the
-        // ---- DEVICE drives during the response-to-reset, so all four must read back
-        // ---- the id. Since the 2026-09-14 fix D0 is not wired to the ZS01 at all, so
-        // ---- the D0 half of the sweep is now trivially independent by construction.
+        // ---- sweep the two host-side drive signals: io0_dir (control bit 6) and D0.
+        // ---- The DEVICE must emit the id in all four. What the CPU reads back is the
+        // ---- pin-28 LINE (s573_seccart host_sda, GX700 74LS125 35H): with the driver
+        // ---- enabled and D0=0 the buffer holds the line low, so no board can read the
+        // ---- id there -- which is why detector A (PSX.EXE 0x803250b8) releases bit 6
+        // ---- (0x803208f4(0)) before the response-to-reset. The other three must read
+        // ---- the id; that one must read all zeros (the contention is modelled).
         for (cfg = 0; cfg < 4; cfg = cfg + 1) begin
             cfg_io0 = (cfg / 2) % 2;
             cfg_d0  = cfg % 2;
             io0_dir = cfg_io0;
             probe(cfg_d0, id);
-            $display("tb_zs01_rtr: io0_dir=%0d D0=%0d -> assembled 0x%08x  edges=%0d  drove 0x%08x%s",
-                     cfg_io0, cfg_d0, id, sec_rtr_edges, sec_rtr_emit,
-                     (id === 32'h5a53_0001) ? "  ok" : "   <== FAILS");
-            if (id !== 32'h5a53_0001) errors = errors + 1;
+            want = (cfg_io0 && !cfg_d0) ? 32'h0000_0000 : 32'h5a53_0001;
+            $display("tb_zs01_rtr: io0_dir=%0d D0=%0d -> assembled 0x%08x (want 0x%08x)  edges=%0d  drove 0x%08x%s",
+                     cfg_io0, cfg_d0, id, want, sec_rtr_edges, sec_rtr_emit,
+                     (id === want && sec_rtr_emit === 32'h5a53_0001) ? "  ok" : "   <== FAILS");
+            if (id !== want || sec_rtr_emit !== 32'h5a53_0001) errors = errors + 1;
         end
 
         if (errors == 0) $display("RESULT: PASS");

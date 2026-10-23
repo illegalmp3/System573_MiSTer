@@ -564,11 +564,13 @@ module tb_s573_seccart;
         send_byte2(8'hc0, ack);          // verify
         if (ack !== 1'b0) begin
             $display("FAIL: f041 REAL config password rejected (verify ack=%b)", ack); errors=errors+1; end
-        // BCR1 was overridden to 0x00, BCR2 still loaded 0x00, CR overridden 0x00.
+        // BCR1 was overridden to 0x00 above; BCR2 is whatever the REAL image holds at
+        // offset 29 (pnchmn2: 0xff). The old hand-typed 0x00 was never checked: this
+        // part only runs with the dump, and `sh` (dash) could not run gen_secdata.sh.
         read_byte2(1'b0, d);   // creg[0]=BCR1
         if (d !== 8'h00) begin $display("FAIL: f041 cfg BCR1=%02h", d); errors=errors+1; end
         read_byte2(1'b1, d);   // creg[1]=BCR2
-        if (d !== 8'h00) begin $display("FAIL: f041 cfg BCR2=%02h", d); errors=errors+1; end
+        if (d !== eep_img[29]) begin $display("FAIL: f041 cfg BCR2=%02h (image %02h)", d, eep_img[29]); errors=errors+1; end
         i2c_stop2;
 
         // ---- (c-neg) wrong config password must NAK ----

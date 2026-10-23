@@ -103,7 +103,7 @@ SRC_atapi_inquiry  := $(SRC_system573_top)
 # the dump before the seccart test. No-op (test self-skips Part 2) if the dump is
 # absent. Order-only so it always runs first for s573_seccart.
 secdata:
-	@sh gen_secdata.sh >/dev/null 2>&1 || true
+	@bash gen_secdata.sh >/dev/null 2>&1 || true   # bash: the script uses pipefail (dash rejects it)
 s573_seccart: secdata
 s573_seccart_dual: secdata
 s573_cass_nv: secdata
@@ -117,7 +117,7 @@ zs01_detect: secdata
 # hypbbc2p CHD before the end-to-end ATAPI read test. No-op (test self-skips to a
 # synthetic ISO9660 sector) if the dump / chdman is absent.
 cddata:
-	@sh gen_cddata.sh >/dev/null 2>&1 || true
+	@bash gen_cddata.sh >/dev/null 2>&1 || true   # bash: pipefail
 atapi_cdread: cddata
 
 
