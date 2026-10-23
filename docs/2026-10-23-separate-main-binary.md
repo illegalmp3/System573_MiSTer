@@ -94,5 +94,35 @@ built on that same release.
   `s573mp3_core.c` and `s573_descramble.c` type-check against its headers
   (`g++/gcc -fsyntax-only` with Main's include paths). The ARM build itself runs on
   the Windows PC (job runner 003 + 004).
-* Not covered by this: the Linux image. The newest SD-installer release is
-  `release_20260912`; the console's Linux is from the 260907 install.
+
+## Linux too (added the same day): the release the official updater installs
+
+* The Downloader takes Main, menu and Linux from `Distribution_MiSTer/db.json.zip`
+  (fetched 2026-10-23, commit `242a051`): `files.MiSTer.hash` =
+  `2e99ab46...` = md5 of `MiSTer_20261010`; `files["menu.rbf"].hash` = `292b36d1...` =
+  md5 of `menu_20261010.rbf`; `linux` = `{version: 260912, url: .../all_releases/
+  linux_release_20260912.7z, hash: 7cec2206...}`. So 20261010 / 20261010 / 260912 is
+  exactly what an online console updated today would run.
+* How the Downloader applies Linux (`Downloader_MiSTer src/downloader/linux_updater.py`):
+  extract `files/linux/*` from the 7z; copy the six user files (`/media/fat/linux/
+  hostname, hosts, interfaces, resolv.conf, dhcpcd.conf, fstab`) into the new
+  `linux.img` (loop mount); `mv linux.img -> linux/linux.img.new`; `rsync -a` the rest
+  into `/media/fat/linux/` excluding `gamecontrollerdb/`; run `/media/fat/linux/
+  updateboot`; `mv linux.img.new linux.img`; reboot.
+* `updateboot` (407 bytes, unchanged since 2018) erases the saved u-boot environment
+  sector and `dd`s `uboot.img` to partition 2 (3 on the old layout) -- the only step a
+  PC cannot do on the exFAT side. **For 260912 it writes nothing new:** its `uboot.img`
+  (`c97c70b4...`) is byte-identical to 260907's. What changed is `zImage_dtb`
+  (`38318643...` -> `e7b08548...`) and `linux.img`.
+* `tools/wsl/fetch-firmware-inputs.sh` reads that db, checks the Main and menu files
+  against it, downloads the Linux 7z (md5-checked) and extracts `files/linux/` to
+  `Documents/linux_<version>/` (7-Zip from the official ip7z GitHub release if WSL has
+  none). `tools/build-hps-mp3.sh deploy` (or `deploy-linux` alone) installs it like
+  the Downloader -- but only if the card's `linux/uboot.img` equals the release's
+  (i.e. the bootloader on the card is already that one); otherwise it changes nothing
+  and says the update has to run on the console. User files are injected the same way.
+* Simulated here on a card made from the 260907 release: installed, verified
+  (zImage_dtb and linux.img byte-equal to the release, `gamecontrollerdb/` user file
+  kept, `/MiSTer.version` = 260912), a second run is a no-op, a differing `uboot.img`
+  refuses with nothing changed, and an injected `hostname` lands in the card's image
+  while the release image keeps its own.

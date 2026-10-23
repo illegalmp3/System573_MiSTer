@@ -295,6 +295,61 @@ needing only GLIBC_$hi_ref. It would not boot. Use the 10.2 toolchain."
   say "binary copied to System573_MiSTer/out/MiSTer_System573 (built on $base)"
 }
 
+deploy_linux() {
+  # The Linux release the official updater installs (fetched + md5-checked +
+  # extracted by tools/wsl/fetch-firmware-inputs.sh), applied the way the
+  # Downloader's LinuxUpdater does it (src/downloader/linux_updater.py):
+  #   files/linux/* -> /media/fat/linux/ except gamecontrollerdb/, linux.img last via
+  #   linux.img.new, then updateboot (dd uboot.img to the boot partition).
+  # From a PC only the files can be written. updateboot is therefore done ONLY when it
+  # would write nothing new: the card's linux/uboot.img (what the last updateboot
+  # wrote) must equal the release's, else nothing is touched and the update is left
+  # for the console. The six "user files" the Downloader injects into the new image
+  # (/media/fat/linux/hostname, hosts, interfaces, resolv.conf, dhcpcd.conf, fstab)
+  # are injected the same way, through a loop mount.
+  local lx src dst ver f inj=""
+  lx="$(ls -1d "$DOCS"/linux_*/ 2>/dev/null | sort | tail -1 || true)"
+  [ -n "$lx" ] && [ -f "$lx/files/linux/linux.img" ] || { say "NOTE: no extracted Linux release in $DOCS (run fetch-firmware-inputs.sh) -- Linux left as it is"; return 0; }
+  src="${lx%/}/files/linux"; dst="$SD/linux"; ver="$(cat "${lx%/}/VERSION" 2>/dev/null || echo '?')"
+  [ -d "$dst" ] || die "$dst missing -- this does not look like a MiSTer SD card"
+  if cmp -s "$src/zImage_dtb" "$dst/zImage_dtb" && cmp -s "$src/linux.img" "$dst/linux.img"; then
+    say "Linux is already release $ver"; return 0
+  fi
+  if ! cmp -s "$src/uboot.img" "$dst/uboot.img"; then
+    say "Linux $ver NOT installed: its bootloader (uboot.img) differs from the one on the card,"
+    say "so updateboot must run on the console itself. Nothing was changed."
+    return 0
+  fi
+  for f in hostname hosts interfaces resolv.conf dhcpcd.conf fstab; do
+    [ -f "$dst/$f" ] && inj="$inj $f"
+  done
+  local img="$src/linux.img"
+  if [ -n "$inj" ]; then
+    say "injecting user files into the new image:$inj"
+    local work mnt
+    work="$(mktemp -d)"; mnt="$work/mnt"; mkdir -p "$mnt"
+    cp -f "$src/linux.img" "$work/linux.img"
+    mount -t ext4 -o loop "$work/linux.img" "$mnt" || { rm -rf "$work"; die "could not loop-mount the new linux.img (needs root in WSL); Linux left as it is"; }
+    for f in $inj; do
+      case "$f" in
+        interfaces) cp -f "$dst/$f" "$mnt/etc/network/interfaces" ;;
+        *)          cp -f "$dst/$f" "$mnt/etc/$f" ;;
+      esac
+    done
+    umount "$mnt"
+    img="$work/linux.img"
+  fi
+  say "installing Linux $ver into $dst (bootloader unchanged: $(md5sum < "$src/uboot.img" | cut -c1-12))"
+  (cd "$src" && find . -mindepth 1 -maxdepth 1 ! -name linux.img ! -name gamecontrollerdb -exec cp -rf {} "$dst/" \;)
+  cp -f "$img" "$dst/linux.img.new"
+  sync
+  mv -f "$dst/linux.img.new" "$dst/linux.img"
+  sync
+  cmp -s "$img" "$dst/linux.img" && cmp -s "$src/zImage_dtb" "$dst/zImage_dtb" || die "Linux copy verification FAILED -- re-run deploy before booting"
+  [ -n "$inj" ] && rm -rf "$(dirname "$img")"
+  say "Linux $ver installed and verified"
+}
+
 stage_deploy() {
   [ -d "$SD" ] || die "SD card not mounted at $SD"
   local bin="$DOCS/System573_MiSTer/out/MiSTer_System573"
@@ -335,6 +390,7 @@ stage_deploy() {
       say "         run the MiSTer updater (or copy a stock MiSTer) to restore it"
     fi
   fi
+  deploy_linux
   cp -f "$bin" "$SD/MiSTer_System573"
   chmod +x "$SD/MiSTer_System573" 2>/dev/null || true
   # The same INI edit the release's stager does (tools/s573_stage.py --install-mp3),
@@ -370,6 +426,7 @@ case "${1:-all}" in
   graft)  stage_graft ;;
   build)  stage_build ;;
   deploy) stage_deploy ;;
+  deploy-linux) [ -d "$SD" ] || die "SD card not mounted at $SD"; deploy_linux ;;
   all)    stage_setup; stage_graft; stage_build ;;
-  *)      die "usage: $0 [setup|graft|build|deploy|all]" ;;
+  *)      die "usage: $0 [setup|graft|build|deploy|deploy-linux|all]" ;;
 esac

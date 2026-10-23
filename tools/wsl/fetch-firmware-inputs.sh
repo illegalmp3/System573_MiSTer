@@ -16,6 +16,11 @@
 #                              ARM's toolchain; the 10.2 pin is a runtime glibc
 #                              ABI pin (see build-hps-mp3.sh header)
 #   minimp3.h                  lieff/minimp3, single header
+#   linux_release_<date>.7z    the Linux the official updater installs (its url, md5
+#   + linux_<version>/         and version come from Distribution_MiSTer db.json.zip),
+#                              md5-checked and pre-extracted for deploy; the same db
+#                              confirms MiSTer_<date> and menu_<date>.rbf are what it
+#                              ships as stable
 #
 # Idempotent: existing files are kept. Run via the job runner (needs network).
 # ---------------------------------------------------------------------------
@@ -72,4 +77,46 @@ menu="$(git ls-tree --name-only HEAD releases/ | sed -nE 's#^releases/(menu_[0-9
 echo "menu core: $menu"
 cd "$DOCS"
 ls -la "$tgz" "$DOCS/$rel" "$DOCS/$menu"
+
+# ---- what the official updater considers STABLE, and the Linux it would install ----
+# The Downloader takes MiSTer, menu.rbf and Linux from Distribution_MiSTer's db.json.zip
+# ("linux": {url, hash, version}); its LinuxUpdater extracts files/linux/* from that
+# 7z, rsyncs it into /media/fat/linux (except gamecontrollerdb/), runs updateboot and
+# renames linux.img.new over linux.img (Downloader_MiSTer src/downloader/linux_updater.py).
+say "Distribution_MiSTer db: stable Main/menu check and the Linux release"
+rm -rf /tmp/Distribution_MiSTer
+git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/MiSTer-devel/Distribution_MiSTer.git /tmp/Distribution_MiSTer
+git -C /tmp/Distribution_MiSTer show HEAD:db.json.zip > /tmp/s573_db.json.zip
+eval "$(python3 - /tmp/s573_db.json.zip "$DOCS/$rel" "$DOCS/$menu" <<'PY'
+import hashlib, json, sys, zipfile
+z = zipfile.ZipFile(sys.argv[1]); d = json.loads(z.read(z.namelist()[0]))
+md5 = lambda p: hashlib.md5(open(p, 'rb').read()).hexdigest()
+for name, path in (("MiSTer", sys.argv[2]), ("menu.rbf", sys.argv[3])):
+    ok = d["files"][name]["hash"] == md5(path)
+    print(f'echo "  db {name}: {"MATCHES" if ok else "DIFFERS FROM"} {path.split("/")[-1]}"', end=";")
+L = d["linux"]
+print(f'LINUX_URL="{L["url"]}"; LINUX_MD5="{L["hash"]}"; LINUX_VER="{L["version"]}"')
+PY
+)"
+lz="$DOCS/$(basename "$LINUX_URL")"
+echo "  db linux: $LINUX_VER ($(basename "$LINUX_URL"))"
+if [ ! -f "$lz" ] || [ "$(md5sum < "$lz" | cut -d' ' -f1)" != "$LINUX_MD5" ]; then
+  wget -q --show-progress -O "$lz.part" "$LINUX_URL" && mv "$lz.part" "$lz"
+fi
+[ "$(md5sum < "$lz" | cut -d' ' -f1)" = "$LINUX_MD5" ] || { echo "linux 7z md5 mismatch" >&2; exit 1; }
+echo "  linux 7z md5 OK"
+SEVENZ="$(command -v 7z || command -v 7za || true)"
+if [ -z "$SEVENZ" ]; then
+  mkdir -p "$DOCS/tools-7z"
+  [ -x "$DOCS/tools-7z/7zz" ] || { wget -q -O /tmp/7z.tar.xz https://github.com/ip7z/7zip/releases/download/24.08/7z2408-linux-x64.tar.xz \
+                                   && tar -xf /tmp/7z.tar.xz -C "$DOCS/tools-7z" 7zz; }
+  SEVENZ="$DOCS/tools-7z/7zz"
+fi
+lx="$DOCS/linux_$LINUX_VER"
+if [ ! -f "$lx/files/linux/linux.img" ]; then
+  rm -rf "$lx.tmp"; "$SEVENZ" x -y -o"$lx.tmp" "$lz" 'files/linux/*' >/dev/null
+  rm -rf "$lx"; mv "$lx.tmp" "$lx"
+fi
+printf '%s' "$LINUX_VER" > "$lx/VERSION"
+ls -la "$lx/files/linux"
 say "done"

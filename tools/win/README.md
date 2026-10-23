@@ -38,7 +38,7 @@ The queued jobs at the time of writing:
 |---|---|
 | `001-setup-ubuntu.sh` | `tools/wsl/setup-ubuntu.sh`: apt (Icarus, GHDL, build tools), builds NVC from source, installs the updated `sim/Makefile` |
 | `002-sims.sh` | the Icarus suite: the four profile/mailbox benches first, then the whole suite |
-| `003-fw-inputs.sh` | downloads the ARM 10.2 toolchain, the newest STABLE Main_MiSTer release (its source at the release commit + the stock binary; `MAIN_RELEASE=YYYYMMDD` pins one) and minimp3.h into `Documents` |
+| `003-fw-inputs.sh` | downloads the ARM 10.2 toolchain, the newest STABLE Main_MiSTer release (its source at the release commit + the stock binary + its menu.rbf; `MAIN_RELEASE=YYYYMMDD` pins one), the Linux release the official updater installs (checked against Distribution_MiSTer's db), and minimp3.h into `Documents` |
 | `004-fw-build.sh` | `tools/build-hps-mp3.sh all` → `out/MiSTer_System573` |
 
 Quartus builds can run the same way (`NNN-quartus.cmd` calling
