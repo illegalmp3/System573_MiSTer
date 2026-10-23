@@ -26,6 +26,15 @@
 //     program/reset the passwords, program/read the 8 config registers, or mass
 //     program(0x00)/erase(0xFF) the whole device.
 //
+// One deliberate departure from MAME (2026-10-23): a repeated START + new address
+// during an AUTHENTICATED read stays authenticated within the same 128-byte block,
+// as the Xicor datasheet's read-with-password sequence describes. MAME re-runs
+// load_address(), which for command 0x60 asks for the password again; 573in1's
+// readPrivateData (setup byte, START, address, 128 bytes) needs the datasheet
+// behaviour. Konami's own reads (ddr4m PSX.EXE 0x8032477c: 0x60, address,
+// password, 0xC0 poll, 8 bytes, STOP) never re-address and are unaffected; the
+// first byte after the poll is data[address] in both (tb_x76f041_konami).
+//
 // SDA is split into the host-driven level (sda_i) and the device-driven level
 // (sda_o), exactly as the 573 ASIC wires IO0.  Passwords, data and config
 // registers are NVRAM and persist across the (volatile) system reset.
@@ -145,6 +154,14 @@ module x76f041 #(
     reg [7:0] command;
     reg [7:0] address;
     reg       pw_ok;
+    // Re-addressed read (Xicor X76F041 datasheet, random/sequential read with a
+    // password: "Once the first byte has been read, another start can be issued
+    // followed by a new 8-bit address" -- no password again, within the original
+    // 1K-bit (128-byte) block). rd_auth: the current READ_DATA was entered
+    // through a verified password; rd_restart: a START arrived in READ_DATA, so
+    // the next byte is that new address. MAME instead runs load_address() again,
+    // which for command 0x60 demands the password a second time.
+    reg       rd_auth, rd_restart;
 
     reg pscl, pcs, psda, prst;
 
@@ -386,6 +403,8 @@ module x76f041 #(
             command <= 8'd0;
             address <= 8'd0;
             pw_ok   <= 1'b0;
+            rd_auth <= 1'b0;
+            rd_restart <= 1'b0;
             sda_o   <= 1'b0;
             sb_kick    <= 1'b0;
             brst_kick  <= 1'b0;
@@ -418,8 +437,8 @@ module x76f041 #(
                         sda_o <= 1'b0;
                     end else if (psda != 1'b0 && sda_i == 1'b0) begin  // start
                         case (state)
-                            ST_STOP:      state <= ST_CMD;
-                            ST_READ_DATA: state <= ST_ADDR; // repeated start -> new addr
+                            ST_STOP:      begin state <= ST_CMD; rd_auth <= 1'b0; end
+                            ST_READ_DATA: begin state <= ST_ADDR; rd_restart <= 1'b1; end // repeated start -> new addr
                             default: ;
                         endcase
                         bitc  <= 4'd0;
@@ -478,6 +497,11 @@ module x76f041 #(
                                 end
                                 ST_ADDR: begin
                                     address <= shift;
+                                    rd_restart <= 1'b0;
+                                    // ---- re-addressed authenticated read (datasheet) ----
+                                    if (rd_restart && rd_auth && (shift[7] == address[7])) begin
+                                        state <= ST_READ_DATA; bytec <= 8'd0;
+                                    end else
                                     // ---- load_address() ----
                                     if ((creg[CFG_CR] & CR_RETRY_EN) &&
                                         (creg[CFG_RR] == creg[CFG_RC]) &&
@@ -528,7 +552,7 @@ module x76f041 #(
                                 end
                                 ST_VERIFY: begin
                                     if (shift == CMD_ACK) begin
-                                        if (pw_ok) do_pwok(address);
+                                        if (pw_ok) begin do_pwok(address); rd_auth <= 1'b1; end
                                         else       sda_o <= 1'b1; // NAK
                                     end
                                 end
