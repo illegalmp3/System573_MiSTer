@@ -14,7 +14,7 @@ Read `docs/STATUS.md` first: what runs, what is open, how things are built.
 * **Bitstream**: `tools/build-573.ps1` (Quartus 17.0; HDMI + analog). ~27 minutes. `-Crt` = analog only. Do not
   edit sources while one runs.
 * **Sims**: `make -C sim` (Icarus), `make -C support/s573/tests test mutate`.
-* **Firmware**: `tools/build-hps-mp3.sh all` -> `out/MiSTer`.
+* **Firmware**: `tools/build-hps-mp3.sh all` -> `out/MiSTer_System573` (installed beside the stock `MiSTer`, selected by `[System573] main=MiSTer_System573` in MiSTer.ini).
 * **Hardware**: a DE10-Nano tested by moving the SD card and the games drive by
   hand. Not on a network. Evidence comes back as `s573mp3.log` on the card.
 * MAME sources for reference: `dumps/mame573/` (ksys573.cpp, k573dio/fpga,

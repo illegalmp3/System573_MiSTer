@@ -27,6 +27,14 @@
 # 10.2's sysroot is glibc 2.31 and the resulting binary tops out at GLIBC_2.28
 # with old-style librt/libpthread linkage, which is what upstream ships.
 #
+# OUTPUT: out/MiSTer_System573 -- a SECOND Main binary, installed next to the stock
+# /media/fat/MiSTer, never over it. Stock Main switches to it per core from
+# MiSTer.ini (user_io.cpp user_io_init: `main = getFullPath(cfg.main); if it is not
+# the running exe and FileExists(main): app_restart(path, xml, main)`; cfg.main
+# defaults to "MiSTer", so the menu and every other core switch back). The section
+# is [System573] -- the launchers' <setname>, which is what cfg.cpp
+# ini_get_section() matches; the .rbf file name plays no part.
+#
 # Stages:  setup | graft | build | deploy | all
 # -----------------------------------------------------------------------------
 set -euo pipefail
@@ -239,6 +247,9 @@ stage_build() {
   # The card is not mounted in WSL; a copy of the stock binary the board runs is
   # kept in the project (out/MiSTer.upstream-nos573, 2026-09-12 stock install).
   local ref="$SD/MiSTer.orig"
+  if [ ! -f "$ref" ] && [ -f "$SD/MiSTer" ] && ! strings -a "$SD/MiSTer" | grep -q s573mp3; then
+    ref="$SD/MiSTer"          # the card's own stock binary
+  fi
   [ -f "$ref" ] || ref="$PROJ/out/MiSTer.upstream-nos573"
   if [ -f "$ref" ]; then
     local hi_ours hi_ref
@@ -260,37 +271,53 @@ needing only GLIBC_$hi_ref. It would not boot. Use the 10.2 toolchain."
   fi
 
   mkdir -p "$DOCS/System573_MiSTer/out"
-  cp -f "$out" "$DOCS/System573_MiSTer/out/MiSTer"
-  say "binary copied to System573_MiSTer/out/MiSTer"
+  cp -f "$out" "$DOCS/System573_MiSTer/out/MiSTer_System573"
+  say "binary copied to System573_MiSTer/out/MiSTer_System573"
 }
 
 stage_deploy() {
   [ -d "$SD" ] || die "SD card not mounted at $SD"
-  [ -f "$DOCS/System573_MiSTer/out/MiSTer" ] || die "build first"
-  if [ ! -f "$SD/MiSTer.orig" ]; then
-    say "keeping the stock binary as MiSTer.orig"
-    cp -f "$SD/MiSTer" "$SD/MiSTer.orig"
+  local bin="$DOCS/System573_MiSTer/out/MiSTer_System573"
+  [ -f "$bin" ] || die "build first"
+  # Earlier deploys REPLACED /media/fat/MiSTer and kept the stock one as MiSTer.orig.
+  # Put the stock binary back first, so nothing but this core runs the fork.
+  if [ -f "$SD/MiSTer" ] && strings -a "$SD/MiSTer" | grep -q s573mp3; then
+    if [ -f "$SD/MiSTer.orig" ] && ! strings -a "$SD/MiSTer.orig" | grep -q s573mp3; then
+      say "restoring the stock MiSTer from MiSTer.orig (the old deploy had replaced it)"
+      cp -f "$SD/MiSTer.orig" "$SD/MiSTer"
+    else
+      say "WARNING: $SD/MiSTer is a 573 build and no stock MiSTer.orig is there --"
+      say "         run the MiSTer updater (or copy a stock MiSTer) to restore it"
+    fi
   fi
-  cp -f "$DOCS/System573_MiSTer/out/MiSTer" "$SD/MiSTer"
-  chmod +x "$SD/MiSTer" 2>/dev/null || true
-  # debug=1 or none of the service's output is ever visible (cfg.cpp sends the
-  # global stdout to /dev/null unless it is set)
-  if ! grep -qE '^[[:space:]]*debug[[:space:]]*=' "$SD/MiSTer.ini"; then
-    say "adding debug=1 to MiSTer.ini (backup: MiSTer.ini.bak573)"
-    cp -f "$SD/MiSTer.ini" "$SD/MiSTer.ini.bak573"
-    python3 - "$SD/MiSTer.ini" <<'PY'
-import sys,io
-p=sys.argv[1]
-s=open(p,encoding='utf-8',errors='surrogateescape').read()
-i=s.find('[MiSTer]')
-if i<0: sys.exit('no [MiSTer] section')
-j=s.find('\n',i)+1
-open(p,'w',encoding='utf-8',errors='surrogateescape').write(s[:j]+'debug=1\n'+s[j:])
-print('debug=1 added')
+  cp -f "$bin" "$SD/MiSTer_System573"
+  chmod +x "$SD/MiSTer_System573" 2>/dev/null || true
+  # The same INI edit the release's stager does (tools/s573_stage.py --install-mp3),
+  # so the developer card and a user's card are set up identically. debug=1 goes in
+  # the [System573] section only: the service's output is invisible without it
+  # (cfg.cpp sends stdout to /dev/null otherwise), and no other core needs it.
+  python3 - "$PROJ/tools/s573_stage.py" "$SD" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("st", sys.argv[1]); m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+log = []
+for n in ["MiSTer.ini"] + sorted(x for x in os.listdir(sys.argv[2]) if x.lower().startswith("mister_") and x.lower().endswith(".ini")):
+    p = os.path.join(sys.argv[2], n)
+    m.ini_add_main(p, False, log)
+    s = open(p, encoding="utf-8", errors="surrogateescape", newline="").read()
+    lines = s.splitlines(keepends=True)
+    k = next(i for i, l in enumerate(lines) if l.strip().lower() == "[system573]")
+    end = next((i for i in range(k + 1, len(lines)) if lines[i].lstrip().startswith("[")), len(lines))
+    if not any(l.split("=", 1)[0].strip().lower() == "debug" for l in lines[k + 1:end]):
+        nl = "\r\n" if lines[k].endswith("\r\n") else "\n"
+        lines.insert(k + 1, "debug=1" + nl)
+        open(p, "w", encoding="utf-8", errors="surrogateescape", newline="").write("".join(lines))
+        log.append(f"{n}: debug=1 in [System573]")
+print("\n".join(log))
 PY
-  fi
-  ls -la "$SD/MiSTer" "$SD/MiSTer.orig"
-  say "deployed. Launch via a .mgl -- the bare .rbf gives no MP3 (core-name gate)."
+  ls -la "$SD/MiSTer" "$SD/MiSTer_System573"
+  say "deployed. Launch via a .mgl -- the bare .rbf is core name PSX, so neither the"
+  say "[System573] INI section nor the MP3 service applies to it."
 }
 
 case "${1:-all}" in

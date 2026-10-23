@@ -7,6 +7,8 @@ your own MAME romsets.
     python3 s573_stage.py ROMS OUT --only ddr3mj,ddrmax
     python3 s573_stage.py ROMS --list          show what was found; write nothing
     python3 s573_stage.py --blank-saves OUT    only the empty .sav files (no romsets needed)
+    python3 s573_stage.py --install-mp3 ROOT   put MiSTer_System573 (the music decoder) on
+                                               the card and add its section to MiSTer.ini
 
 ROMS  the folder holding your MAME System 573 romsets: <set>.zip files (non-merged,
       split or merged all work) and the disc images (<disc>.chd, usually in a
@@ -3007,6 +3009,92 @@ def stage(src, t, out, dry, force, log):
             raise Fail(f"{name}: unknown recipe {m}")
 
 
+# ---- the MP3 decoder: a second Main binary, chosen per core by MiSTer.ini ----
+# Main_MiSTer user_io.cpp (user_io_init): after the core is loaded and the INI parsed,
+#     const char *main = getFullPath(cfg.main);
+#     if (strcasecmp(main, getappname()) && FileExists(main)) app_restart(path, xml, main);
+# cfg.main defaults to "MiSTer" (cfg.cpp), so every other core -- and the menu --
+# switches back to the stock binary. The INI section that applies is matched against
+# the core NAME, not the .rbf file name (cfg.cpp ini_get_section): for this core that
+# is the launchers' <setname> "System573" (or "PSX", the CONF_STR name Main needs for
+# its PSX disc handling). So the section is [System573]; [Konami_System_573] would
+# never match.
+MP3_MAIN = "MiSTer_System573"
+MP3_SECTION = "System573"
+
+
+def ini_add_main(path, dry, log):
+    """Give `path` a [System573] section with main=MiSTer_System573. Idempotent;
+    keeps a one-time backup (<name>.bak573). Line endings are preserved."""
+    exists = os.path.exists(path)
+    raw = open(path, "rb").read() if exists else b""
+    text = raw.decode("utf-8", errors="surrogateescape")
+    nl = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    want = f"main={MP3_MAIN}"
+    start = None
+    for i, ln in enumerate(lines):
+        if ln.strip().lower() == f"[{MP3_SECTION.lower()}]":
+            start = i
+            break
+    if start is None:
+        new = lines + ([""] if lines and lines[-1].strip() else []) + [f"[{MP3_SECTION}]", want]
+        what = f"added [{MP3_SECTION}] {want}"
+    else:
+        end = len(lines)
+        for j in range(start + 1, len(lines)):
+            if lines[j].lstrip().startswith("["):
+                end = j
+                break
+        body = lines[start + 1:end]
+        keyed = [k for k, ln in enumerate(body) if ln.split("=", 1)[0].strip().lower() == "main"]
+        if keyed and body[keyed[0]].strip() == want and len(keyed) == 1:
+            log.append(f"{os.path.basename(path)}: already has [{MP3_SECTION}] {want}")
+            return
+        body = [ln for k, ln in enumerate(body) if k not in keyed]
+        new = lines[:start + 1] + [want] + body + lines[end:]
+        what = f"set {want} in its [{MP3_SECTION}] section"
+    if dry:
+        log.append(f"{os.path.basename(path)}: would have {what}")
+        return
+    bak = path + ".bak573"
+    if exists and not os.path.exists(bak):
+        open(bak, "wb").write(raw)
+    open(path, "wb").write((nl.join(new) + nl).encode("utf-8", errors="surrogateescape"))
+    log.append(f"{os.path.basename(path)}: {what}" + (f" (backup: {os.path.basename(bak)})" if exists else " (new file)"))
+
+
+def install_mp3(root, binary, dry):
+    root = os.path.normpath(root)
+    if os.path.basename(root).lower() == "system573" and os.path.basename(os.path.dirname(root)).lower() == "games":
+        root = os.path.dirname(os.path.dirname(root))
+    if not os.path.isfile(binary):
+        sys.exit(f"no {MP3_MAIN} binary at {binary} (pass --mp3-binary PATH)")
+    if open(binary, "rb").read(4) != b"\x7fELF":
+        sys.exit(f"{binary} is not an ARM executable")
+    if not (os.path.isdir(os.path.join(root, "_Arcade")) or os.path.isfile(os.path.join(root, "MiSTer"))):
+        sys.exit(f"{root} does not look like a MiSTer SD card or USB root (no MiSTer or _Arcade)")
+    log = []
+    dst = os.path.join(root, MP3_MAIN)
+    if not dry:
+        tmp = dst + ".tmp"
+        with open(binary, "rb") as f, open(tmp, "wb") as g:
+            g.write(f.read())
+        os.replace(tmp, dst)
+    log.append(f"{MP3_MAIN}: {'would be ' if dry else ''}copied to {root}")
+    inis = [os.path.join(root, "MiSTer.ini")]
+    inis += sorted(os.path.join(root, n) for n in os.listdir(root)
+                   if n.lower().startswith("mister_") and n.lower().endswith(".ini"))
+    for ini in inis:
+        ini_add_main(ini, dry, log)
+    say(f"Music decoder for System 573 in {root}{'  (dry run)' if dry else ''}:")
+    for line in log:
+        say("    " + line)
+    say("The stock MiSTer binary is not touched; Main switches to MiSTer_System573 only while")
+    say("a System 573 launcher is running, and back for every other core and the menu.")
+    return 0
+
+
 def resolve_out(out):
     base = os.path.basename(os.path.normpath(out)).lower()
     if base == "system573":
@@ -3029,10 +3117,17 @@ def main():
     ap.add_argument("--force", action="store_true", help="rebuild disc files even if present (never touches .sav)")
     ap.add_argument("--blank-saves", metavar="OUT",
                     help="write just the empty .sav file of every title into OUT (no romsets needed)")
+    ap.add_argument("--install-mp3", metavar="ROOT",
+                    help="copy MiSTer_System573 to ROOT and add [System573] main=MiSTer_System573 to its INI(s)")
+    ap.add_argument("--mp3-binary", metavar="PATH",
+                    default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "MiSTer_System573"),
+                    help="the MiSTer_System573 file to install (default: next to this script)")
     ap.add_argument("--verify-chd", action="store_true",
                     help="also decode each copied disc and check it against its SHA1 (slow)")
     a = ap.parse_args()
 
+    if a.install_mp3:
+        return install_mp3(a.install_mp3, a.mp3_binary, a.dry_run)
     if a.blank_saves:
         out = resolve_out(a.blank_saves)
         os.makedirs(out, exist_ok=True)

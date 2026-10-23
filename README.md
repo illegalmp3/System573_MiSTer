@@ -42,7 +42,7 @@ three downloads:
 
 | download | what it is |
 |---|---|
-| `System573_MiSTer-v<version>.zip` | the core, the launchers and the modified `MiSTer` executable, laid out like the SD card (steps 1, 2 and 4) |
+| `System573_MiSTer-v<version>.zip` | the core, the launchers and `MiSTer_System573` (the music decoder), laid out like the SD card (steps 1, 2 and 4) |
 | `s573_stage.py` | the staging tool: builds the game files from your MAME romsets (step 3) |
 | `System573_blank_saves.zip` | an empty save file for every title, for staging by hand (step 3) |
 
@@ -76,14 +76,40 @@ three downloads:
    hand. **Don't extract it over a card that already has saves:** each `.sav` holds
    that game's install, and the blank one would replace it. Copy only the ones you
    are missing.
-4. **The modified `MiSTer` executable (required for music):** the Digital-I/O DDR and
-   Dancing Stage titles decode their MP3 soundtrack on the ARM side, in a service
+4. **Music: `MiSTer_System573` (required for the MP3 soundtracks).** The Digital-I/O
+   DDR and Dancing Stage titles decode their MP3 music on the ARM side, in a service
    added to MiSTer's Main program (`support/s573/`, built by
-   `tools/build-hps-mp3.sh`). Replace `/media/fat/MiSTer` with that build (keep the
-   original). Other cores run on it unchanged -- the additions are gated on this
-   core. **`update_all` and the downloader put the stock `MiSTer` back**, after which
-   the DDR games run silent until it is reinstalled. Hyper Bishi Bashi Champ and
-   Gacha Gachamp have no MP3 board and do not need it.
+   `tools/build-hps-mp3.sh`). It ships as a **separate** file, `MiSTer_System573`,
+   that sits next to the stock `MiSTer` in the SD card's root -- the stock binary is
+   **not** replaced. Two steps:
+
+   * copy `MiSTer_System573` to the root of the SD card (where `MiSTer` and
+     `MiSTer.ini` are);
+   * add this section to `MiSTer.ini` (and to any `MiSTer_*.ini` you switch to):
+
+         [System573]
+         main=MiSTer_System573
+
+   `python3 s573_stage.py --install-mp3 <SD card>` does both (it keeps a one-time
+   `MiSTer.ini.bak573` backup, and running it again changes nothing).
+
+   How it works: when a core starts, stock Main reads `main=` from the INI section
+   that matches the core and, if it names another file that exists, restarts into
+   it (`user_io.cpp`, `user_io_init`); every other core and the menu use the
+   default, `MiSTer`, so Main switches back by itself. The section name has to be
+   **`System573`**: Main matches sections against the core's *name*, which for
+   this core is the launchers' `<setname>System573</setname>` -- not the `.rbf`
+   file name, so `[Konami_System_573]` would never apply. (The `.rbf`'s own
+   built-in name is `PSX`, which Main needs for its disc handling; that is also
+   why a bare `.rbf` gets no music -- launch from a `.mgl`.) The MiSTer updater
+   and `update_all` keep updating the stock `MiSTer` as usual; the Downloader only
+   deletes "old file[s] from previous updates" (its `allow_delete` setting), and
+   `MiSTer_System573` is not one of its files. Hyper Bishi Bashi Champ and Gacha Gachamp have no MP3 board and do not
+   need it.
+
+   Upgrading from v0.1.x, which replaced `/media/fat/MiSTer`: put the stock binary
+   back (run the updater, or copy your `MiSTer.orig` over `MiSTer`), then do the
+   two steps above.
 5. **First boot of a CD title installs it to flash:** set OSD *573 Boot Device* =
    CD-ROM, launch, let the game install, and **wait for the "Flash saved" message**
    before switching off (the game asks you to power down before the save has run).
