@@ -3304,11 +3304,26 @@ s573_pcm_ring u_pcm_ring (      // RING_OFF_BEAT/BEATS_LOG2 defaults (provisiona
 // Saturating SPU + MP3 mixer -> the framework audio outputs (AUDIO_S = 1).
 // Combinational: domain-neutral, and a bit-exact SPU passthrough while the
 // MP3 channel is idle (s573_mp3_pcm drives pcm to 0).
+// MAS3507D output volume matrix (LL/RR), applied at playback: the HPS decodes
+// raw PCM, the game's volume/mute writes land here when the chip would apply them.
+wire [15:0] mp3_vol_l, mp3_vol_r;
+s573_mas_gain u_mas_gain (
+   .clk      (clk_1x),
+   .rst      (reset),
+   .gain_ll  (dio_gain_ll),
+   .gain_rr  (dio_gain_rr),
+   .gain_stb (dio_gain_stb),
+   .in_l     (mp3_pcm_l),
+   .in_r     (mp3_pcm_r),
+   .out_l    (mp3_vol_l),
+   .out_r    (mp3_vol_r)
+);
+
 s573_audio_mix u_audio_mix (
    .spu_l (spu_l),
    .spu_r (spu_r),
-   .mp3_l (mp3_pcm_l),
-   .mp3_r (mp3_pcm_r),
+   .mp3_l (mp3_vol_l),
+   .mp3_r (mp3_vol_r),
    .spu_en(s573_spu_dac_en),
    .mp3_en(s573_dio_dac_en),
    .out_l (AUDIO_L),

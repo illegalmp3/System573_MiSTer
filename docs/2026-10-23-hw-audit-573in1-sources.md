@@ -2,9 +2,16 @@
 
 **Date:** 2026-10-23
 **Branch:** `hw-audit-573in1` (on top of `5bcd741`, the public v0.1.1 tree)
-**Status:** 7 RTL fixes + 1 portability fix, simulated: 70/70 suite benches green
+**Status:** 8 RTL fixes + 1 portability fix, simulated: 71/71 suite benches green
 **with the real game-dump fixtures** (pnchmn2, gtrfrk5m, ddrusa, ddr4m, ddr3ma) and
 573in1's own Digital I/O bitstream. **Not yet built or cabinet-tested.**
+
+Update 4 (same day, MAS3507D data sheet, S6): F9 applies the MP3 decoder's output
+volume matrix as the data sheet defines it; ddr4m's own dB table matches the data
+sheet bit for bit. Bit 6 question answered for DDR: Konami mutes the MP3 through
+the volume matrix and clears bit 6 at the same moment, so bit 6 adds nothing audible
+to DDR once F9 is in (see F9). DrumMania 2ndMIX CHDs (912*) received, not analysed:
+DDR first, at Ricky's direction.
 
 Update 3 (same day, ddr4m CHDs `a33aaa02` / `a33jaa02`, S5): Konami's own drivers read
 out of the disc. F7 (X76F041 re-addressed read) closes O2 and turns `tb_573in1_cart`
@@ -34,6 +41,7 @@ rejects, so on those hosts the fixtures were never generated. Now `bash`.
 | S3 | "Konami's System 573 - Everything you wanted to know about it!" (Naoki's Retro Corner, 2022-10-05) | author's English (UK) caption track | Watchdog part/timeout, IDE PIO-only, PCMCIA single-CE wiring, audio path of the I/O boards |
 | S4 | psx-spx "Konami System 573" (`psx-spx.consoledev.net/dev/arcade/konami/573/`, repo `psx-spx/psx-spx.github.io` `b56e4c5`, 2026-10-23) | `registers.md`, `builtin-io.md`, `expansion-io.md`, `security-cartridges.md` | Hardware-tested register behaviour: DIO CPLD/FPGA map, cassette pinouts per variant, audio-control bits, watchdog |
 | S5 | ddr4m CD (MAME `a33aaa02.chd` / `a33jaa02.chd`, supplied 2026-10-23) | `PSX.EXE` = Konami boot loader "BOOT VER1.8" (load 0x80300000; identical code on both discs); `GAME.DAT` = the flash image, game executable at offset 0x60000 (load 0x80010000; a second copy at 0x150000) | Konami's own cassette, Digital I/O and audio-control drivers, disassembled with `tools/s573_oracle/mipsdis.py` |
+| S6 | Micronas MAS 3507D preliminary data sheet (60 pp., supplied 2026-10-23) | 3.3 I2C command syntax (write D1 memory), 3.6.2 mute register $aa, 3.6.3 tone control, 3.7.3 baseband volume matrix (Tables 3-19 to 3-21, Fig. 3-2) | MP3 output level |
 | ref | MAME `cde9d51` (2026-10-23): `ksys573.cpp`, `k573dio.cpp`, `x76f041.cpp`, `atahle.cpp`, `linflash.cpp` | | Baseline the core was built from |
 
 Schematic connectivity was extracted with a small KiCad-sheet netlister (wires, labels,
@@ -202,6 +210,50 @@ FPGA upload also writes 0 and never re-enables -- the game does). Reset value 1
 it does not reach GuitarFreaks-style separate MP3 jacks; the core has one output.
 Bit 5 (built-in amp) never applies to MiSTer's line-level output.
 
+### F9. MP3 volume: the MAS3507D's output matrix is applied (`rtl/s573_mas_gain.v`, new; `emu.sv`)
+
+Data sheet (S6) 3.7.3: D1:$7f8 LL, $7f9 LR, $7fa RL, $7fb RR, reset default $80000;
+Table 3-19: 20-bit two's complement, -1.0 .. 1.0-2^-19; Fig. 3-2 puts a "-1" in every
+path, so the output is `-coef x input` and $80000 is unity; Table 3-21: 0 dB = $80000,
+-20 dB = $F3333. The write format (3.3.5: `$3a $68 $b0 $00 n n a a`, then per word
+`d3d2 d1d0 $00 $0d4`) is what `mas3507d_i2c.v` already parses, so LL/RR were captured
+-- and then thrown away: the HPS service plays its decoder output at unity
+(`docs/2026-09-11-hps-mp3-service.md` item 4: "the encoding of that 20-bit matrix is
+not established anywhere in this tree").
+
+Konami's driver (S5, ddr4m game exe): a 101-entry table at 0x800df160 for -100..0 dB
+that equals `-10^(dB/20) x 2^19` in 20-bit two's complement for every entry, with -100
+dB stored as 0 (mute); the matrix write (0x800ac068 -> D1 $7f8, 4 words); the volume
+call (0x80098338) sets LL = RR = level, LR = RL = -100 dB. The level comes from a
+16-step table indexed by `level_byte >> 4` (0x800dca88: -100, -64, -57, -45, -37, -30,
+-26, -22, -20, -18, -16, -14, -12, -10, -9, -8 dB); ddr4m passes **0xfe = -8 dB** for
+normal play (init 0x8001c8c4 and about a dozen other call sites) and 0 = mute around fades.
+MAME's `mas3507d.cpp` converts with `10^((dB + 6) / 20)`: +6 dB on every setting, so
+it plays ddr4m at -2 dB. Neither the data sheet nor Konami's table has that term.
+
+Now the matrix is applied in the fabric at playback (after `s573_mp3_pcm`'s drain,
+before the mixer), not on the HPS, so a mute lands when the chip would apply it
+rather than up to a ring's depth early. Unity until the first matrix write (the chip's
+reset default). LR/RL are not captured (`mas3507d_i2c.v` surfaces LL/RR only; ddr4m
+always writes them as 0). **Audible effect:** ddr4m's music now plays 8 dB below the
+decoder's full scale -- quieter relative to the sound effects than before (core: 0 dB;
+MAME: -2 dB) -- and the clipping noted in `2026-07-31-mp3-audio-WORKING.md` (peaks
++1.2/+1.6 dBFS) cannot occur at that level.
+
+Not modelled, from the same code: tone control. ddr4m sets bass +1 dB / treble -1 dB
+for some `product.region` values and 0/0 for others (0x8001c0cc -> 0x80098390 /
+0x800983ec -> MAS registers $6b/$6f/$e7); the data sheet gives coefficients, not the
+filter response. The mute register $aa is not used by ddr4m's driver.
+
+Bit 6 for DDR: ddr4m's fade (0x80097200-0x800972a0) clears bit 6 and sets the MP3
+volume to mute in the same step, and restores both together when its 20-step countdown ends. With F9
+the MP3 is already silent in that window, so bit 6 is not applied (it still matters
+for CD-DA, which the core does not play, and its analog attenuation is unmeasured).
+
+Still unknown, and assumed as MAME does: the analog ratio between the Digital I/O
+DAC's output (CN16 -> CN12) and the SPU DAC at the motherboard's mixer. The audio
+sheet in S2 does not include that part of the circuit. The core sums them 1:1.
+
 ## New benches
 
 | bench | replays | before -> after |
@@ -210,6 +262,7 @@ Bit 5 (built-in amp) never applies to MiSTer's line-level output.
 | `tb_573in1_rtc` (in TESTS) | `io.cpp` setRTCTime/getRTCTime/isRTCBatteryLow across a midnight, month end and century | RED (date 03-14 -> 04-01) -> GREEN |
 | `tb_k573dio_cpld` (in TESTS) | 573in1 `loadDigitalIORawBitstream` with its real `data/fpga.bit` (MSB writer), the same stream as a Konami-style LSB-first image, a synthetic header stream, a no-preamble stream, CPLD DONE hold, back-to-back control writes, `0xf0-0xfe` mirror, `0xf4` | RED (status 0xB000 before upload) -> GREEN |
 | `tb_573in1_cart` (now in TESTS) | `io.cpp` + `cartio.cpp`: ZS01-then-X76 detection, X76F100/X76F041 reads, cassette DS2401 | X76F100 read RED -> GREEN (F1); X76F041 read RED -> GREEN (F7) |
+| `tb_s573_mas_gain` (in TESTS) | Data sheet Table 3-21 points ($80000, $F3333) and ddr4m's -8 dB ($CD0AD) and mute (0) words; power-on unity; full-scale saturation; positive coefficient inverts (Fig. 3-2) | new module |
 | `tb_x76f041_konami` (in TESTS) | ddr4m's own X76F041 driver on the real `gea33aa.u1` image: 0x60 8-byte reads of all 512 bytes, 0x40 writes, 0x20 refused by BCR, 0x20 per-byte re-address on a BCR-0 device; plus 573in1's setup-byte + re-address read and a cross-block re-address | 573in1 part RED (510/512 wrong) -> GREEN; Konami parts GREEN before and after |
 
 ## Matches -- checked, no change needed
@@ -322,3 +375,6 @@ disables it.** Same conclusion as O7.
    cartridge dump of an X76F041 cassette (pnchmn2 / ddr4m install) shows real data.
    F8: game sound effects and MP3 music are audible in attract and in play (SPU
    muted until the game's init, as on a cabinet); the BIOS screens sound as before.
+   F9: music is noticeably quieter relative to effects/announcer than on the previous
+   build (by design, -8 dB on ddr4m); listen for the absence of distortion on loud
+   passages, and for the music muting cleanly at the same points as before.
