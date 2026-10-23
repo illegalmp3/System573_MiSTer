@@ -129,6 +129,8 @@ stage_graft() {
   cp -f "$PROJ/support/s573/s573mp3.cpp" \
         "$PROJ/support/s573/s573mp3_core.c" "$PROJ/support/s573/s573mp3_core.h" \
         "$PROJ/support/s573/s573_descramble.c" "$PROJ/support/s573/s573_descramble.h" \
+        "$PROJ/support/s573/s573wio.cpp" \
+        "$PROJ/support/s573/s573_whiteio.c" "$PROJ/support/s573/s573_whiteio.h" \
         "$MAIN/support/s573/"
 
   # The two touch points in Main. Both are discovered, never assumed: if the
@@ -253,6 +255,7 @@ stage_build() {
   arm-none-linux-gnueabihf-strip -s "$out" || true
   ls -la "$out"
   strings -a "$out" | grep -c s573mp3 | sed 's/^/s573mp3 strings in the binary: /'
+  strings -a "$out" | grep -c s573wio | sed 's/^/s573wio (card reader) strings in the binary: /'
   # ABI GATE. A binary that demands a newer glibc than the board has does not
   # fail visibly -- the console just never boots, which reads as "the core is
   # broken". Compare against the binary the board ALREADY RUNS, and refuse to

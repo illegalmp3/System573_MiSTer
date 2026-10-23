@@ -509,6 +509,16 @@ parameter CONF_STR = {
 	// (status[115:114]: 108 is MDEC Timing; the old 1-bit O[107] is retired -- a card is
 	// now fitted automatically from the save size or the launcher's trailer.)
 	"O[115:114],573 PCMCIA Card,Auto,32MB (slot 2),32MB (slot 1);",
+	// 573 CARD READER (2026-10-23): the GE885-PWB(A) "White I/O" JVS memory card
+	// reader. Off is the core as it was (no JVS device: the MCU registers read the
+	// old constants). Virtual / SNAC: the 573's JVS MCU is modelled in the fabric
+	// and the reader itself -- boot ROM + the firmware the game uploads -- runs in
+	// MiSTer_System573 (support/s573/s573_whiteio.c); cards are 128 KB .mcd files
+	// (Virtual) or real PS1 cards on the SNAC port. docs/2026-10-23-memory-card-reader.md.
+	// status[119:116]: 111-115 are 573 Controls / 573 PCMCIA Card (gfdm-r2).
+	"O[117:116],573 Card Reader,Off,Virtual cards,SNAC cards;",
+	"O[118],573 Card 1,Inserted,Ejected;",
+	"O[119],573 Card 2,Inserted,Ejected;",
 	// MDEC TIMING (diagnostic, 2026-09-17). psx/rtl/mdec.vhd waits 2171 clk between
 	// macroblocks in 15-bit output mode and 10 in every other depth. That asymmetry
 	// is not a measured hardware figure -- it came in upstream as "reduce decoding
@@ -855,6 +865,25 @@ s573_prof_pc u_prof_pc (
    .cnt_samples(pcprof_samples), .cnt_ram_hi(pcprof_ram_hi),
    .cnt_bios(pcprof_bios), .cnt_other(pcprof_other)
 );
+// ---- White I/O memory card reader (OSD "573 Card Reader") ----
+wire       wio_en   = (status[117:116] != 2'd0);
+wire       wio_snac_on = (status[117:116] == 2'd2);
+wire       wio_req_ready;  wire [8:0] wio_req_len;   wire [7:0] wio_req_seq;
+wire [7:0] wio_req_raddr;  wire [15:0] wio_req_rdata;
+wire       wio_resp_we;    wire [7:0] wio_resp_waddr; wire [15:0] wio_resp_wdata;
+wire       wio_resp_commit; wire [8:0] wio_resp_len;  wire [7:0] wio_resp_seq;
+wire       wio_snac_start, wio_snac_port; wire [1:0] wio_snac_op, wio_snac_mode; wire [7:0] wio_snac_tx;
+wire       wio_snac_busy, wio_snac_ack, wio_snac_err; wire [7:0] wio_snac_rx;
+wire [1:0] wio_flags;
+wire [1:0] wio_sel_n; wire wio_clk_o, wio_cmd_o;
+s573_wio_snac u_wio_snac (
+   .clk(clk_1x), .rst(reset), .en(wio_snac_on),
+   .start(wio_snac_start), .op(wio_snac_op), .port(wio_snac_port), .ack_mode(wio_snac_mode),
+   .tx(wio_snac_tx), .busy(wio_snac_busy), .rx(wio_snac_rx), .ack_seen(wio_snac_ack),
+   .line_err(wio_snac_err), .sel_n(wio_sel_n), .clk_o(wio_clk_o), .cmd_o(wio_cmd_o),
+   .dat_i(USER_IN[4]), .ack_n_i(USER_IN[3])
+);
+
 s573_hps_ext hps_ext
 (
 	.clk_sys(clk_1x),
@@ -899,6 +928,15 @@ s573_hps_ext hps_ext
 	.pcprof_ram_hi(pcprof_ram_hi), .pcprof_bios(pcprof_bios), .pcprof_other(pcprof_other),
 	.sec_trace_addr(sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),
 	.stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
+
+	.wio_req_ready(wio_req_ready), .wio_req_len(wio_req_len), .wio_req_seq(wio_req_seq),
+	.wio_req_raddr(wio_req_raddr), .wio_req_rdata(wio_req_rdata),
+	.wio_resp_we(wio_resp_we), .wio_resp_waddr(wio_resp_waddr), .wio_resp_wdata(wio_resp_wdata),
+	.wio_resp_commit(wio_resp_commit), .wio_resp_len(wio_resp_len), .wio_resp_seq(wio_resp_seq),
+	.wio_snac_start(wio_snac_start), .wio_snac_op(wio_snac_op), .wio_snac_port(wio_snac_port),
+	.wio_snac_mode(wio_snac_mode), .wio_snac_tx(wio_snac_tx), .wio_snac_busy(wio_snac_busy),
+	.wio_snac_rx(wio_snac_rx), .wio_snac_ack(wio_snac_ack), .wio_snac_err(wio_snac_err),
+	.wio_flags(wio_flags),
 
 	.ctrl_flags(mp3_ctrl_flags),
 	.dec_frame_sync(mp3_dec_frame_sync),
@@ -2822,6 +2860,12 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .prof_frames    (prof_frames),
    .prof_ide       (prof_ide),
    .prof_exp1      (prof_exp1),
+   .wio_en         (wio_en),
+   .wio_sense      (~wio_flags[1]),       // HPS: board addressed -> sense low
+   .wio_req_ready  (wio_req_ready),  .wio_req_len(wio_req_len),   .wio_req_seq(wio_req_seq),
+   .wio_req_raddr  (wio_req_raddr),  .wio_req_rdata(wio_req_rdata),
+   .wio_resp_we    (wio_resp_we),    .wio_resp_waddr(wio_resp_waddr), .wio_resp_wdata(wio_resp_wdata),
+   .wio_resp_commit(wio_resp_commit), .wio_resp_len(wio_resp_len), .wio_resp_seq(wio_resp_seq),
    .sec_ser_we     (sec_ser_we),
    .sec_ser_addr   (sec_ser_addr),
    .sec_ser_din    (sec_ser_din),
@@ -3708,7 +3752,20 @@ begin
    USER_IN3_4 <= USER_IN3_3;
    ackglitch  <= ~USER_IN3_1 && ~USER_IN3_2 && ~USER_IN3_3 && ~USER_IN3_4 ? 1'b0 : 1'b1;
 
-	if (snacPort1 || snacPort2) begin
+	if (wio_snac_on) begin
+		// White I/O card port owns the SNAC pins (the 573 has no SIO0 devices)
+		USER_OUT[0] <= wio_sel_n[1];
+		USER_OUT[1] <= wio_sel_n[0];
+		USER_OUT[2] <= wio_cmd_o;
+		USER_OUT[3] <= 1'b1; //ACK in
+		USER_OUT[4] <= 1'b1; //DAT in
+		USER_OUT[5] <= wio_clk_o;
+		USER_OUT[6] <= 1'b1;
+		irq10Snac   <= 1'b0;
+		ack         <= 1'b1;
+		Dat         <= 1'b1;
+	end
+	else if (snacPort1 || snacPort2) begin
 		USER_OUT[0] <= ~selectedPort2Snac;
 		USER_OUT[1] <= ~selectedPort1Snac;
 		USER_OUT[2] <= Cmd;

@@ -76,7 +76,11 @@ module tb_atapi_inquiry;
         .sec_eep_we(1'b0), .sec_eep_addr(10'd0), .sec_eep_din(8'd0),
         .sec_ser_we(1'b0), .sec_ser_addr(3'd0), .sec_ser_din(8'd0),
         // second (install) cassette + restore flag: not used by this bench
-        .sec_eep_zs01_only(1'b0), .sec_inst_sel(1'b0), .sec_inst_type(1'b0), .sec_ieep_we(1'b0), .sec_ieep_addr(10'd0), .sec_ieep_din(8'd0), .sec_iser_we(1'b0), .sec_iser_addr(3'd0), .sec_iser_din(8'd0)
+        .sec_eep_zs01_only(1'b0), .sec_inst_sel(1'b0), .sec_inst_type(1'b0), .sec_ieep_we(1'b0), .sec_ieep_addr(10'd0), .sec_ieep_din(8'd0), .sec_iser_we(1'b0), .sec_iser_addr(3'd0), .sec_iser_din(8'd0),
+        // White I/O reader off (the pre-reader core)
+        .wio_en(1'b0), .wio_sense(1'b1), .wio_req_ready(), .wio_req_len(), .wio_req_seq(),
+        .wio_req_raddr(8'd0), .wio_req_rdata(), .wio_resp_we(1'b0), .wio_resp_waddr(8'd0),
+        .wio_resp_wdata(16'd0), .wio_resp_commit(1'b0), .wio_resp_len(9'd0), .wio_resp_seq(8'd0)
     );
 
     always #5 clk = ~clk;

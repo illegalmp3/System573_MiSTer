@@ -16,6 +16,11 @@ module tb_s573_io;
     reg [7:0]  sec_in = 8'hE7;
     reg        sec_io0 = 1, sec_irdy = 1, sec_drdy = 0;
     reg        adc_do = 1, adc_sars = 0;
+    // JVS MCU inputs: jvs_en = 0 must leave every register exactly as before; the
+    // values on the other inputs are deliberately NOT the stub's, so a leak shows.
+    reg        jvs_en = 0, jvs_sense = 0, jvs_irdy = 1, jvs_drdy = 1;
+    reg [3:0]  jvs_nib = 4'h5;
+    reg [15:0] jvs_rdata = 16'hbeef;
 
     wire adc_di, adc_cs_n, adc_clk;
     wire [1:0] coin_counter;
@@ -34,7 +39,9 @@ module tb_s573_io;
         .adc_di(adc_di), .adc_cs_n(adc_cs_n), .adc_clk(adc_clk),
         .coin_counter(coin_counter), .audio_amp_en(audio_amp_en),
         .audio_mute(audio_mute), .spu_dac_en(spu_dac_en),
-        .jvs_mcu_rst_n(jvs_mcu_rst_n)
+        .jvs_mcu_rst_n(jvs_mcu_rst_n),
+        .jvs_en(jvs_en), .jvs_nib(jvs_nib), .jvs_sense(jvs_sense),
+        .jvs_irdy(jvs_irdy), .jvs_drdy(jvs_drdy), .jvs_rdata(jvs_rdata)
     );
 
     always #5 clk = ~clk;
@@ -173,6 +180,20 @@ module tb_s573_io;
             rd_reg(4'hc, r); chk(r ^ b0c, 16'h0000, "panel !IN3lo");
             rd_reg(4'he, r); chk(r ^ b0e, 16'h0000, "panel !IN3hi");
             p1_ctrl = 8'h5A; #1;                               // restore
+        end
+
+        // White I/O (OSD Card Reader on): the MCU model's bits replace the stub's
+        begin : jvs_map
+            reg [15:0] a4, a6, aa;
+            rd_reg(4'h4, a4); rd_reg(4'h6, a6); rd_reg(4'ha, aa);
+            chk(a4 & 16'h00f0, 16'h00c0, "off: [7:4] = 0xC");
+            chk(a6 & 16'h0038, 16'h0008, "off: sense 1, rdy 0");
+            chk(aa, 16'h0000, "off: 0x0a reads 0");
+            jvs_en = 1; #1;
+            rd_reg(4'h4, r); chk(r ^ a4, 16'h0090, "on: [7:4] = jvs_nib (5), nothing else moves");
+            rd_reg(4'h6, r); chk(r ^ a6, 16'h0038, "on: [5]=drdy [4]=irdy [3]=sense, nothing else");
+            rd_reg(4'ha, r); chk(r, 16'hbeef, "on: 0x0a = MCU data");
+            jvs_en = 0; #1;
         end
 
         if (errors == 0) $display("RESULT: PASS (s573_io)");
