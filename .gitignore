@@ -46,6 +46,8 @@ sim/secdata/
 # CD-image sim fixtures: $readmemh hex sectors DERIVED from the (gitignored) game
 # CHD/CD dumps by sim/gen_cddata.sh. Copyrighted -- regenerable, never commit.
 sim/cddata/
+# 573in1 Digital I/O bitstream fixture written by sim/gen_fpgadata.sh. Regenerable.
+sim/fpgadata/
 
 # Full-system sim outputs
 sim/system/out/

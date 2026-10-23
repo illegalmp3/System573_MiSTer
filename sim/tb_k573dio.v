@@ -139,7 +139,16 @@ module tb_k573dio;
         bus_read(8'h00, v); chk(v, 16'h0000, "a00");
         bus_read(8'h02, v); chk(v, 16'h0001, "a02");
         bus_read(8'h80, v); chk(v, 16'h1234, "a80 id");
-        bus_read(8'hf6, v); chk(v, 16'hB000, "fpga status");
+        // CPLD status before any bitstream: ID bit 15, /INIT high, DONE low --
+        // once the FPGA's power-on clear (k573dio_cpld INIT_CLKS) has elapsed
+        wait_us(100);
+        // (psx-spx 0x1f6400f6; 573in1 loadDigitalIORawBitstream). The full upload
+        // to 0xB000 is covered by tb_k573dio_cpld.
+        bus_read(8'hf6, v); chk(v, 16'h9000, "fpga status (unconfigured)");
+        bus_read(8'hfe, v); chk(v, 16'h9000, "cpld mirror fe");
+        bus_read(8'h90, v); chk(v, 16'h1234, "magic mirror 90");
+        bus_read(8'hd6, v); chk(v, 16'h1234, "magic mirror d6");
+        bus_read(8'hc6, v); chk(v, 16'h7654, "c6");
 
         // ---- MP3 address window R/W ----
         bus_write(8'ha0, 16'h1234); bus_write(8'ha2, 16'h5678);

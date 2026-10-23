@@ -44,7 +44,12 @@
 //   0xe0/e2/e4/e6/fa/fc/fe w  lamp outputs (registers 1,0,3,7,4,5,2)
 //   0xea w crypto key2   0xec w crypto key3
 //   0xee r/w  board DS2401 (1-wire on bit 12)
-//   0xf6 r =0xB000 FPGA status    0xf8 w FPGA firmware (stub)
+//   0xf0-0xfe  XC9536 CPLD (k573dio_cpld.v): 0xf4 w DAC reset (bit 15, 0 =
+//            reset), 0xf6 w FPGA /INIT,DONE,/PROGRAM control, 0xf8 w bitstream
+//            bit; ALL even offsets 0xf0-0xfe read the 0xf6 status (psx-spx).
+//            Status is 0xB000 once a bitstream has been clocked in (MAME's
+//            constant), 0x9000 while the FPGA is waiting for one.
+//   0x80-0x9f, 0xd0-0xdf r =0x1234 (magic mirror)   0xc6/0xc8 r =0x7654 (psx-spx)
 //   0x90 w network id    0x10 w unknown
 //
 // Each lamp register takes bits [15:12] as a 4-bit value and fans it out to four
@@ -117,6 +122,10 @@ module k573dio #(
     // line cache; OR'd into the psx EXP1 read wait (patch 0006) by emu.sv.
     // Never asserts for any other offset, and never for writes.
     output wire        dio_wait,
+
+    // CPLD 0x1f6400f4 bit 15: board audio DAC enable (0 = held in reset/muted).
+    // psx-spx: Konami mutes the DAC with it during FPGA and MAS3507D init.
+    output reg         dac_en,
 
     // MP3 descramble scheme select (MAME set_ddrsbm_fpga: 1 = DDR Solo Bass Mix).
     // Was a parameter; now plumbed so P4 can drive it per-game. emu.sv ties it 0
@@ -705,6 +714,7 @@ module k573dio #(
             fpga_ctrl <= 16'd0; network_id <= 16'd0;
             ram_adr <= 25'd0; ram_read_adr <= 25'd0; ow_master_low <= 1'b0;
             mas_scl <= 1'b1; mas_sda <= 1'b1;
+            dac_en <= 1'b1;
         end else begin
             if (sel && we) begin
                 case (off)
@@ -732,7 +742,8 @@ module k573dio #(
                     8'hfa: set_lamp(3'd4, din);
                     8'hfc: set_lamp(3'd5, din);
                     8'hfe: set_lamp(3'd2, din);
-                    default: ; // 0x10, 0xcc, 0xf8, network: stub/unhandled
+                    8'hf4: dac_en           <= din[15];
+                    default: ; // 0x10, 0xcc, network: stub; 0xf6/0xf8 -> u_cpld
                 endcase
             end
             // b4 data movement lives in the backing generate blocks; the
@@ -745,11 +756,25 @@ module k573dio #(
         end
     end
 
+    // ----- XC9536 CPLD: FPGA configuration port (0xf0-0xff) -----
+    wire [15:0] cpld_status;
+    k573dio_cpld u_cpld (
+        .clk(clk), .rst(rst),
+        .we(sel && we && (off[7:4] == 4'hf)), .off(off[3:0]), .din(din),
+        .status(cpld_status), .fpga_done()
+    );
+
     // read mux (combinational)
     always @(*) begin
         case (off)
             8'h02:   dout = 16'h0001;
-            8'h80:   dout = 16'h1234;        // board id
+            // Konami bitstream magic, mirrored over 0x80-0x9f and 0xd0-0xdf
+            // (psx-spx "0x1f640090 ... Reading this register returns 0x1234")
+            8'h80, 8'h82, 8'h84, 8'h86, 8'h88, 8'h8a, 8'h8c, 8'h8e,
+            8'h90, 8'h92, 8'h94, 8'h96, 8'h98, 8'h9a, 8'h9c, 8'h9e,
+            8'hd0, 8'hd2, 8'hd4, 8'hd6, 8'hd8, 8'hda, 8'hdc, 8'hde:
+                     dout = 16'h1234;
+            8'hc6, 8'hc8: dout = 16'h7654;    // psx-spx: unknown / FIFO reset reads
             8'ha0:   dout = mp3_start[31:16];
             8'ha2:   dout = mp3_start[15:0];
             8'ha4:   dout = mp3_end[31:16];
@@ -769,8 +794,11 @@ module k573dio #(
             8'hce:   dout = mp3_pos_rep[15:0] - mp3_diff_ref[15:0]; // mp3_counter_diff_r
 `endif
             8'hee:   dout = {3'b000, ow_line, 12'b0};
-            8'hf6:   dout = 16'hB000;        // FPGA status (0x8000|0x2000|0x1000)
+            // CPLD: incomplete decode, every register reads the 0xf6 status
+            8'hf0, 8'hf2, 8'hf4, 8'hf6, 8'hf8, 8'hfa, 8'hfc, 8'hfe:
+                     dout = cpld_status;
             default: dout = 16'h0000;        // 0x00/04/06/0a + FPGA/MAS/net stubs
         endcase
     end
+
 endmodule
