@@ -17,6 +17,8 @@ set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s57
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/k573dio.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/k573dio_cpld.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_mas_gain.v]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_jvs_mcu.v]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_wio_snac.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/mas3507d_i2c.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/k573_mp3dec.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/k573_mp3stream.v]

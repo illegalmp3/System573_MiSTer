@@ -266,6 +266,29 @@ module s573_hps_ext
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
     input      [7:0]  stage_trace_count,
 
+    // ---- CMD_573_WIO: White I/O memory card reader (s573_jvs_mcu + s573_wio_snac) ----
+    input             wio_req_ready,
+    input      [8:0]  wio_req_len,
+    input      [7:0]  wio_req_seq,
+    output reg [7:0]  wio_req_raddr,
+    input      [15:0] wio_req_rdata,      // valid the cycle after wio_req_raddr
+    output reg        wio_resp_we,
+    output reg [7:0]  wio_resp_waddr,
+    output reg [15:0] wio_resp_wdata,
+    output reg        wio_resp_commit,
+    output reg [8:0]  wio_resp_len,
+    output reg [7:0]  wio_resp_seq,
+    output reg        wio_snac_start,
+    output reg [1:0]  wio_snac_op,
+    output reg        wio_snac_port,
+    output reg [1:0]  wio_snac_mode,
+    output reg [7:0]  wio_snac_tx,
+    input             wio_snac_busy,
+    input      [7:0]  wio_snac_rx,
+    input             wio_snac_ack,
+    input             wio_snac_err,
+    output reg [1:0]  wio_flags,          // bit0 = HPS service running, bit1 = board addressed
+
     // ---- CMD_573_CTRL: HPS -> fabric control + decode events ----
     output reg [15:0] ctrl_flags,      // bit0=cfg_ddrsbm, bit1=mp3_drain_en, rest reserved
     output reg        dec_frame_sync,  // 1-cycle pulse per HPS-decoded MPEG frame
@@ -295,7 +318,20 @@ localparam CMD_573_CTRL   = 'h6A;
 localparam CMD_573_MP3CFG = 'h6B;
 localparam CMD_573_STAGETRACE = 'h6C;
 localparam CMD_573_SECTRACE   = 'h6D;
-localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_en)
+localparam CMD_573_PCPROF     = 'h6E;
+localparam CMD_573_WIO        = 'h6F;  // must stay the TOP of the range (dout_en)
+// CMD_573_WIO (0x6F), the White I/O reader's JVS bus + card port:
+//   word0 (cmd)  up: {req_ready, snac_busy, snac_ack, snac_err, 3'b0, req_len[8:0]}
+//   word1        dn: op[15:12] + args       up: {snac_rx[7:0], req_seq[7:0]}
+//     op 0  nothing more
+//     op 1  READ_REQ:   words 2.. up = request words 0.. (JVS packet, little-endian)
+//     op 2  WRITE_RESP: op[8:0] = byte count; word2 dn = seq; words 3.. dn = response
+//           words; the last one commits it (s573_jvs_mcu ignores a stale seq)
+//     op 3  CARD:       word2 dn = {port, type[1:0], ack_mode[1:0], 3'b0, tx[7:0]};
+//           type 0 SELECT, 1 DESELECT, 2 XFER (s573_wio_snac); poll word0 for !busy
+//     op 4  FLAGS:      op[1:0] -> wio_flags
+// Main_MiSTer user_io.h defines nothing in 0x65..0x6F (checked for the 0x68 range);
+// 0x6F is the last free code below 0x70.
 // CMD_573_SECTRACE (0x6D): word0 up = {armed, entries[8:0]} (0..256); word1 dn =
 // base index (8-bit), words 2..9 up = eight consecutive entries. Same shape as
 // STAGETRACE apart from the wider address and count.
@@ -313,6 +349,9 @@ localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_e
 // yet spoken would be a worse bug than the clipping this fixes, so the HPS applies
 // unity until this is 1.
 reg gain_seen = 1'b0;
+reg [3:0] wio_op = 4'd0;
+reg [8:0] wio_arg = 9'd0;
+reg       wio_commit_d = 1'b0;
 always @(posedge clk_sys) if (rst) gain_seen <= 1'b0; else if (gain_stb) gain_seen <= 1'b1;
 
 reg [15:0] snap [1:36];
@@ -327,6 +366,9 @@ initial begin
     dec_frame_sync = 0;
     dec_frame_idle = 0;
     evt_ovf        = 0;
+    wio_req_raddr  = 0; wio_resp_we = 0; wio_resp_waddr = 0; wio_resp_wdata = 0;
+    wio_resp_commit = 0; wio_resp_len = 0; wio_resp_seq = 0; wio_snac_start = 0;
+    wio_snac_op = 0; wio_snac_port = 0; wio_snac_mode = 0; wio_snac_tx = 0; wio_flags = 0;
     for (si = 1; si <= 36; si = si + 1) snap[si] = 16'd0;
 end
 
@@ -369,6 +411,10 @@ always @(posedge clk_sys) begin
     // REGISTERED pend_sync != 0, idle only when it == 0 -- exclusive) ----
     dec_frame_sync <= 0;
     dec_frame_idle <= 0;
+    wio_resp_we     <= 0;
+    wio_snac_start  <= 0;
+    wio_resp_commit <= wio_commit_d;
+    wio_commit_d    <= 0;
     if (!dec_frame_sync && pend_sync_nxt != 0) begin
         dec_frame_sync <= 1;
         pend_sync_nxt  = pend_sync_nxt - 1'd1;
@@ -393,7 +439,7 @@ always @(posedge clk_sys) begin
         if(byte_cnt == 0) begin
             cmd <= io_din;
             dout_en <= (io_din >= CD_GET && io_din <= CD_SET) ||
-                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_PCPROF);
+                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_WIO);
             case(io_din)
                 CMD_573_PTRS: begin
                     io_dout <= fab_pcm_rd;
@@ -472,6 +518,10 @@ always @(posedge clk_sys) begin
                 end
                 CMD_573_CTRL: begin
                     io_dout <= {last_sync_cnt, last_idle_cnt};
+                end
+                CMD_573_WIO: begin
+                    io_dout <= {wio_req_ready, wio_snac_busy, wio_snac_ack, wio_snac_err, 3'd0, wio_req_len};
+                    wio_op  <= 4'd0;
                 end
                 default: ; // CD_GET/CD_SET answer zeros (stub parity)
             endcase
@@ -572,6 +622,39 @@ always @(posedge clk_sys) begin
                     // pure read-out of the latched tuple; the HPS may stop
                     // early (drop io_enable) when the epoch is unchanged
                     if(byte_cnt >= 1 && byte_cnt <= 11) io_dout <= snap[byte_cnt[3:0]];
+                end
+                CMD_573_WIO: begin
+                    if(byte_cnt == 1) begin
+                        wio_op  <= io_din[15:12];
+                        wio_arg <= io_din[8:0];
+                        io_dout <= {wio_snac_rx, wio_req_seq};
+                        if (io_din[15:12] == 4'd1) wio_req_raddr <= 8'd0;
+                        if (io_din[15:12] == 4'd4) wio_flags <= io_din[1:0];
+                    end else case (wio_op)
+                    4'd1: begin
+                        io_dout <= wio_req_rdata;
+                        wio_req_raddr <= wio_req_raddr + 8'd1;
+                    end
+                    4'd2: if (byte_cnt == 2) wio_resp_seq <= io_din[7:0];
+                          else if (byte_cnt - 10'd3 < 10'd132) begin
+                              wio_resp_we    <= 1'b1;
+                              wio_resp_waddr <= byte_cnt[7:0] - 8'd3;
+                              wio_resp_wdata <= io_din;
+                              // last word of ceil(len/2): commit (one clock after the write)
+                              if (byte_cnt - 10'd3 == ({1'b0, wio_arg} + 10'd1) / 10'd2 - 10'd1) begin
+                                  wio_commit_d <= 1'b1;
+                                  wio_resp_len <= wio_arg;
+                              end
+                          end
+                    4'd3: if (byte_cnt == 2) begin
+                              wio_snac_start <= 1'b1;
+                              wio_snac_port  <= io_din[15];
+                              wio_snac_op    <= io_din[14:13];
+                              wio_snac_mode  <= io_din[12:11];
+                              wio_snac_tx    <= io_din[7:0];
+                          end
+                    default: ;
+                    endcase
                 end
                 CMD_573_CTRL: begin
                     if(byte_cnt == 1) begin

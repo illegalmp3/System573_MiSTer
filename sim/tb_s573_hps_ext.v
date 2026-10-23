@@ -209,8 +209,12 @@ module tb_s573_hps_ext;
         chk(dut_en == 0,            "P2 boundary 0x67: not claimed");
         spi_end;
         spi_begin;
-        spi_word(16'h006F, r0);     // one above CMD_573_PCPROF (the new top)
-        chk(dut_en == 0,            "P2 boundary 0x6F: not claimed");
+        spi_word(16'h0070, r0);     // one above CMD_573_WIO (the new top)
+        chk(dut_en == 0,            "P2 boundary 0x70: not claimed");
+        spi_end;
+        spi_begin;
+        spi_word(16'h006F, r0);     // CMD_573_WIO (White I/O): claimed
+        chk(dut_en == 1,            "P2 0x6F CMD_573_WIO: claimed");
         spi_end;
         spi_begin;
         spi_word(16'h0033, r0);     // one below CD_GET
@@ -629,12 +633,17 @@ module tb_s573_hps_ext;
         spi_begin;
         @(negedge clk); tb_din = 16'h006E; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 1,            "P11: dout_en asserted for 0x6E (CMD_573_PCPROF, the new top)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6E (CMD_573_PCPROF)");
         spi_end;
         spi_begin;
         @(negedge clk); tb_din = 16'h006F; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6F (one past the range)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6F (CMD_573_WIO, the new top)");
+        spi_end;
+        spi_begin;
+        @(negedge clk); tb_din = 16'h0070; tb_strobe = 1;
+        @(negedge clk); tb_strobe = 0; @(negedge clk);
+        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x70 (one past the range)");
         spi_end;
 
         // ---------- P12: CMD_573_PCPROF (0x6E) -- PC profile read-out ----------
