@@ -120,6 +120,14 @@ three downloads:
    before switching off (the game asks you to power down before the save has run).
    Then set *573 Boot Device* = Flash ROM and launch again to play.
 
+Memory cards (DDR mixes with the card reader): OSD *573 Card Reader* = **Virtual
+cards** uses `saves/System573/memcard1.mcd` and `memcard2.mcd` (raw 128 KB PS1
+card images; a formatted blank is created if missing), **SNAC cards** uses real
+PS1 memory cards on the SNAC ports. *573 Card 1/2* = Ejected pulls a virtual card
+out. The reader is the Konami "White I/O" JVS board, emulated from the program
+the game uploads to it -- `docs/2026-10-23-memory-card-reader.md`. Needs
+`MiSTer_System573` (step 4). Leave it Off for games and cabinets without one.
+
 Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-Video /
 composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
 music together.
