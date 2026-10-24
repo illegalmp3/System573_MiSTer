@@ -198,5 +198,27 @@ container: the unpacked program matches), `sim/tb_s573_jvs_mcu.v`,
 
 * Area: the design was ~99 % LABs; the fit is unknown until a Quartus build.
 * Real-card timing on the SuperStation One SNAC ports: untested.
-* Other mixes upload their own program (the HLE logs a CRC mismatch and keeps the
-  ddr4m rules); dongle contents (GE885-JB) are not dumped.
+* Dongle contents (GE885-JB) are not dumped (no DDR uses the dongle slots).
+
+## 8. Survey: every DDR / Dancing Stage disc uploads the same program
+
+Ricky's MAME set (T7 `bemaniMAME/roms/Dance Dance Revolution`, 40 CHDs), scanned
+2026-10-23 for every upload container (record header `00 01 c0 00 00 00 00 b0`):
+ISO root files (GAME.DAT, PSX.EXE, CARD.DAT, GE8xx*.DAT ...) of every disc, plus
+the whole data track of the four 2048-byte-sector CHDs that have no raw ISO view.
+The firmware record of each was LZSS-unpacked and CRC'd. Scripts:
+`local/wioscan/wio_files.py`, `wio_full.py`, `wio_chd5.py` (chd5.py plus MAME's
+SELF_0/SELF_1 map codes and cdfl through ffmpeg).
+
+| Discs with a container | Stub | Firmware (unpacked CRC-32) | FPGA image |
+|---|---|---|---|
+| ddr2m link discs 885jaa02 / 885jab01 / 885jac01, ge984a01 (ddr2mc2), ddr3mk x4, ddr3mp, ddr4m x2, ddr4ms x2, ddr4mp, ddr4mps, ddr5m, ddrmax, ddrmax2, ddrextrm, ddrusa, dsem, dsem2 | same | **08844237** (the program modelled) | 59ee4e74abc0 |
+| 896jaa01 (ddr2mc, 2nd Mix with beatmaniaIIDX CLUB VERSiON) | same | **08844237** | two containers per copy: 59ee4e74abc0 and **5465d21a37c9** (95,008-bit stream vs 95,744) |
+
+No container and no `White I/O` string: ddr2m 892jaa01 / 895jaa02, ddrs2k x2,
+ddrsbm, ddrkara, ddrkara2, dsfdct x2, dsfdr, dsftkd, dstage x6 (and ddrkids is not
+a 573 game, MAME konamigs.cpp). MAME's ROM zips hold only the boot ROM 885a01.bin.
+
+So one firmware covers every DDR mix that uses the reader. The only variation is
+ddr2mc's second FPGA bitstream; which one that game sends is not traced (it is
+the same program either way, and the HLE does not use the bitstream).
