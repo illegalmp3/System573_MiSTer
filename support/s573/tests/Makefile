@@ -9,14 +9,14 @@ all: test
 	./test
 
 test: $(SRC) ../s573mp3_core.h ../s573_descramble.h
-	$(CC) $(CFLAGS) $(SRC) -o test -lm
+	$(CC) $(CFLAGS) $(SRC) -o test
 
 # Each mutation restores a defect that cost a hardware session. The suite must
 # go RED under every one of them; a mutation that still passes means the test
 # for that defect does not exist.
 mutate: $(SRC)
 	@rc=0; for m in $(MUTS); do \
-	  $(CC) $(CFLAGS) -D$$m $(SRC) -o test_$$m -lm 2>/dev/null || { echo "$$m: BUILD FAIL"; rc=1; continue; }; \
+	  $(CC) $(CFLAGS) -D$$m $(SRC) -o test_$$m 2>/dev/null || { echo "$$m: BUILD FAIL"; rc=1; continue; }; \
 	  if ./test_$$m >/dev/null 2>&1; then echo "$$m: *** STILL PASSES - not tested ***"; rc=1; \
 	  else echo "$$m: RED (good)"; fi; \
 	done; rm -f test_S573_MUT_*; \

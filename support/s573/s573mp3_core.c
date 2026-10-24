@@ -5,7 +5,6 @@
  * ---------------------------------------------------------------------------- */
 #include "s573mp3_core.h"
 #include <string.h>
-#include <math.h>
 
 void s573_core_init(s573_core_t *c)
 {
@@ -535,40 +534,3 @@ uint16_t s573_core_cons_word(const s573_core_t *c)
     return (uint16_t)((c->cons_bytes + c->cons_ofs) & 0xFFFFu);
 }
 
-/* ---- MAS3507D output gain (the game's own MP3 level) ----
- * MAME mas3507d.cpp (BSD-3) mem_write bank1 0x7f8 / 0x7fb set gain_ll / gain_rr:
- *     gain_to_db(v)         = round(20 * log10((0x100000 - v) / 0x80000))
- *     gain_to_percentage(v) = v == 0 ? 0 : 10^((gain_to_db(v) + 6) / 20)
- * and every output sample is multiplied by it (sound_stream_update). Before the
- * game writes the matrix MAME's level is 1.0 (device_reset), which is the
- * level this service has always played at -- so a title that never writes it
- * (dsfdr) is unchanged. Returned as Q12 (4096 = 1.0). */
-uint32_t s573_mas_gain_q12(uint32_t val)
-{
-    double db, pct;
-    val &= 0xFFFFFu;
-    if (val == 0) return 0;                            /* MAME: "muting it seems" */
-    db  = round(20.0 * log10((double)(0x100000u - val) / (double)0x80000u));
-    pct = pow(10.0, (db + 6.0) / 20.0);
-    return (uint32_t)(pct * 4096.0 + 0.5);
-}
-
-int s573_mas_gain_db(uint32_t val)
-{
-    val &= 0xFFFFFu;
-    if (val == 0) return -999;
-    return (int)round(20.0 * log10((double)(0x100000u - val) / (double)0x80000u));
-}
-
-/* dst = src * gain, interleaved L R pairs, saturated to int16. */
-void s573_scale_pcm(int16_t *dst, const int16_t *src, uint32_t pairs,
-                    uint32_t q12_l, uint32_t q12_r)
-{
-    uint32_t i;
-    for (i = 0; i < pairs; i++) {
-        int32_t l = (int32_t)(((int64_t)src[2*i]     * (int64_t)q12_l) >> 12);
-        int32_t r = (int32_t)(((int64_t)src[2*i + 1] * (int64_t)q12_r) >> 12);
-        dst[2*i]     = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
-        dst[2*i + 1] = (int16_t)(r > 32767 ? 32767 : r < -32768 ? -32768 : r);
-    }
-}
