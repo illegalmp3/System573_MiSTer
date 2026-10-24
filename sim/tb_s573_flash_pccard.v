@@ -56,7 +56,7 @@ module tb_s573_flash_pccard;
 
     s573_flash #(.WIN_WORDS(2048), .SECTOR_WORDS(512), .NUM_BANKS(4),
                  .CARD_PAIRS(8), .ERASE_CHIP_WORDS(4096), .SIM_BACKING(0)) dut (
-        .clk(clk), .rst(rst), .card_en(card_en),
+        .clk(clk), .rst(rst), .card_en(card_en), .card_slot1(1'b0),
         .ctl_we(ctl_we), .ctl_din(ctl_din),
         .bank(bank), .sec_io0_dir(sec_io0_dir), .cpld_sig(cpld_sig),
         .win_sel(win_sel), .win_addr(win_addr), .win_we(win_we),

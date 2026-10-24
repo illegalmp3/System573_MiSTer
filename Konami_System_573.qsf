@@ -183,7 +183,7 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 # (jobs 213/216). Not shown to be seed-related: job 218 on seed 5 then lost quartus_sta to
 # an access violation too, and STA passed when re-run alone. See
 # docs/2026-10-02-review-steps-2-3.md.
-set_global_assignment -name SEED 5
+set_global_assignment -name SEED 7
 # HOLD (2026-09-18). Quartus's default OPTIMIZE_HOLD_TIMING covers only I/O and
 # minimum-tPD paths, so an internal register-to-register hold violation is left
 # standing: build #2 of the pcprof/MDEC A/B bitstream had exactly one, -0.256 ns

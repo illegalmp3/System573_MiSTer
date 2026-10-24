@@ -366,6 +366,12 @@ int      s573_core_no_frame(s573_core_t *c, const uint8_t *dio);
 uint16_t s573_core_ctrl_word1(const s573_core_t *c);   /* {sync, idle}         */
 uint16_t s573_core_cons_word(const s573_core_t *c);    /* cons_bytes low 16    */
 
+/* MAS3507D output gain, as MAME applies it (see s573mp3_core.c). */
+uint32_t s573_mas_gain_q12(uint32_t val);      /* Q12 linear, 0 = mute       */
+int      s573_mas_gain_db(uint32_t val);       /* MAME's rounded dB, -999 = mute */
+void     s573_scale_pcm(int16_t *dst, const int16_t *src, uint32_t pairs,
+                        uint32_t q12_l, uint32_t q12_r);
+
 #ifdef __cplusplus
 }
 #endif

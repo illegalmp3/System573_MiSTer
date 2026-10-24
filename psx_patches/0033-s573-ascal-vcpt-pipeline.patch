@@ -1,0 +1,42 @@
+diff --git a/sys/ascal.vhd b/sys/ascal.vhd
+index a531e0f..7a8f5ec
+--- a/sys/ascal.vhd
++++ b/sys/ascal.vhd
+@@ -511,6 +511,12 @@ ARCHITECTURE rtl OF ascal IS
+ 	SIGNAL o_lex0,o_lex1,o_lex2,o_lex3       : std_logic;
+ 	SIGNAL o_wr : unsigned(3 DOWNTO 0);
+ 	SIGNAL o_hcpt,o_vcpt,o_vcpt_pre,o_vcpt_pre2,o_vcpt_pre3,o_vcpt2 : uint12;
++	-- System 573: next value of o_vcpt_pre3 and its end-of-frame test, registered every
++	-- o_clk (o_vcpt_pre3 changes only once a line, so they are always current at the
++	-- next line end). Takes the 12-bit increment + compare off the pll_hdmi path
++	-- o_vcpt_pre3 -> o_vcpt_pre3 (-0.16 / -0.22 ns, docs/2026-10-21-hdmi-vcpt-pipeline.md).
++	SIGNAL o_vcpt_pre3_inc : uint12;
++	SIGNAL o_vcpt_pre3_last : boolean;
+ 	SIGNAL o_ihsize,o_ihsizem,o_ivsize : uint12;
+ 	SIGNAL o_ihsize_temp, o_ihsize_temp2 : natural RANGE 0 TO 32767;
+ 
+@@ -2769,13 +2775,13 @@ BEGIN
+ 						o_vcpt_sync <= o_vcpt_sync+1;
+ 					END IF;
+ 
+-					IF o_vcpt_pre3+1>=o_vtotal THEN
++					IF o_vcpt_pre3_last THEN
+ 						o_vcpt_pre3<=0;
+ 					ELSIF o_vrr_sync2 THEN
+ 						o_vcpt_pre3<=o_vsstart;
+ 						o_sync<=false;
+ 					ELSE
+-						o_vcpt_pre3<=(o_vcpt_pre3+1) MOD 4096;
++						o_vcpt_pre3<=o_vcpt_pre3_inc;
+ 					END IF;
+ 
+ 					o_vcpt_pre2<=o_vcpt_pre3;
+@@ -2823,6 +2829,8 @@ BEGIN
+ 			END IF;
+ 
+ 			o_vcpt2<=o_vcpt_pre3;
++			o_vcpt_pre3_inc<=(o_vcpt_pre3+1) MOD 4096;
++			o_vcpt_pre3_last<=(o_vcpt_pre3+1>=o_vtotal);
+ 			o_vrr_sync<=(o_vrr='1' AND (o_sync OR o_sync_max) AND o_vcpt2>=o_vdisp AND o_vcpt2<o_vsstart);
+ 			o_vrr_sync2<=o_vrr_sync;
+ 

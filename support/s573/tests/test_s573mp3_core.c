@@ -861,6 +861,30 @@ int main(void)
     }
 
     printf("\n%d groups, %d failures\n", groups, fails);
+    GROUP("MAS3507D gain = MAME gain_to_percentage (Q12)");
+    CHECKEQ(s573_mas_gain_q12(0x00000), 0,    "0 = mute (MAME special case)");
+    CHECKEQ(s573_mas_gain_db(0x80000), 0,     "0x80000 = 0 dB");
+    CHECKEQ(s573_mas_gain_q12(0x80000), 8173, "0 dB -> 10^(6/20) = 1.995 (MAME's +6)");
+    CHECKEQ(s573_mas_gain_db(0xd785e), -10,   "ddr d785e = -10 dB");
+    CHECKEQ(s573_mas_gain_q12(0xd785e), 2584, "-10 dB -> 0.631");
+    CHECKEQ(s573_mas_gain_db(0xdfd91), -12,   "ddr dfd91 = -12 dB");
+    CHECKEQ(s573_mas_gain_q12(0xdfd91), 2053, "-12 dB -> 0.501");
+    CHECKEQ(s573_mas_gain_db(0xffeb5), -64,   "ffeb5 = -64 dB");
+    CHECKEQ(s573_mas_gain_q12(0xffeb5), 5,    "-64 dB -> 0.00126");
+    CHECKEQ(s573_mas_gain_db(0xffff9), -97,   "dm table top 0xffff9");
+    {
+        int16_t src[6] = { 1000, -1000, 32000, -32000, 0, 7 }, dst[6];
+        s573_scale_pcm(dst, src, 3, 2048, 8192);
+        CHECKEQ((uint16_t)dst[0], (uint16_t)500,    "L x0.5");
+        CHECKEQ((uint16_t)dst[1], (uint16_t)-2000,  "R x2");
+        CHECKEQ((uint16_t)dst[2], (uint16_t)16000,  "L x0.5 big");
+        CHECKEQ((uint16_t)dst[3], (uint16_t)-32768, "R x2 saturates low");
+        s573_scale_pcm(dst, src, 3, 0, 0);
+        CHECK(!dst[0] && !dst[1] && !dst[2] && !dst[3] && !dst[5], "gain 0 = silence");
+        s573_scale_pcm(dst, src, 3, 4096, 4096);
+        CHECK(!memcmp(dst, src, sizeof dst), "Q12 4096 = unity, bit-exact");
+    }
+
     if (fails) { printf("RESULT: FAIL\n"); return 1; }
     printf("RESULT: PASS\n");
     return 0;

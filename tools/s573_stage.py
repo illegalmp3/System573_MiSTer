@@ -858,7 +858,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F100",
      "install_u1": "ddr3ma/ge887aa.u1",
      "install_u6": "ddr3ma/ge887aa.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr3ma.chd": {
      "disc": "887aaa02",
@@ -895,7 +896,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F100",
      "install_u1": "ddr3mj/ge887ja.u1",
      "install_u6": "ddr3mj/ge887ja.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr3mj.chd": {
      "disc": "887jaa02",
@@ -932,7 +934,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F100",
      "install_u1": "ddr3mk/ge887kb.u1",
      "install_u6": "ddr3mk/ge887kb.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr3mk.chd": {
      "disc": "887kba02",
@@ -969,7 +972,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F100",
      "install_u1": "ddr3mka/ge887ka.u1",
      "install_u6": "ddr3mka/ge887ka.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr3mka.chd": {
      "disc": "887kaa02",
@@ -1006,7 +1010,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr3mp/gea22ja.u1",
      "install_u6": "ddr3mp/gea22ja.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr3mp.chd": {
      "disc": "a22jaa02",
@@ -1044,7 +1049,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr4m/gea33aa.u1",
      "install_u6": "ddr4m/gea33aa.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr4m.chd": {
      "disc": "a33aaa02",
@@ -1082,7 +1088,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr4mj/a33jaa.u1",
      "install_u6": "ddr4mj/a33jaa.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr4mj.chd": {
      "disc": "a33jaa02",
@@ -1120,7 +1127,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr4mp/gea34ja.u1",
      "install_u6": "ddr4mp/gea34ja.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "ddr4mp.chd": {
      "disc": "a34jaa02",
@@ -1158,7 +1166,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr4mps/gea34jb.u1",
      "install_u6": "ddr4mps/gea34jb.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343010121"
     },
     "ddr4mps.chd": {
      "disc": "a34jba02",
@@ -1196,7 +1205,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr4ms/gea33ab.u1",
      "install_u6": "ddr4ms/gea33ab.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343010121"
     },
     "ddr4ms.chd": {
      "disc": "a33aba02",
@@ -1234,7 +1244,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "ddr4msj/a33jba.u1",
      "install_u6": "ddr4msj/a33jba.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343010121"
     },
     "ddr4msj.chd": {
      "disc": "a33jba02",
@@ -1287,7 +1298,8 @@ TABLE = json.loads(r"""
     },
     "ddr5m.u6": {
      "make": "rom",
-     "rom": "ddr5m/gca27ja.u6"
+     "rom": "ddr5m/gca27ja.u6",
+     "trailer": "5335373343000120"
     }
    },
    "launchers": [
@@ -1322,7 +1334,8 @@ TABLE = json.loads(r"""
     },
     "ddrextrm.u6": {
      "make": "rom",
-     "rom": "ddrextrm/gcc36ja.u6"
+     "rom": "ddrextrm/gcc36ja.u6",
+     "trailer": "5335373343000120"
     }
    },
    "launchers": [
@@ -1357,7 +1370,8 @@ TABLE = json.loads(r"""
     },
     "ddrmax.u6": {
      "make": "rom",
-     "rom": "ddrmax/gcb19ja.u6"
+     "rom": "ddrmax/gcb19ja.u6",
+     "trailer": "5335373343000120"
     }
    },
    "launchers": [
@@ -1392,7 +1406,8 @@ TABLE = json.loads(r"""
     },
     "ddrmax2.u6": {
      "make": "rom",
-     "rom": "ddrmax2/gcb20ja.u6"
+     "rom": "ddrmax2/gcb20ja.u6",
+     "trailer": "5335373343000120"
     }
    },
    "launchers": [
@@ -1412,7 +1427,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F100",
      "install_u1": "ddrs2k/ge905aa.u1",
      "install_u6": "ddrs2k/ge905aa.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343010020"
     },
     "ddrs2k.chd": {
      "disc": "905aaa02",
@@ -1463,7 +1479,8 @@ TABLE = json.loads(r"""
     },
     "ddrsbm.u6": {
      "make": "rom",
-     "rom": "ddrsbm/gq894ja.u6"
+     "rom": "ddrsbm/gq894ja.u6",
+     "trailer": "5335373343010020"
     }
    },
    "launchers": [
@@ -1498,7 +1515,8 @@ TABLE = json.loads(r"""
     },
     "ddrusa.u6": {
      "make": "rom",
-     "rom": "ddrusa/gka44ua.u6"
+     "rom": "ddrusa/gka44ua.u6",
+     "trailer": "5335373343000021"
     }
    },
    "launchers": [
@@ -1518,7 +1536,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "drmn2m/ge912ja.u1",
      "install_u6": "drmn2m/ge912ja.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343020023"
     },
     "drmn2m.chd": {
      "disc": "912jab02",
@@ -1556,7 +1575,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "drmn3m/a23jaa.u1",
      "install_u6": "drmn3m/a23jaa.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343020023"
     },
     "drmn3m.chd": {
      "disc": "a23jaa02",
@@ -1625,7 +1645,8 @@ TABLE = json.loads(r"""
     },
     "drmn4m.u6": {
      "make": "rom",
-     "rom": "drmn4m/gea25jaa.u6"
+     "rom": "drmn4m/gea25jaa.u6",
+     "trailer": "5335373343020023"
     }
    },
    "launchers": [
@@ -1660,7 +1681,8 @@ TABLE = json.loads(r"""
     },
     "drmn5m.u6": {
      "make": "rom",
-     "rom": "drmn5m/gcb05jaa.u6"
+     "rom": "drmn5m/gcb05jaa.u6",
+     "trailer": "5335373343020023"
     }
    },
    "launchers": [
@@ -1711,7 +1733,8 @@ TABLE = json.loads(r"""
     },
     "drmn6m.u6": {
      "make": "rom",
-     "rom": "drmn6m/gcb16jaa.u6"
+     "rom": "drmn6m/gcb16jaa.u6",
+     "trailer": "5335373343020023"
     }
    },
    "launchers": [
@@ -1762,7 +1785,8 @@ TABLE = json.loads(r"""
     },
     "drmn7m.u6": {
      "make": "rom",
-     "rom": "drmn7m/gcc07jba.u6"
+     "rom": "drmn7m/gcc07jba.u6",
+     "trailer": "5335373343020023"
     }
    },
    "launchers": [
@@ -1797,7 +1821,8 @@ TABLE = json.loads(r"""
     },
     "drmn8m.u6": {
      "make": "rom",
-     "rom": "drmn8m/gcc38jaa.u6"
+     "rom": "drmn8m/gcc38jaa.u6",
+     "trailer": "5335373343020023"
     }
    },
    "launchers": [
@@ -1832,7 +1857,8 @@ TABLE = json.loads(r"""
     },
     "drmn9ma.u6": {
      "make": "rom",
-     "rom": "drmn9ma/gcd09jaa.u6"
+     "rom": "drmn9ma/gcd09jaa.u6",
+     "trailer": "5335373343020023"
     }
    },
    "launchers": [
@@ -1867,7 +1893,8 @@ TABLE = json.loads(r"""
     },
     "dsem.u6": {
      "make": "rom",
-     "rom": "dsem/ge936ea.u6"
+     "rom": "dsem/ge936ea.u6",
+     "trailer": "5335373343000021"
     }
    },
    "launchers": [
@@ -1902,7 +1929,8 @@ TABLE = json.loads(r"""
     },
     "dsem2.u6": {
      "make": "rom",
-     "rom": "dsem2/gkc23ea.u6"
+     "rom": "dsem2/gkc23ea.u6",
+     "trailer": "5335373343000120"
     }
    },
    "launchers": [
@@ -1922,7 +1950,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F100",
      "install_u1": "dsfdct/ge887ja_gn887ja.u1",
      "install_u6": "dsfdct/ge887ja_gn887ja.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000120"
     },
     "dsfdct.cue": {
      "bin": "dsfdct.bin",
@@ -1960,7 +1989,8 @@ TABLE = json.loads(r"""
      "install_chip": "X76F041",
      "install_u1": "dsfdr/gea37ja.u1",
      "install_u6": "dsfdr/gea37ja.u6",
-     "make": "cas"
+     "make": "cas",
+     "trailer": "5335373343000021"
     },
     "dsfdr.chd": {
      "disc": "a37jaa02",
@@ -2014,8 +2044,8 @@ TABLE = json.loads(r"""
     "gtrfrk5m.sav": {
      "make": "sav",
      "older": [
-      16777216,
-      16778240
+      50331648,
+      50332672
      ],
      "seed": {
       "fill": 255,
@@ -2033,7 +2063,7 @@ TABLE = json.loads(r"""
       ],
       "size": 16777216
      },
-     "size": 16787456
+     "size": 50341888
     },
     "gtrfrk5m.u1": {
      "ds2401": "gtrfrk5m/gea26jaa.u6",
@@ -2042,7 +2072,8 @@ TABLE = json.loads(r"""
     },
     "gtrfrk5m.u6": {
      "make": "rom",
-     "rom": "gtrfrk5m/gea26jaa.u6"
+     "rom": "gtrfrk5m/gea26jaa.u6",
+     "trailer": "5335373343030220"
     }
    },
    "launchers": [
@@ -2934,15 +2965,18 @@ def stage(src, t, out, dry, force, log):
     for name, r in sorted(t["files"].items()):
         p = os.path.join(out, name)
         m = r["make"]
+        # r["trailer"]: the per-title settings the core reads from the end of the
+        # index-5 file -- control layout and PCMCIA slot (8 bytes, "S573C...").
+        tail = bytes.fromhex(r.get("trailer", ""))
         if m == "rom":
             data = src.rom(r["rom"])
             if r.get("chip") and len(data) != CHIP_LEN[r["chip"]]:
                 raise Fail(f"{name}: {len(data)} bytes is not a {r['chip']} dump")
-            put(out, name, data, dry, log)
+            put(out, name, data + tail, dry, log)
         elif m == "zs01":
             put(out, name, make_zs01(src, r), dry, log)
         elif m == "cas":
-            put(out, name, make_cas(src, r), dry, log)
+            put(out, name, make_cas(src, r) + tail, dry, log)
         elif m == "fill":
             put(out, name, bytes([r["byte"]]) * r["size"], dry, log)
         elif m == "flash":

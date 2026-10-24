@@ -184,14 +184,24 @@ class Gen:
                 ds = self.rom(setname, g["id"][0], lines) if "id" in g else None
                 return {"make": "zs01", "rom": key, "ds2401": ds}
             return {"make": "rom", "rom": key, "chip": S.chip_of(t, "game")}
+        # The index-5 file (.u6, or the .cas pack) ends with the per-title settings
+        # trailer: control layout + PCMCIA slot (stage_573.cfg_trailer,
+        # rtl/s573_cfg_trailer.v). Only that file: it is what the launcher loads.
+        trailer = S.cfg_trailer(t).hex()
         if ext == ".u6":
-            return {"make": "rom", "rom": self.rom(setname, cas["game"]["id"][0], lines)}
+            r = {"make": "rom", "rom": self.rom(setname, cas["game"]["id"][0], lines)}
+            if trailer:
+                r["trailer"] = trailer
+            return r
         if ext == ".cas":
             g, i = cas["game"], cas["install"]
-            return {"make": "cas", "game_u6": self.rom(setname, g["id"][0], lines),
-                    "install_u6": self.rom(setname, i["id"][0], lines),
-                    "install_u1": self.rom(setname, i["eeprom"][0], lines),
-                    "install_chip": S.chip_of(t, "install")}
+            r = {"make": "cas", "game_u6": self.rom(setname, g["id"][0], lines),
+                 "install_u6": self.rom(setname, i["id"][0], lines),
+                 "install_u1": self.rom(setname, i["eeprom"][0], lines),
+                 "install_chip": S.chip_of(t, "install")}
+            if trailer:
+                r["trailer"] = trailer
+            return r
         if ext in (".chd", ".cue"):
             disks = dict((d, h) for d, h in DISK.findall(body))
             if not t["discs"] or t["discs"][0] not in disks:

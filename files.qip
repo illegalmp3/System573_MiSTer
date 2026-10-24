@@ -25,6 +25,8 @@ set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s57
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_flash_saver.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_cass_nv.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_cass_pack.v]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_cfg_trailer.v]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_mas_gain.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_tk_nv.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_prof.v]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) rtl/s573_prof_gpu.v]

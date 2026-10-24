@@ -22,7 +22,7 @@ module tb_system573_top;
     integer errors = 0, bites = 0;
 
     system573_top #(.CLK_FREQ_HZ(1_000_000), .WDOG_TIMEOUT(20)) dut (
-        .clk(clk), .rst(rst), .card_en(1'b0),
+        .clk(clk), .rst(rst), .card_en(1'b0), .card_slot1(1'b0),
         .exp1_addr(exp1_addr), .exp1_reqsize(exp1_reqsize), .exp1_wdata(exp1_wdata),
         .exp1_we(exp1_we), .exp1_re(exp1_re), .exp1_rdata(exp1_rdata),
         .dip_sw(dip_sw), .stage_mux_en(1'b0), .stage_trace_addr(7'd0), .stage_trace_data(), .stage_trace_count(), .p1_ctrl(p1_ctrl), .p2_ctrl(p2_ctrl),

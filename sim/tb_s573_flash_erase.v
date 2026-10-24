@@ -50,7 +50,7 @@ module tb_s573_flash_erase;
     // real win_addr[20:16] layout is exactly what this TB exercises).
     s573_flash #(.WIN_WORDS(2048), .SECTOR_WORDS(512), .NUM_BANKS(4),
                  .ERASE_CHIP_WORDS(4096), .SIM_BACKING(0)) dut (
-        .clk(clk), .rst(rst), .card_en(1'b0), .ctl_we(ctl_we), .ctl_din(ctl_din),
+        .clk(clk), .rst(rst), .card_en(1'b0), .card_slot1(1'b0), .ctl_we(ctl_we), .ctl_din(ctl_din),
         .bank(bank), .sec_io0_dir(sec_io0_dir), .cpld_sig(cpld_sig),
         .win_sel(win_sel), .win_addr(win_addr), .win_we(win_we),
         .win_din(win_din), .win_dout(win_dout), .flash_ready(flash_ready),

@@ -10,7 +10,7 @@ IVFLAGS := -g2005-sv -Wall
 RTL     := ../rtl
 BUILD   := build
 
-TESTS := gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdimg_ack s573_cdtoc atapi_cdread cdboot
+TESTS := s573_mas_gain s573_cfg_trailer s573_flash_pccard1 gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdimg_ack s573_cdtoc atapi_cdread cdboot
 
 # `make` with no target must run the whole suite: the secdata/cddata helper
 # targets were added ABOVE `all`, silently turning `make -C sim` into a no-op
@@ -77,6 +77,9 @@ SRC_s573_flash    := $(RTL)/s573_flash.v $(RTL)/flash_nor.v
 SRC_s573_flash_sdram := $(RTL)/s573_flash.v $(RTL)/flash_nor.v
 SRC_s573_flash_erase := $(RTL)/s573_flash.v $(RTL)/flash_nor.v
 SRC_s573_flash_pccard := $(RTL)/s573_flash.v $(RTL)/flash_nor.v
+SRC_s573_flash_pccard1 := $(RTL)/s573_flash.v $(RTL)/flash_nor.v
+SRC_s573_mas_gain := $(RTL)/s573_mas_gain.v
+SRC_s573_cfg_trailer := $(RTL)/s573_seccart_loader.v $(RTL)/s573_cfg_trailer.v $(RTL)/s573_cass_pack.v
 SRC_s573_flash_image := $(RTL)/s573_flash.v $(RTL)/flash_nor.v
 SRC_flash_nor     := $(RTL)/flash_nor.v
 SRC_s573_seccart  := $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v $(RTL)/ds2401.v
@@ -114,6 +117,12 @@ zs01_detect: secdata
 cddata:
 	@sh gen_cddata.sh >/dev/null 2>&1 || true
 atapi_cdread: cddata
+
+# Expected MAS3507D Q12 gain for every 20-bit value, from MAME's formula
+# (tools/gen_mas_gain_rom.py, which also (re)writes the table in rtl/s573_mas_gain.v).
+$(BUILD)/mas_gain_exp.txt: ../tools/gen_mas_gain_rom.py | $(BUILD)
+	@python3 ../tools/gen_mas_gain_rom.py ../rtl/s573_mas_gain.v $@
+s573_mas_gain: $(BUILD)/mas_gain_exp.txt
 
 all:
 	@fail=0; \

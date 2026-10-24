@@ -122,7 +122,12 @@ def main():
               "flash16m_blank.bin", "nvram8k_blank.bin", "ddrsbm.u1", "ddrsbm.u6"):
         a, b = os.path.join(SDSTAGE, f), os.path.join(new, f)
         if os.path.exists(b):
-            check(filecmp.cmp(a, b, shallow=False), f"{f} identical to local/sd-stage (used on hardware)")
+            with open(a, "rb") as fa, open(b, "rb") as fb:
+                da, db = fa.read(), fb.read()
+            # an index-5 file now ends with the 8-byte settings trailer (rtl/s573_cfg_trailer.v)
+            if len(db) == len(da) + 8 and db[len(da):len(da) + 5] == b"S573C":
+                db = db[:len(da)]
+            check(da == db, f"{f} identical to local/sd-stage (used on hardware; settings trailer aside)")
     check(not [f for f in os.listdir(new) if f.endswith(".part")], "no .part files left behind")
 
     # --- 4. idempotency and saves

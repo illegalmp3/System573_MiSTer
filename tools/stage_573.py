@@ -87,10 +87,10 @@ def resolve(cfg, bodies, seen=None):
 def title_info(romset):
     src = driver_text()
     bodies = machine_bodies(src)
-    g = re.search(r'GAME\(\s*\d+,\s*%s,\s*\w+,\s*(\w+),\s*\w+,\s*\w+,\s*\w+,\s*ROT\d+,\s*"Konami",\s*"([^"]+)"' % re.escape(romset), src)
+    g = re.search(r'GAME\(\s*\d+,\s*%s,\s*\w+,\s*(\w+),\s*(\w+),\s*\w+,\s*\w+,\s*ROT\d+,\s*"Konami",\s*"([^"]+)"' % re.escape(romset), src)
     if not g:
         sys.exit(f"{romset}: no GAME() line in ksys573.cpp")
-    cfg, desc = g.group(1), g.group(2)
+    cfg, inputs, desc = g.group(1), g.group(2), g.group(3)
     feats = resolve(cfg, bodies)
     slot, mb = next((CARD_SIZE[k] for k in CARD_SIZE if k in feats), (None, 0))
     r = re.search(r"ROM_START\(\s*%s\s*\)(.*?)ROM_END" % re.escape(romset), src, re.S)
@@ -116,7 +116,7 @@ def title_info(romset):
     discs = re.findall(r'DISK_IMAGE(?:_READONLY)?\(\s*"([^"]+)"', body)
     runtime = [d for r, d in regs if r == "runtime"]
     discs = runtime + [d for d in discs if d not in runtime]
-    return dict(romset=romset, cfg=cfg, desc=desc, slot=slot, card_mb=mb,
+    return dict(romset=romset, cfg=cfg, inputs=inputs, desc=desc, slot=slot, card_mb=mb,
                 mcr="*k573mcr" in feats, cassettes=cassettes, discs=discs,
                 role_chip=role_chip, dio="k573d" in feats)
 
@@ -131,6 +131,26 @@ def chip_of(t, role):
 
 
 TIMEKEEPER_BYTES = 9 * 1024
+
+# The control layout per MAME INPUT_PORTS (the GAME() input column) and the PCMCIA
+# card, as the core's per-title settings trailer encodes them (rtl/s573_cfg_trailer.v,
+# emu.sv "573 Controls" / "573 PCMCIA Card": Auto).
+INPUT_PROFILE = {"ddr": 0, "ddrsolo": 1, "drmn": 2, "gtrfrks": 3}
+CARD_CODE = {("2", 32): 1, ("1", 32): 2, ("1", 16): 3}
+
+
+def cfg_trailer(t):
+    """The 8 bytes appended to a title's index-5 file (.u6 or .cas):
+    "S573" 'C' profile card xor. Empty when there is nothing to say."""
+    prof = INPUT_PROFILE.get(t["inputs"])
+    card = CARD_CODE.get((t["slot"], t["card_mb"]), 0)
+    if prof is None and card == 0:
+        return b""
+    body = b"S573C" + bytes([prof or 0, card])
+    x = 0
+    for b in body:
+        x ^= b
+    return body + bytes([x])
 
 
 def save_layout(t):
@@ -147,7 +167,9 @@ def save_layout(t):
     cassette block (rtl/s573_tk_nv.v, 2026-09-28: ddrextrm NOTE 605 "RTC-RAM cleared"
     on every boot). Same rule: the region must already be in the file.
     tools/gen_s573_titles.py uses this too, so the standalone stager agrees."""
-    sav_mb = 16 + (t["card_mb"] if t["slot"] == "2" and t["card_mb"] == 32 else 0)
+    # a card in either slot rides as one 32 MB region (a 16 MB slot-1 card is backed
+    # by the same 32 MB image; emu.sv card_en / s573_flash_saver)
+    sav_mb = 16 + (32 if t["slot"] in ("1", "2") and t["card_mb"] in (16, 32) else 0)
     zs01 = any(chip_of(t, r) == "ZS01" for r in t["cassettes"])
     return sav_mb, zs01, (sav_mb << 20) + (1024 if zs01 else 0) + TIMEKEEPER_BYTES
 
@@ -172,7 +194,7 @@ MGL_HEAD = """<!--
 
   OSD for this title:
     573 PCMCIA Card = {osdcard}
-    573 Cabinet     = {cab}
+    573 Controls    = {cab}
     573 Boot Device = {boot}
     573 MP3 Descramble = DEFAULT
 
@@ -224,8 +246,10 @@ PACK_NOTE = """
 def write_launchers(t, mgldir, sav_mb, disc_name, dtype, frames):
     os.makedirs(mgldir, exist_ok=True)
     rom = t["romset"]
-    cab = "DDR Solo" if "Solo" in t["desc"] else "STANDARD"
-    osdcard = "32MB (slot 2)" if t["slot"] == "2" else "Off"
+    cab = "Auto (" + {0: "DDR", 1: "DDR Solo", 2: "DrumMania", 3: "Guitar Freaks"}.get(
+        INPUT_PROFILE.get(t["inputs"], 0)) + ", from the launcher)"
+    osdcard = ("Auto (" + {1: "32MB slot 2", 2: "32MB slot 1", 3: "16MB slot 1"}[CARD_CODE[(t["slot"], t["card_mb"])]]
+               + ")") if (t["slot"], t["card_mb"]) in CARD_CODE else "Auto (none)"
     cardline = f", PCMCIA slot {t['slot']} / {t['card_mb']} MB" if t["slot"] else ", no PCMCIA card"
     conv = "" if dtype == "MODE1_RAW" else "   <== MODE1/2048: ships as cue+raw2352, NOT the CHD"
     roles = sorted(t["cassettes"])
@@ -293,9 +317,6 @@ def main():
     print(f"   save file      : {sav_bytes} B  ({'16 MB onboard flash + 32 MB card' if sav_mb == 48 else '16 MB onboard flash'}"
           f"{' + 1 KB ZS01 cassette state' if zs01 else ''} + 9 KB timekeeper)")
 
-    if t["slot"] == "1":
-        print("\n   *** SLOT 1 IS NOT MODELLED. rtl/s573_flash.v decodes slot 2 (banks 32-47)")
-        print("       only; banks 16-31 read 0xFFFF = empty slot. This title cannot work yet. ***")
     if t["card_mb"] == 64:
         print("\n   *** 64 MB KONAMI_DUAL card -- a different device, not modelled. ***")
 
@@ -336,6 +357,7 @@ def main():
             z.extract(u6n, tmp)
             shutil.copyfile(os.path.join(tmp, u6n), os.path.join(a.dest, a.romset + ".u6"))
             print(f"   {a.romset}.u6 <- {u6n}")
+            trailer = cfg_trailer(t)
             if "install" in t["cassettes"]:
                 inst = t["cassettes"]["install"]
                 # the .cas pack: game .u6 + install .u6 + install .u1 (tools/make_cas_pack.py
@@ -344,6 +366,16 @@ def main():
                                        "--game-u6", u6n, "--install-u1", inst["eeprom"][0],
                                        "--install-u6", inst["id"][0],
                                        "-o", os.path.join(a.dest, a.romset + ".cas")])
+                idx5 = os.path.join(a.dest, a.romset + ".cas")
+            else:
+                idx5 = os.path.join(a.dest, a.romset + ".u6")
+            if trailer:
+                # per-title settings for the core (control layout, card slot): the
+                # last 8 bytes of the index-5 file -- rtl/s573_cfg_trailer.v
+                with open(idx5, "ab") as f:
+                    f.write(trailer)
+                print(f"   {os.path.basename(idx5)} + settings trailer {trailer.hex()}")
+            if "install" in t["cassettes"]:
                 for stale in (f"{a.romset}_install.u1", f"{a.romset}_install.u6"):
                     if os.path.exists(os.path.join(a.dest, stale)):
                         print(f"   ({stale} from the old two-launcher staging is no longer used; left in place)")
@@ -398,9 +430,8 @@ def main():
                 f.flush()
                 os.fsync(f.fileno())
             print(f"   {a.romset}.sav created, {sav_bytes} B of zeroes (written, not truncated)")
-    print(f"\n   OSD: 573 PCMCIA Card = {'32MB (slot 2)' if t['slot']=='2' else 'Off'}"
-          f" | Cabinet = {'DDR Solo' if 'Solo' in t['desc'] else 'STANDARD'}"
-          f" | Boot Device = CD-ROM to install, Flash ROM after")
+    print("\n   OSD: 573 PCMCIA Card = Auto | 573 Controls = Auto (both from the launcher's"
+          " settings trailer) | Boot Device = CD-ROM to install, Flash ROM after")
     print("   Wait for the \"Flash saved\" toast after the install before cutting power.")
 
 

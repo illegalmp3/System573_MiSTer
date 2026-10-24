@@ -46,6 +46,7 @@ module system573_top #(
     // 32-47 read 0xFFFF, matching MAME pccard_slot_device::read_memory with no card
     // device attached. Tier 1/2 titles run with this at 0.
     input  wire        card_en,
+    input  wire        card_slot1,      // 1 = the card is in slot 1 (banks 16-31), see s573_flash
 
     // SDRAM flash line-fill port (used only when FLASH_SIM_BACKING=0; driven by
     // emu.sv's SDRAM read client into the 16 MB onboard-flash image or, when
@@ -287,7 +288,7 @@ module system573_top #(
         .win_sel(sel_flash), .win_addr(exp1_addr[21:1]),
         .win_we(sel_flash & exp1_we), .win_din(exp1_wdata), .win_dout(flash_dout),
         .flash_ready(flash_ready),
-        .card_en(card_en),
+        .card_en(card_en), .card_slot1(card_slot1),
         .flash_mem_req(flash_mem_req), .flash_mem_addr(flash_mem_addr),
         .flash_mem_card(flash_mem_card),
         .flash_mem_q(flash_mem_q), .flash_mem_ready(flash_mem_ready),

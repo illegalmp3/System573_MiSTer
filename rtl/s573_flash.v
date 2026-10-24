@@ -133,6 +133,11 @@ module s573_flash #(
     // card device attached (bus/pccard/pccard.cpp). Every pre-Tier-3 title runs
     // with this at 0 and is bit-identical to the pre-card core.
     input  wire        card_en,
+    // Which slot the card sits in: 0 = slot 2 (banks 32-47: DDR 3rd Mix..Extreme,
+    // ksys573.cpp pccard2_32mb), 1 = slot 1 (banks 16-31: Guitar Freaks 3rd-11th,
+    // pccard1_16mb/_32mb). The card behind either window is the same Fujitsu
+    // linear flash card and the same SDRAM image; the other slot reads empty.
+    input  wire        card_slot1,
 
     // flash window (0x1f000000 region)
     input  wire        win_sel,
@@ -215,7 +220,9 @@ module s573_flash #(
     // default -- proof the bench exercises the card decode without hand-reverting RTL.
     wire card2    = 1'b0;
 `else
-    wire card2    = card_en && (bank[5:4] == 2'b10);     // banks 32-47 -> pccard2
+    wire card2    = card_en && (bank[5:4] == (card_slot1 ? 2'b01 : 2'b10));
+                                                         // banks 32-47 -> pccard2, or
+                                                         // banks 16-31 -> pccard1
 `endif
     wire sel_mem  = internal | card2;                    // a backed window is selected
     wire region   = ~internal;                           // 0 = onboard, 1 = card

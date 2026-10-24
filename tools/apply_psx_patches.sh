@@ -148,7 +148,12 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           # 0032 = ascal PALETTE off (sys/sys_top.v). The palette RAM serves only the Linux
           # framebuffer's 8 bpp mode; this core's framebuffer is 16/24 bpp. With HDMI in, its
           # read (pal1_mem -> o_hpix2) was the one path missing timing (-0.075 ns, pll_hdmi).
-          "$ROOT/psx_patches/0032-s573-ascal-no-fb-palette.patch" )
+          "$ROOT/psx_patches/0032-s573-ascal-no-fb-palette.patch" \
+          # 0033 = ascal output sweep (sys/ascal.vhd): the next o_vcpt_pre3 and its end-of-frame
+          # test are registered every o_clk instead of computed in the line-end cycle. With the
+          # 2026-10-20 logic in, o_vcpt_pre3 -> o_vcpt_pre3 was the only failing path
+          # (-0.163 / -0.221 ns, pll_hdmi). Output timing identical (sim/ascal_equiv).
+          "$ROOT/psx_patches/0033-s573-ascal-vcpt-pipeline.patch" )
 
 if [ ! -e "$PSX/.git" ]; then
   echo "error: psx submodule not initialised. Run: git submodule update --init psx" >&2

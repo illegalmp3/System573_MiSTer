@@ -432,6 +432,7 @@ parameter CONF_STR = {
 	// operator makes on a real cabinet (ksys573.cpp header Note 3). Change it before
 	// launching / then reset: the game reads the cassette at boot.
 	"O[110:109],573 Cassette,Auto,Game,Install;",
+	"O[94],573 Flash Debug,Off,On;",
 	// The DIO board's MP3 descrambler is per-TITLE, not per-board: the game uploads
 	// its own bitstream to the board's Xilinx XCS40XL at boot, and the seven known
 	// Konami bitstreams differ CHIEFLY in the descramble algorithm. DDR Solo Bass Mix
@@ -443,6 +444,7 @@ parameter CONF_STR = {
 	// that is exactly how MAME distinguishes Konami's GN676 firmwares -- but it needs
 	// the CRC observed on hardware first, so the manual switch comes first.
 	"O[101],573 MP3 Descramble,Default,DDR Solo Bass Mix;",
+	"O[96:95],573 Dbg Field,ch4Q,expQ,cnt/sz,wrAddr;",
 	"-;",
 	"d6C,Cheats;",
 	"h6O[6],Cheats Enabled,Yes,No;",
@@ -481,7 +483,13 @@ parameter CONF_STR = {
 	// constant). Solo games check it at boot and refuse to run in a "standard" cab
 	// (=SYSTEM UNIT ERROR=). Default MUST stay Standard: a grounded P2-START would
 	// auto-start player 2 in every 2P game. Per-core OSD option -> flip per game session.
-	"O[100],573 Cabinet,Standard,DDR Solo;",
+	// 573 Controls (2026-10-20, replaces "573 Cabinet" O[100]): the control layout
+	// per MAME's INPUT_PORTS for the title. Auto = what the launcher's index-5 file
+	// says (tools/s573_stage.py appends an 8-byte trailer: rtl/s573_cfg_trailer.v);
+	// a file without one -- staged before this existed -- is DDR standard cab.
+	// DDR Solo grounds P2-START (the cab-type strap); DrumMania / Guitar Freaks
+	// re-map the JAMMA bits and switch the DDR stage handshake (gn845pwbb) off.
+	"O[113:111],573 Controls,Auto,DDR,DDR Solo,DrumMania,Guitar Freaks;",
 	// 573 PCMCIA CARD (default Off): fits the Fujitsu 32 MB linear flash card in
 	// SLOT 2, which the Tier-3 DDR titles (3rd/4th/5th Mix, MAX, Extreme) install
 	// their game data onto -- MAME ksys573.cpp ddr3mp/ddr5m call pccard2_32mb().
@@ -493,7 +501,12 @@ parameter CONF_STR = {
 	// file/reset items per .mgl and the Tier-2 launchers already use all six.
 	// Rename only (2026-09-16): the card is now also fitted automatically whenever the
 	// mounted .sav is 48 MB, so "Auto" is what the old "Off" position does.
-	"O[107],573 PCMCIA Card,Auto,32MB (slot 2);",
+	// 2026-10-20: slot 1 too (Guitar Freaks 3rd-11th, MAME pccard1_16mb/_32mb).
+	// Auto = fitted when the .sav is 48 MB or the launcher's trailer names a card,
+	// in the slot the trailer names (slot 2 if it names none).
+	// (status[115:114]: 108 is MDEC Timing; the old 1-bit O[107] is retired -- a card is
+	// now fitted automatically from the save size or the launcher's trailer.)
+	"O[115:114],573 PCMCIA Card,Auto,32MB (slot 2),32MB (slot 1);",
 	// MDEC TIMING (diagnostic, 2026-09-17). psx/rtl/mdec.vhd waits 2171 clk between
 	// macroblocks in 15-bit output mode and 10 in every other depth. That asymmetry
 	// is not a measured hardware figure -- it came in upstream as "reduce decoding
@@ -502,6 +515,7 @@ parameter CONF_STR = {
 	// whenever the MDEC is idle and exactly 30 whenever it is decoding (measured
 	// 2026-09-17), so this switch exists to let the hardware say whether that wait
 	// is what costs the frame. "Accurate" is the upstream behaviour and the default.
+	"O[108],MDEC Timing,Accurate,Fast (test);",
 	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
 	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
 	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
@@ -813,7 +827,7 @@ wire [111:0] prof_dbg112 = {prof_exp1, prof_ide, prof_frames, prof_sectors, prof
 // above measured ~0% on silicon, so this is where the missing time has to be.
 wire psx_dbg_flip, psx_dbg_vblank, psx_dbg_cpupaused, psx_dbg_cpustall;
 wire psx_dbg_gpubusy, psx_dbg_mdecbusy, psx_dbg_mdecmb;
-wire mdec15_fast    = 1'b0;   // release build: the MDEC Timing test option is off the OSD (upstream 2171-clk wait)
+wire mdec15_fast    = status[108];                 // "O[108],MDEC Timing" 1 = drop the 15-bit wait
 wire [15:0] prof_flips, prof_vblanks, prof_paused_k, prof_stall_k, prof_gpu_k, prof_mdec_k, prof_mdec_mb;
 wire [111:0] profg_dbg112 = {prof_mdec_mb, prof_mdec_k, prof_gpu_k, prof_stall_k, prof_paused_k, prof_vblanks, prof_flips};
 wire [47:0] prof_fliphist;                         // STATUS words 34..36
@@ -2032,6 +2046,27 @@ s573_seccart_loader #(.AW(10)) secser_loader (
    .nv_hi      (secser_nv_hi),
    .max_addr   (pack_max)
 );
+// Per-title settings trailer (last 8 bytes of the index-5 file) -- see
+// rtl/s573_cfg_trailer.v. Every byte is held back eight positions; a trailer is
+// swallowed, anything else reaches s573_cass_pack unchanged.
+wire        trl_we, trl_busy, trl_valid;
+wire [9:0]  trl_addr, trl_max;
+wire [7:0]  trl_din, trl_profile, trl_card;
+s573_cfg_trailer u_cfg_trailer (
+   .clk      (clk_1x),
+   .download (secser_download),
+   .in_we    (pack_we),
+   .in_addr  (pack_addr),
+   .in_data  (pack_din),
+   .out_we   (trl_we),
+   .out_addr (trl_addr),
+   .out_data (trl_din),
+   .max_addr (trl_max),
+   .busy     (trl_busy),
+   .valid    (trl_valid),
+   .profile  (trl_profile),
+   .card     (trl_card)
+);
 wire        sec_ser_we, sec_iser_we, sec_ieep_we;
 wire [2:0]  sec_ser_addr, sec_iser_addr;
 wire [7:0]  sec_ser_din, sec_iser_din, sec_ieep_din;
@@ -2040,11 +2075,11 @@ wire        inst_present;   // a .cas pack with an install cassette was loaded
 wire        inst_type;      // 0 = X76F100, 1 = X76F041
 s573_cass_pack u_cass_pack (
    .clk          (clk_1x),
-   .download     (secser_download),
-   .byte_we      (pack_we),
-   .byte_addr    (pack_addr),
-   .byte_data    (pack_din),
-   .max_addr     (pack_max),
+   .download     (trl_busy),
+   .byte_we      (trl_we),
+   .byte_addr    (trl_addr),
+   .byte_data    (trl_din),
+   .max_addr     (trl_max),
    .ser_we       (sec_ser_we),
    .ser_addr     (sec_ser_addr),
    .ser_data     (sec_ser_din),
@@ -2202,7 +2237,12 @@ wire flash_load_arm = flash_save_mounted && (flash_save_size > 0)
 // sizes a card title's .sav at exactly 48 MiB and every other title's at 16 MiB, so the
 // mounted file is the per-title record of whether the card is fitted.
 wire card_from_save = flash_save_mounted && (flash_save_size >= 64'd50331648);
-assign card_en = status[107] | card_from_save;
+// trailer card byte: 0 none, 1 slot 2 32 MB, 2 slot 1 32 MB, 3 slot 1 16 MB
+// (a 16 MB card is backed by the same 32 MB image).
+wire card_from_trl = trl_valid & (trl_card != 8'd0);
+assign card_en = (status[115:114] != 2'd0) | card_from_save | card_from_trl;
+wire card_slot1 = (status[115:114] == 2'd2)
+                | ((status[115:114] == 2'd0) & trl_valid & ((trl_card == 8'd2) | (trl_card == 8'd3)));
 
 // How many 1 KB blocks a SAVE writes and a LOAD reads. A SAVE spans whatever is
 // fitted (16 MB, or 48 MB with the card). A LOAD reads only what the MOUNTED file
@@ -2241,8 +2281,16 @@ wire [7:0]  sec_trace_addr; wire [15:0] sec_trace_data; wire [15:0] sec_trace_co
 // stale-instrument failure this project keeps paying for.
 wire [15:0] sec_size_dbg = {1'b1, sec_cart_type, sec_eep_max};
 wire [6:0]  stage_trace_addr; wire [15:0] stage_trace_data; wire [7:0] stage_trace_count;
-wire solo_cab       = status[100];                 // "O[100],573 Cabinet;" 1 = DDR Solo: strap
-                                                   // P2-START grounded (cab-type sense line)
+// Control profile: 0 DDR standard, 1 DDR Solo, 2 DrumMania, 3 Guitar Freaks.
+// OSD "573 Controls" forces one; Auto takes the launcher trailer (else DDR).
+wire [2:0] ctl_osd     = status[113:111];
+wire [2:0] ctl_osd_m1  = ctl_osd - 3'd1;            // menu 1..4 -> profile 0..3
+wire [1:0] ctl_profile = (ctl_osd != 3'd0) ? ctl_osd_m1[1:0]
+                       : (trl_valid && trl_profile < 8'd4) ? trl_profile[1:0] : 2'd0;
+wire solo_cab       = (ctl_profile == 2'd1);       // 1 = DDR Solo: strap P2-START grounded
+                                                   // (cab-type sense line)
+wire prof_dm        = (ctl_profile == 2'd2);
+wire prof_gf        = (ctl_profile == 2'd3);
 reg  old_eflash = 1'b0;
 reg  flash_erase_trigger = 1'b0;
 
@@ -2536,7 +2584,7 @@ function [23:0] dbg_field;
 endfunction
 
 reg [23:0] dbg_color;
-always @(*) dbg_color = dbg_field(2'd0);   // release build: Dbg Field is off the OSD
+always @(*) dbg_color = dbg_field(status[96:95]);
 
 // FORCED 4-BAR PAINT (no OSD/PSX.CFG needed -- arcade .mra loads ignore PSX.CFG).
 // When DBG_FORCE_BARS=1 the whole active display is painted as 4 stacked
@@ -2646,6 +2694,33 @@ wire [7:0] p1_solo = ~{joy[9], pad_d, pad_l, pad_ul, pad_d, pad_u, pad_r, pad_l}
 // than at joy2 -- a stray pad-2 press must not be able to fake a panel.
 wire [7:0] p2_solo = {1'b0, ~pad_ur, ~pad_r, ~pad_u, 2'b11, ~pad_ur, ~pad_ul};
 
+// ---- DrumMania (MAME INPUT_PORTS_START(drmn), 2026-10-20) ---------------------
+// P1 byte is the standard-cab mapping bit for bit: LEFT High Tom, RIGHT Low Tom,
+// UP Hi-Hat, DOWN Snare, B1 Cymbal, B3 Bass Drum (B2 unused). The song-select
+// buttons are the P2 LEFT/RIGHT lines ("Select L" 0x0001, "Select R" 0x0002), so
+// P1's Button 2 / Button 4 drive them too: one pad reaches the menus.
+wire [7:0] p2_dm = ~{joy2[9], joy2[6], joy2[5], joy2[4], joy2[2], joy2[3],
+                     joy2[0] | joy[7],    // Select R  <- P2 Right or P1 Button 4
+                     joy2[1] | joy[5]};   // Select L  <- P2 Left  or P1 Button 2
+
+// ---- Guitar Freaks (MAME INPUT_PORTS_START(gtrfrks), 2026-10-20) -------------
+// Per player: R/G/B = Button 1/2/3, Pick = D-pad Up or Down, Wailing = Button 4,
+// Start; the Effect Knob is a 2-bit value (IPT_DIAL 0..3 on bits [1:0] of the
+// byte, read raw, not active-low) stepped by D-pad Left/Right.
+reg [1:0] gf_knob1 = 2'd0, gf_knob2 = 2'd0;
+reg [1:0] gf_lr1_d = 2'd0, gf_lr2_d = 2'd0;
+always @(posedge clk_1x) begin
+   gf_lr1_d <= {joy[1], joy[0]};
+   gf_lr2_d <= {joy2[1], joy2[0]};
+   if (joy[0] & ~gf_lr1_d[0])       gf_knob1 <= gf_knob1 + 2'd1;
+   else if (joy[1] & ~gf_lr1_d[1])  gf_knob1 <= gf_knob1 - 2'd1;
+   if (joy2[0] & ~gf_lr2_d[0])      gf_knob2 <= gf_knob2 + 2'd1;
+   else if (joy2[1] & ~gf_lr2_d[1]) gf_knob2 <= gf_knob2 - 2'd1;
+end
+// byte = {START, B, G, R, Wailing, Pick, knob[1:0]}  (P1 0x8000..0x0100, P2 0x80..0x01)
+wire [7:0] p1_gf = {~joy[9],  ~joy[6],  ~joy[5],  ~joy[4],  ~joy[7],  ~(joy[3]  | joy[2]),  gf_knob1};
+wire [7:0] p2_gf = {~joy2[9], ~joy2[6], ~joy2[5], ~joy2[4], ~joy2[7], ~(joy2[3] | joy2[2]), gf_knob2};
+
 system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
 (
    .clk            (clk_1x),
@@ -2680,6 +2755,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .cfg_ddrsbm     (status[101]),
    .chart_ofs_ms   (status[106:102]),   // 573 Chart Offset (OSD)
    .card_en        (card_en),
+   .card_slot1     (card_slot1),
    .flash_mem_req  (flash_mem_req),
    .flash_mem_addr (flash_mem_addr),
    .flash_mem_card (flash_mem_card),
@@ -2748,8 +2824,8 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    // Solo-cab strap that used to be OR'd into P2 bit[7] here now lives inside
    // p2_solo, so the standard expression can never see it (solo_cab is 0 there
    // anyway, so dropping the OR is behaviour-preserving for a standard cab).
-   .stage_mux_en   (~solo_cab),            // standard cab -> GN845-PWB(B) stage PCBs (gn845pwbb.v)
-   .p1_ctrl        (solo_cab ? p1_solo
+   .stage_mux_en   (ctl_profile == 2'd0),  // DDR standard cab only -> GN845-PWB(B) stage PCBs (gn845pwbb.v)
+   .p1_ctrl        (solo_cab ? p1_solo : prof_gf ? p1_gf
                              : ~{joy[9],  joy[6],  joy[5],  joy[4],  joy[2],  joy[3],  joy[0],  joy[1] }),
                                            // P1 JAMMA: START,B3,B2,B1,DOWN,UP,RIGHT,LEFT (active-low)
                                            // Standard-cab song wheel, corrected 2026-09-16 (ddrextrm: L/R
@@ -2760,7 +2836,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
                                            // change OR'd "Select R" (joy[7]) into B2 on a menu-code reading
                                            // that had the two bits swapped; reverted, and the OSD now
                                            // labels Button 2 = Select L and Button 3 = Select R.
-   .p2_ctrl        (solo_cab ? p2_solo
+   .p2_ctrl        (solo_cab ? p2_solo : prof_gf ? p2_gf : prof_dm ? p2_dm
                              : ~{joy2[9], joy2[6], joy2[5], joy2[4], joy2[2], joy2[3], joy2[0], joy2[1]}),
                                            // [7] P2-START on a Solo cab is the cab-type strap, hardwired to
                                            // ground (reads LOW = active); it is forced inside p2_solo.
@@ -2786,7 +2862,8 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    // reported them ABSENT. Harmless for Tier 1/2 -- no title read it -- but wrong
    // against the oracle. If a working Tier-2 title regresses, this line is the
    // first suspect.)
-   .pcmcia_present ({~card_en, 1'b1}),
+   .pcmcia_present ({~(card_en & ~card_slot1), ~(card_en & card_slot1)}),
+                                           // 2026-10-20: [0] slot 1 is fitted for Guitar Freaks
    .cd_present     (1'b1),                 // CD drive present (empty). A real 573 -- even for flash/no_cdrom
                                            // games -- has a CR-589 on the IDE bus, and the GX700 POST "DRIVE
                                            // CHECK" probes it unconditionally (independent of the boot-device
@@ -3197,11 +3274,31 @@ s573_pcm_ring u_pcm_ring (      // RING_OFF_BEAT/BEATS_LOG2 defaults (provisiona
 // Saturating SPU + MP3 mixer -> the framework audio outputs (AUDIO_S = 1).
 // Combinational: domain-neutral, and a bit-exact SPU passthrough while the
 // MP3 channel is idle (s573_mp3_pcm drives pcm to 0).
+// The game's own MP3 level: the MAS3507D gain matrix (I2C, captured by
+// mas3507d_i2c in system573_top) applied to the drained PCM, as MAME does in
+// mas3507d.cpp append_buffer. At the output, so a mute is immediate rather than
+// ~1.5 s late behind the ring. rtl/s573_mas_gain.v (2026-10-20).
+wire signed [15:0] mp3_gain_l, mp3_gain_r;
+wire [14:0]        mas_q_l, mas_q_r;
+s573_mas_gain u_mas_gain (
+   .clk      (clk_1x),
+   .rst      (reset),
+   .gain_ll  (dio_gain_ll),
+   .gain_rr  (dio_gain_rr),
+   .gain_stb (dio_gain_stb),
+   .in_l     (mp3_pcm_l),
+   .in_r     (mp3_pcm_r),
+   .out_l    (mp3_gain_l),
+   .out_r    (mp3_gain_r),
+   .q_l      (mas_q_l),
+   .q_r      (mas_q_r)
+);
+
 s573_audio_mix u_audio_mix (
    .spu_l (spu_l),
    .spu_r (spu_r),
-   .mp3_l (mp3_pcm_l),
-   .mp3_r (mp3_pcm_r),
+   .mp3_l (mp3_gain_l),
+   .mp3_r (mp3_gain_r),
    .out_l (AUDIO_L),
    .out_r (AUDIO_R)
 );
@@ -3411,9 +3508,9 @@ always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
 	dbg_bar <= dbg_field(v_pos < 12'd60  ? 2'd0 :
 	                     v_pos < 12'd120 ? 2'd1 :
 	                     v_pos < 12'd180 ? 2'd2 : 2'd3);
-	video_aspect.red   <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[23:16] : (1'b0 ? dbg_color[23:16] : r));
-	video_aspect.green <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[15:8]  : (1'b0 ? dbg_color[15:8]  : g));
-	video_aspect.blue  <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[7:0]   : (1'b0 ? dbg_color[7:0]   : b));
+	video_aspect.red   <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[23:16] : (status[94] ? dbg_color[23:16] : r));
+	video_aspect.green <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[15:8]  : (status[94] ? dbg_color[15:8]  : g));
+	video_aspect.blue  <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[7:0]   : (status[94] ? dbg_color[7:0]   : b));
 	{aspect_x, aspect_y} <= video_isPal ? aspect_ratio_lut_pal[v_total] : aspect_ratio_lut_ntsc[v_total];
 
 	VGA_DISABLE <= fast_forward;
