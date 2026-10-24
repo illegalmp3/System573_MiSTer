@@ -92,3 +92,21 @@ with +1.2 ns.
 3. `tools/build-573.ps1 -SynthOnly`: Analysis & Synthesis only (~10 min), ALM estimate
    against the 2026-10-23 map figure, and no undriven nets in rtl/.
 4. One fit, one seed, only if (3) shows the recovery.
+
+## 5. Result: one fit, seed 7 (job 400, 2026-10-24)
+
+| | hw-accurate seed 7 (2026-10-23) | hw-area seed 7 |
+|---|---|---|
+| ALMs | 39,233 (94 %) | **35,795 (85 %)** |
+| LABs | 4,185 | 4,154 |
+| DSP | 99 | 95 |
+| worst setup | +0.106 | **+0.084** (pll_hdmi) |
+| worst hold | **-0.598** (clk_3x) | **+0.066** |
+| design-wide TNS | -0.598 | 0.0 |
+
+All corners non-negative, no undriven nets in rtl/, .rbf 3.9 MB
+(local/builds/hw-area-fit). Per clock (setup / hold): clk_1x +3.088 / +0.066,
+clk_2x +0.361 / +0.088, clk_3x +0.664 / +0.165, clk_vid +7.315 / +0.078,
+pll_hdmi +0.084 / +0.119. clk_vid: VCO 429.49 MHz / 8 = 53.69 MHz, the same divider
+pair the Reconfigurable pll2 used for NTSC (M 4+4, C0 4+4). savestates entity
+465 ALM (was 629).
