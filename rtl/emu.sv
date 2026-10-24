@@ -484,7 +484,8 @@ parameter CONF_STR = {
 	// (=SYSTEM UNIT ERROR=). Default MUST stay Standard: a grounded P2-START would
 	// auto-start player 2 in every 2P game. Per-core OSD option -> flip per game session.
 	// 573 Controls (2026-10-20, replaces "573 Cabinet" O[100]): the control layout
-	// per MAME's INPUT_PORTS for the title. Auto = what the launcher's index-5 file
+	// for the title. DDR / DDR Solo are hardware-sourced (psx-spx games.md); the
+	// DrumMania / Guitar Freaks maps are MAME INPUT_PORTS only (see p2_dm / p1_gf). Auto = what the launcher's index-5 file
 	// says (tools/s573_stage.py appends an 8-byte trailer: rtl/s573_cfg_trailer.v);
 	// a file without one -- staged before this existed -- is DDR standard cab.
 	// DDR Solo grounds P2-START (the cab-type strap); DrumMania / Guitar Freaks
@@ -501,7 +502,8 @@ parameter CONF_STR = {
 	// file/reset items per .mgl and the Tier-2 launchers already use all six.
 	// Rename only (2026-09-16): the card is now also fitted automatically whenever the
 	// mounted .sav is 48 MB, so "Auto" is what the old "Off" position does.
-	// 2026-10-20: slot 1 too (Guitar Freaks 3rd-11th, MAME pccard1_16mb/_32mb).
+	// 2026-10-20: slot 1 too (Guitar Freaks 3rd-11th, MAME pccard1_16mb/_32mb;
+	// slot windows per psx-spx registers.md 0x1f500000: banks 16-31 slot 1, 32-47 slot 2).
 	// Auto = fitted when the .sav is 48 MB or the launcher's trailer names a card,
 	// in the slot the trailer names (slot 2 if it names none).
 	// (status[115:114]: 108 is MDEC Timing; the old 1-bit O[107] is retired -- a card is
@@ -2239,6 +2241,12 @@ wire flash_load_arm = flash_save_mounted && (flash_save_size > 0)
 wire card_from_save = flash_save_mounted && (flash_save_size >= 64'd50331648);
 // trailer card byte: 0 none, 1 slot 2 32 MB, 2 slot 1 32 MB, 3 slot 1 16 MB
 // (a 16 MB card is backed by the same 32 MB image).
+// SOURCE STATUS (2026-10-23 review): the slot/bank windows are hardware-sourced
+// (psx-spx registers.md 0x1f500000: banks 16-31 slot 1, 32-47 slot 2). The 16 MB
+// card is NOT: psx-spx documents only the 32 MB Fujitsu card (16x MBM29F016A/017A);
+// "16 MB" comes from MAME pccard1_16mb. What a game reads past 16 MB on a real
+// 16 MB card is unknown, so code 3 is treated exactly like code 2 (a 32 MB card).
+// See docs/2026-10-23-pc-work-hw-review.md item 5.
 wire card_from_trl = trl_valid & (trl_card != 8'd0);
 assign card_en = (status[115:114] != 2'd0) | card_from_save | card_from_trl;
 wire card_slot1 = (status[115:114] == 2'd2)
@@ -2652,6 +2660,13 @@ always @(posedge clk_1x) begin
 end
 
 // ---- DDR Solo six-panel platform + song wheel (audit IO-004) -----------------
+// HARDWARE SOURCE: psx-spx games.md "DDR Solo input and light mapping" (from the
+// DDR Solo Bass Mix service manual wiring) + builtin-io.md 0x1f400008 / 0x1f40000c /
+// 0x1f40000e bit tables. Checked bit for bit 2026-10-23: every line of p1_solo /
+// p2_solo / btn5_p1 / btn5_p2 below lands on the JAMMA pin psx-spx names for that
+// sensor ("sensor A" = "<dir> 1", "sensor B" = "<dir> 2"; P1 button 5 = Left
+// button = Select L, P2 button 5 = Right button = Select R; P2 start "Unused
+// (shorted?)" = the cab strap). MAME ddrsolo agrees and is kept as a cross-check.
 // A Solo cabinet is ONE player on a SIX-panel platform, and the game reads it that
 // way: MAME INPUT_PORTS_START(ddrsolo) re-labels BOTH bytes of IN2 (0x1f400008) as
 // player-1 panel sensors -- the "P2" byte is NOT a second player on this cab. Each
@@ -2695,6 +2710,13 @@ wire [7:0] p1_solo = ~{joy[9], pad_d, pad_l, pad_ul, pad_d, pad_u, pad_r, pad_l}
 wire [7:0] p2_solo = {1'b0, ~pad_ur, ~pad_r, ~pad_u, 2'b11, ~pad_ur, ~pad_ul};
 
 // ---- DrumMania (MAME INPUT_PORTS_START(drmn), 2026-10-20) ---------------------
+// SOURCE STATUS (2026-10-23 review): MAME-ONLY, NOT HARDWARE-CONFIRMED. The bit
+// positions are the JAMMA lines of psx-spx builtin-io.md 0x1f400008 (hardware), but
+// which drum pad is wired to which line is in neither psx-spx nor the
+// Konami-System-573-Documentation; psx-spx games.md documents only the DrumMania
+// LIGHT wiring. Ground truth is the game's own TEST MODE I/O CHECK on this core --
+// procedure in docs/2026-10-23-pc-work-hw-review.md item 3. Do not build on this
+// map until that check has been run.
 // P1 byte is the standard-cab mapping bit for bit: LEFT High Tom, RIGHT Low Tom,
 // UP Hi-Hat, DOWN Snare, B1 Cymbal, B3 Bass Drum (B2 unused). The song-select
 // buttons are the P2 LEFT/RIGHT lines ("Select L" 0x0001, "Select R" 0x0002), so
@@ -2704,6 +2726,11 @@ wire [7:0] p2_dm = ~{joy2[9], joy2[6], joy2[5], joy2[4], joy2[2], joy2[3],
                      joy2[1] | joy[5]};   // Select L  <- P2 Left  or P1 Button 2
 
 // ---- Guitar Freaks (MAME INPUT_PORTS_START(gtrfrks), 2026-10-20) -------------
+// SOURCE STATUS (2026-10-23 review): MAME-ONLY, NOT HARDWARE-CONFIRMED -- same as
+// DrumMania above. In particular the Effect Knob as a raw 2-bit code on the P1/P2
+// LEFT/RIGHT lines (IPT_DIAL 0..3) is MAME's model; psx-spx documents neither the
+// guitar's wiring nor the knob's encoding (Gray vs binary, number of detents).
+// Check with the game's I/O CHECK: docs/2026-10-23-pc-work-hw-review.md item 3.
 // Per player: R/G/B = Button 1/2/3, Pick = D-pad Up or Down, Wailing = Button 4,
 // Start; the Effect Knob is a 2-bit value (IPT_DIAL 0..3 on bits [1:0] of the
 // byte, read raw, not active-low) stepped by D-pad Left/Right.
@@ -2853,17 +2880,15 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
                                            // headless install TEST via keyboard 'T' (PS/2 0x2C), since
                                            // joy[11] is a P1-only gamepad input (see key_test above).
    // PCMCIA card-detect, as the game reads it at 0x1f400006[11:10] (= IN1 bits
-   // 26/27). MAME ksys573.cpp:3197-3198 declares these IP_ACTIVE_HIGH IPT_CUSTOM
-   // reading pccard_cd_r<0>/<1>; m_pccard_cd[] inits to {1,1} (L549) and a fitted
-   // linear_flash_pccard_device calls m_cd1_cb(0) in device_start. So on the wire
-   // 0 = CARD INSERTED and 1 = EMPTY SLOT. [0] is slot 1 (never fitted here), [1]
-   // is slot 2. (CORRECTION 2026-09-14: this was hard-tied 2'b00, i.e. "both cards
+   // 26/27). Hardware source: psx-spx builtin-io.md, 0x1f400006 bit 10 = PCMCIA
+   // card 1 insertion, bit 11 = card 2 insertion, 0 = card present (MAME
+   // ksys573.cpp:3197-3198 / pccard_cd_r agrees). [0] (bit 10) is slot 1, [1]
+   // (bit 11) is slot 2; s573_io.v packs pcmcia_present into [11:10]. (CORRECTION 2026-09-14: this was hard-tied 2'b00, i.e. "both cards
    // inserted", while docs/MEMORY_MAP.md:81 and PLATFORM.md:88 both claimed it
    // reported them ABSENT. Harmless for Tier 1/2 -- no title read it -- but wrong
    // against the oracle. If a working Tier-2 title regresses, this line is the
    // first suspect.)
    .pcmcia_present ({~(card_en & ~card_slot1), ~(card_en & card_slot1)}),
-                                           // 2026-10-20: [0] slot 1 is fitted for Guitar Freaks
    .cd_present     (1'b1),                 // CD drive present (empty). A real 573 -- even for flash/no_cdrom
                                            // games -- has a CR-589 on the IDE bus, and the GX700 POST "DRIVE
                                            // CHECK" probes it unconditionally (independent of the boot-device

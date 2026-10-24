@@ -5,6 +5,11 @@ played a full credit; DM 4th-9th and GF 5th Mix stopped at errors).
 
 ## 1. The MAS3507D gain was captured and never applied
 
+> **Superseded 2026-10-23** (docs/2026-10-23-pc-work-hw-review.md item 1): the MAME
+> formula below adds +6 dB to every setting and has been withdrawn; the gain stage now
+> follows the MAS3507D data sheet. Sections 2-4 are reviewed in the same doc (DDR Solo
+> and slot 1 confirmed from psx-spx; DM/GF maps MAME-only pending the I/O check).
+
 DM 2nd/3rd: the music ran on after screen changes, and the drum hits (SPU) were
 quieter than the backing track. The 2026-10-20 log (`local/re/mp3log2.txt`) shows the
 game writing the MAS3507D gain matrix all the time: `gain=dfd91` (-12 dB) around song

@@ -133,10 +133,13 @@ module s573_flash #(
     // card device attached (bus/pccard/pccard.cpp). Every pre-Tier-3 title runs
     // with this at 0 and is bit-identical to the pre-card core.
     input  wire        card_en,
-    // Which slot the card sits in: 0 = slot 2 (banks 32-47: DDR 3rd Mix..Extreme,
-    // ksys573.cpp pccard2_32mb), 1 = slot 1 (banks 16-31: Guitar Freaks 3rd-11th,
-    // pccard1_16mb/_32mb). The card behind either window is the same Fujitsu
-    // linear flash card and the same SDRAM image; the other slot reads empty.
+    // Which slot the card sits in: 0 = slot 2, 1 = slot 1. psx-spx registers.md,
+    // 0x1f500000 bits 0-5: banks 16-31 = PCMCIA card slot 1, 32-47 = slot 2. DDR
+    // 3rd Mix..Extreme keep their game in slot 2, Guitar Freaks 3rd-11th in slot 1
+    // (which titles use which slot: ksys573.cpp machine configs). The card behind
+    // either window is the same Fujitsu linear flash card (16x MBM29F016A/017A,
+    // psx-spx games.md "Known working replacement PCMCIA cards") and the same SDRAM
+    // image; the other slot reads empty.
     input  wire        card_slot1,
 
     // flash window (0x1f000000 region)
