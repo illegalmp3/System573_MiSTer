@@ -21,7 +21,11 @@ param(
   # HDMI scaler (~2,256 ALM / ~25 DSP) and, more importantly, takes the binding
   # timing path with it -- pll_hdmi owns the +0.006 ns path, and the next-worst
   # setup is ~+0.505 ns. Omit the switch for a normal HDMI-capable build.
-  [switch]$Crt
+  [switch]$Crt,
+  # -SynthOnly runs Analysis & Synthesis alone (~10 min) and prints its ALM estimate and
+  # the per-entity table head, so an area change is measured before anyone waits ~55 min
+  # for a fit (2026-10-24: every HDMI fit since 2026-10-20 sat at 99.8-100% LABs).
+  [switch]$SynthOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,6 +81,31 @@ try {
 Write-Host "== tree ==" -ForegroundColor Cyan
 try { git log --oneline -1 } catch { }
 Write-Host ""
+
+# Clear the previous run's reports and bitstream first. A seed loop that copied
+# output_files after a run that never started (rc -196608, missing script) archived the
+# PREVIOUS seed's summaries under the new seed's name -- the identical "results" in
+# local/builds/gfdm-r1-seed8..12 and gfdm-r2-seed1/2/6/7 are copies, not runs.
+Get-ChildItem output_files -Include *.rpt,*.summary,*.rbf,*.sof -Recurse -ErrorAction SilentlyContinue |
+  Remove-Item -Force -ErrorAction SilentlyContinue
+
+if ($SynthOnly) {
+  Write-Host "== analysis & synthesis only ==" -ForegroundColor Cyan
+  $start = Get-Date
+  & (Join-Path $Quartus "quartus_map.exe") --read_settings_files=on --write_settings_files=off $REV -c $REV
+  $rc = $LASTEXITCODE
+  $elapsed = [int]((Get-Date) - $start).TotalSeconds
+  Write-Host "== synthesis rc=$rc ($elapsed s) ==" -ForegroundColor Cyan
+  $ms = "output_files\$REV.map.summary"
+  if (Test-Path $ms) { Get-Content $ms | ForEach-Object { "  " + $_ } }
+  $map = "output_files\$REV.map.rpt"
+  if (Test-Path $map) {
+    Select-String -Path $map -Pattern '^Warning \(10030\):' |
+      Where-Object { $_.Line -match 'File: .*[\\/]rtl[\\/]' } |
+      ForEach-Object { "  UNDRIVEN: " + ($_.Line -replace ' File: .*$', '') }
+  }
+  if ($rc -ne 0) { exit 1 } else { exit 0 }
+}
 
 Write-Host "== compiling (20-40 min) ==" -ForegroundColor Cyan
 $start = Get-Date
