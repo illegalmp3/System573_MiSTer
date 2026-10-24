@@ -64,7 +64,25 @@ Not taken (documented for later): the s573 profilers (~250 ALM, prof + prof_gpu 
 prof_pc), and NUM_PARALLEL_PROCESSORS (set to 1 after the parallel router crashed on an
 earlier machine; it changes build time, not area).
 
-## 3. Verification before any fit
+## 3. Measured: Analysis & Synthesis (job 398, 192 s)
+
+| | hw-accurate (2026-10-23) | hw-area (this) | change |
+|---|---|---|---|
+| ALMs needed (synthesis estimate) | 39,010 | **35,911** | **-3,099** |
+| combinational ALUTs | 56,861 | 52,849 | -4,012 |
+| registers | 43,841 | 41,866 | -1,975 |
+| DSP | 99 | 95 | -4 |
+| block memory bits | 2,032,539 | 2,020,128 | -12,411 |
+| undriven nets in rtl/ | 0 | 0 | |
+
+By entity (ALUTs): pll_cfg -827 (gone), cpu -610, gte -476, spu -442, dma -360,
+joypad -196 (joypad_mem -137), hps_io -185, savestates -175, gpu -135, memctrl -101,
+ascal -64 ALUT / -452 registers (ADAPTIVE), timer -58. The fitted hw-accurate seeds
+used 39,233-39,238 ALMs against the 39,010 estimate, so the fit should land near
+36,100 ALMs (86 %), below the 36,637 of the 2026-09-10 CRT build that met timing
+with +1.2 ns.
+
+## 4. Verification before any fit
 
 1. Verilog benches (`make -C sim`, gate5_replay), support tests: unchanged RTL there.
 2. Full-system NVC boot (sim/system573, Konami BIOS, 300 ms, TURBO=0): psx/rtl with
