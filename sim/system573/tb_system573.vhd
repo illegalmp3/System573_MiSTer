@@ -987,8 +987,10 @@ begin
       video_frameindex      => open,
       -- Keys - all active high
       DSAltSwitchMode       => '0',
-      PadPortEnable1        => '1',
-      PadPortDigital1       => '1',
+      -- 2026-10-24: nothing on SIO0, as on the 573 (psx-spx 573/index.md) and as
+      -- rtl/emu.sv now ties it.
+      PadPortEnable1        => '0',
+      PadPortDigital1       => '0',
       PadPortAnalog1        => '0',
       PadPortMouse1         => '0',
       PadPortGunCon1        => '0',
@@ -999,7 +1001,7 @@ begin
       PadPortStick1         => '0',
       PadPortPopn1          => '0',
       PadPortEnable2        => '0',
-      PadPortDigital2       => '1',
+      PadPortDigital2       => '0',
       PadPortAnalog2        => '0',
       PadPortMouse2         => '0',
       PadPortGunCon2        => '0',

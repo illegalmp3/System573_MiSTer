@@ -205,10 +205,10 @@ wire [ 8:0] DisplayOffsetY;
 // 1024x512 image). If VRAM data is itself garbled -> upload/DMA bug; if VRAM is clean
 // but the game renders glitched -> GPU sampling bug. Set back to 1'b0 to restore the game.
 localparam DBG_FORCE_VRAMVIEW = 1'b0;
-wire fvram = status[11] | DBG_FORCE_VRAMVIEW;
+wire fvram = DBG_FORCE_VRAMVIEW;   // S573: VRAM viewer debug option removed
 assign FB_BASE    = fvram ? 32'h30000000 : {8'h30, frameindex, DisplayOffsetY, DisplayOffsetX, 1'b0};
-assign FB_EN      = (status[14] || video_fbmode || DBG_FORCE_VRAMVIEW);
-assign FB_FORMAT  = (status[10] || video_fb24) ? 5'b00101 : 5'b01100;
+assign FB_EN      = (video_fbmode || DBG_FORCE_VRAMVIEW);
+assign FB_FORMAT  = video_fb24 ? 5'b00101 : 5'b01100;
 assign FB_WIDTH   = fvram ? 12'd1024 : DisplayWidth;
 assign FB_HEIGHT  = fvram ? 12'd512  : DisplayHeight;
 assign FB_STRIDE  = 14'd2048;
@@ -233,85 +233,24 @@ pll pll
 	.locked(pll_locked)
 );
 
-pll2 pll2
+// clk_vid. The 573 runs 60 Hz only -- psx-spx games.md "Missing support for PAL
+// mode": only the NTSC GPU clock input is wired, and switching the GPU to 50 Hz
+// (GP1(08h)) crashes the board. The PSX core reconfigured pll2 at run time for its
+// PAL mode and for fast-forward; neither exists on this hardware, so the video PLL
+// is now the fixed NTSC configuration pll2 always powered up in (53.693175 MHz,
+// psx/rtl/pll2/pll2_0002.v) without the reconfiguration port, and the 511-ALM
+// pll_cfg reconfiguration controller is gone (2026-10-24 area review). Instance
+// names (pll2 / pll2_inst / altera_pll_i) are kept so psx/PSX.sdc still matches.
+s573_pll2 pll2
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_vid),
-   .reconfig_to_pll(reconfig_to_pll),
-	.reconfig_from_pll(reconfig_from_pll)
+	.outclk_0(clk_vid)
 );
 
-wire [63:0] reconfig_to_pll;
-wire [63:0] reconfig_from_pll;
-wire        cfg_waitrequest;
-reg         cfg_write;
-reg   [5:0] cfg_address;
-reg  [31:0] cfg_data;
-
-pll_cfg pll_cfg
-(
-	.mgmt_clk(CLK_50M),
-	.mgmt_reset(0),
-	.mgmt_waitrequest(cfg_waitrequest),
-	.mgmt_read(0),
-	.mgmt_readdata(),
-	.mgmt_write(cfg_write),
-	.mgmt_address(cfg_address),
-	.mgmt_writedata(cfg_data),
-	.reconfig_to_pll(reconfig_to_pll),
-	.reconfig_from_pll(reconfig_from_pll)
-);
-
-
-wire FFrequest = joy[17] && ~FB_LL && ~DIRECT_VIDEO;
+wire FFrequest = 1'b0;   // S573: fast-forward removed (no 573 counterpart; pll2 is fixed)
 wire syncVideoOut = 0; //status[57] && ~FB_LL && ~DIRECT_VIDEO;
 wire syncVideoClock = 0; //status[56] && ~FB_LL && ~DIRECT_VIDEO;
-
-always @(posedge CLK_50M) begin : cfg_block
-	reg pald = 0, pald2 = 0;
-	reg pdbg = 0, pdbg2 = 0;
-	reg pffw = 0, pffw2 = 0;
-	reg [3:0] state = 0;
-
-	pald  <= isPal;
-	pald2 <= pald;
-
-	pdbg  <= syncVideoClock;
-	pdbg2 <= pdbg;
-
-	pffw  <= fast_forward;
-	pffw2 <= pffw;
-
-	cfg_write <= 0;
-	if(pald2 != pald || pdbg2 != pdbg || pffw2 != pffw) state <= 1;
-
-	if(!cfg_waitrequest) begin
-		if(state) state<=state+1'd1;
-		case(state)
-			1: begin
-					cfg_address <= 0;
-					cfg_data <= 0;
-					cfg_write <= 1;
-				end
-         3: begin
-					cfg_address <= 5;
-					cfg_data <= pffw2 ? 131842 : pdbg2 ? 771 : 1028;
-					cfg_write <= 1;
-				end
-			5: begin
-					cfg_address <= 7;
-					cfg_data <= pffw2 ? 2147483648 : pdbg2 ? 551954751 : pald2 ? 2201376898 : 2537930535;
-					cfg_write <= 1;
-				end
-			7: begin
-					cfg_address <= 2;
-					cfg_data <= 0;
-					cfg_write <= 1;
-				end
-		endcase
-	end
-end
 
 reg fast_forward;
 reg ff_latch;
@@ -432,7 +371,9 @@ parameter CONF_STR = {
 	// operator makes on a real cabinet (ksys573.cpp header Note 3). Change it before
 	// launching / then reset: the game reads the cassette at boot.
 	"O[110:109],573 Cassette,Auto,Game,Install;",
+`ifdef S573_DEVTOOLS
 	"O[94],573 Flash Debug,Off,On;",
+`endif
 	// The DIO board's MP3 descrambler is per-TITLE, not per-board: the game uploads
 	// its own bitstream to the board's Xilinx XCS40XL at boot, and the seven known
 	// Konami bitstreams differ CHIEFLY in the descramble algorithm. DDR Solo Bass Mix
@@ -444,19 +385,15 @@ parameter CONF_STR = {
 	// that is exactly how MAME distinguishes Konami's GN676 firmwares -- but it needs
 	// the CRC observed on hardware first, so the manual switch comes first.
 	"O[101],573 MP3 Descramble,Default,DDR Solo Bass Mix;",
+`ifdef S573_DEVTOOLS
 	"O[96:95],573 Dbg Field,ch4Q,expQ,cnt/sz,wrAddr;",
+`endif
 	"-;",
-	"d6C,Cheats;",
-	"h6O[6],Cheats Enabled,Yes,No;",
-	"-;",
-	"hA-,Memcard Status: not saved;",
-	"HB-,Memcard Status: saved;",
-	"hC-,Memcard Status: saving...;",
-	"RD,Save Memory Cards;",
+	// PSX cheat engine entries removed 2026-10-24 (psx_patches/0008 already removed the
+	// engine; cheats_enabled is tied off at the psx port).
+	// O[71] now governs only the 573 flash auto-save (bk_save_flash_a); the PSX memory
+	// card entries that shared this block are gone (SIO0 unused on the 573, see below).
 	"O[71],Save to SDCard,On Open OSD,Manual;",
-	"SC2,SAVMCD,Mount Memory Card 1;",
-	"SC3,SAVMCD,Mount Memory Card 2;",
-	"O[63],Automount Memory Card 1,Yes,No;",
 	// 573 onboard-flash PERSISTENCE (slot 4). A CD-installed game's 16 MB flash is
 	// saved to saves/System573/<name>.sav and restored on the next launch over the
 	// .mgl blank. The .mgl mounts this slot (type="s" index="4"). THE SAVE FILE IS
@@ -527,7 +464,9 @@ parameter CONF_STR = {
 	// whenever the MDEC is idle and exactly 30 whenever it is decoding (measured
 	// 2026-09-17), so this switch exists to let the hardware say whether that wait
 	// is what costs the frame. "Accurate" is the upstream behaviour and the default.
+`ifdef S573_DEVTOOLS
 	"O[108],MDEC Timing,Accurate,Fast (test);",
+`endif
 	// 573 CHART OFFSET (signed 5-bit ms, index 0 = 0 ms = default). Shifts the MP3
 	// sample position the game reads (k573dio 0xca/0xcc/0xce) so it can be dialled
 	// against latency OUTSIDE the fabric: +N ms places arrows N ms LATER (use this
@@ -549,14 +488,14 @@ parameter CONF_STR = {
 	//	"RH,Save state (Alt-F1);",
 	//	"RI,Restore state (F1);",
 	//	"-;",
-	"O[40:39],System Type,Auto,NTSC-U,NTSC-J,PAL;",
+	// "System Type" (O[40:39]) removed 2026-10-24: 60 Hz only, see isPal.
 	"-;",
-	"D8O[48:45],Pad1,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port1,Analog Joystick,Pop'n;",
-	"D8O[52:49],Pad2,Dualshock,Off,Digital,Analog,GunCon,NeGcon,Wheel-NegCon,Wheel-Analog,Mouse,Justifier,SNAC-port2,Analog Joystick,Pop'n;",
-	"D8h0O[66],SNAC MemCard,Virtual,Real;",
-	"D8h4O[31],DS Mode,L3+R3+Up/Dn | Click,L1+L2+R1+R2+Up/Dn;",
-	"O[57:56],Multitap,Off,Port1: 4 x Digital,Port1: 4 x Analog;",
-	"-;",
+	// PSX controller / memory card options (Pad1, Pad2, SNAC MemCard, DS Mode, Multitap,
+	// the memory card mounts and saves) removed 2026-10-24: psx-spx 573/index.md "The
+	// SIO0 bus for controllers and memory cards is unused ... no known I/O board uses
+	// it". The SIO0 controller itself is inside the CPU ASIC and stays; nothing is
+	// plugged into it (PadPortEnable1/2 = 0, no memory card). The 573's own card reader
+	// is the White I/O JVS board ("573 Card Reader" above).
 
 	"P1,Video & Audio;",
 	"P1-;",
@@ -570,8 +509,8 @@ parameter CONF_STR = {
 	"P1O[61],Black Transitions,On,Off;",
 	"P1O[41],Deinterlacing,Weave,Bob;",
 	"P1O[60],Sync 480i for HDMI,Off,On;",
-	"P1-;",
-	"P1O[22],Dithering,On,Off;",
+	// "Dithering" (O[22]) removed 2026-10-24: the 573 GPU dithers when the game sets
+	// GP0(E1h) bit 9, like the PS1 GPU it is; ditherOff is tied to 0 (hardware).
 	"P1-;",
 	"P1O[8:7],Stereo Mix,None,25%,50%,100%;",
 
@@ -579,16 +518,8 @@ parameter CONF_STR = {
 	"P2-;",
 	"P2O[64],Pause when OSD open,On,Off;",
 
-	"h3-;",
-	"h3P3,Debug;",
-	"h3P3-;",
-	"h3P3O[14],DDR3 Framebuffer,Off,On;",
-	"h3P3O[10],DDR3 FB Color,16,24;",
-	"h3P3O[11],VRAMViewer,Off,On;",
-	"h3P3O[30],Sound,On,Off;",
-	"h3P3O[43],RepTimingSPUDMA,Off,On;",
-	"h3P3T1,Advance Pause;",
-	"h3P3T2,Sound IRQ Trigger;",
+	// PSX core Debug page (DDR3 framebuffer view, VRAM viewer, sound off, SPU DMA
+	// timing, advance pause, sound IRQ trigger) removed 2026-10-24; tied off below.
 
 	"-   ;",
 	"R0,Reset;",
@@ -839,7 +770,11 @@ wire [111:0] prof_dbg112 = {prof_exp1, prof_ide, prof_frames, prof_sectors, prof
 // above measured ~0% on silicon, so this is where the missing time has to be.
 wire psx_dbg_flip, psx_dbg_vblank, psx_dbg_cpupaused, psx_dbg_cpustall;
 wire psx_dbg_gpubusy, psx_dbg_mdecbusy, psx_dbg_mdecmb;
-wire mdec15_fast    = status[108];                 // "O[108],MDEC Timing" 1 = drop the 15-bit wait
+`ifdef S573_DEVTOOLS
+wire mdec15_fast    = status[108];
+`else
+wire mdec15_fast    = 1'b0;   // release build: upstream MDEC timing ("Accurate")
+`endif                 // "O[108],MDEC Timing" 1 = drop the 15-bit wait
 wire [15:0] prof_flips, prof_vblanks, prof_paused_k, prof_stall_k, prof_gpu_k, prof_mdec_k, prof_mdec_mb;
 wire [111:0] profg_dbg112 = {prof_mdec_mb, prof_mdec_k, prof_gpu_k, prof_stall_k, prof_paused_k, prof_vblanks, prof_flips};
 wire [47:0] prof_fliphist;                         // STATUS words 34..36
@@ -1128,19 +1063,17 @@ always @(posedge clk_1x) begin
       end
    end
 
-   case(status[40:39])
-      0: begin
-            case(region_out)
-               0: begin region = 2'b00; isPal <= 0; end   // unknown => default to NTSC
-               1: begin region = 2'b01; isPal <= 0; end   // JP
-               2: begin region = 2'b00; isPal <= 0; end   // US
-               3: begin region = 2'b10; isPal <= 1; end   // EU
-            endcase
-         end
-      1: begin region = 2'b00; isPal <= 0; end
-      2: begin region = 2'b01; isPal <= 0; end
-      3: begin region = 2'b10; isPal <= 1; end
-	endcase
+   // S573 (2026-10-24): no "System Type" option. The 573 is 60 Hz only (psx-spx
+   // games.md "Missing support for PAL mode": only the NTSC GPU clock is wired; a
+   // 50 Hz GP1(08h) crashes the board), so isPal is constant 0 and the region is
+   // the core's Auto choice (the former status[40:39] == 0 branch) with EU -> NTSC.
+   isPal <= 0;
+   case(region_out)
+      0: region = 2'b00;   // unknown => default to NTSC
+      1: region = 2'b01;   // JP
+      2: region = 2'b00;   // US
+      3: region = 2'b10;   // EU (still NTSC timing on this board)
+   endcase
 
    if (bios_download && ioctl_index[7:6] == 2'b11) cdbios <= 1'b1;
 
@@ -1285,31 +1218,34 @@ wire [1:0] ss_slot_eff = (DBG_AUTOSS & autoss_fire) ? autoss_slot : ss_slot;
 // 1011 -> Analog Joystick
 // 1100..1111 -> reserved
 
-wire PadPortDS1      = (status[48:45] == 4'b0000);
-wire PadPortEnable1  = (status[48:45] != 4'b0001);
-wire PadPortDigital1 = (status[48:45] == 4'b0010) || (status[52:49] == 4'b1100);
-wire PadPortAnalog1  = (status[48:45] == 4'b0011) || (status[48:45] == 4'b0111);
-wire PadPortGunCon1  = (status[48:45] == 4'b0100);
-wire PadPortNeGcon1  = (status[48:45] == 4'b0101) || (status[48:45] == 4'b0110);
-wire PadPortWheel1   = (status[48:45] == 4'b0110) || (status[48:45] == 4'b0111);
-wire PadPortMouse1   = (status[48:45] == 4'b1000);
-wire PadPortJustif1  = (status[48:45] == 4'b1001);
-wire snacPort1       = (status[48:45] == 4'b1010) && ~multitap;
-wire PadPortStick1   = (status[48:45] == 4'b1011);
-wire PadPortPopn1    = (status[48:45] == 4'b1100);
+// S573: nothing is connected to SIO0 (psx-spx 573/index.md: "The SIO0 bus for
+// controllers and memory cards is unused"). Every port is "Off" -- the same as the
+// PSX core's "Off" pad setting -- so joypad.vhd sees no device and never ACKs.
+wire PadPortDS1      = 1'b0;
+wire PadPortEnable1  = 1'b0;
+wire PadPortDigital1 = 1'b0;
+wire PadPortAnalog1  = 1'b0;
+wire PadPortGunCon1  = 1'b0;
+wire PadPortNeGcon1  = 1'b0;
+wire PadPortWheel1   = 1'b0;
+wire PadPortMouse1   = 1'b0;
+wire PadPortJustif1  = 1'b0;
+wire snacPort1       = 1'b0;
+wire PadPortStick1   = 1'b0;
+wire PadPortPopn1    = 1'b0;
 
-wire PadPortDS2      = (status[52:49] == 4'b0000);
-wire PadPortEnable2  = (status[52:49] != 4'b0001) && ~multitap;
-wire PadPortDigital2 = (status[52:49] == 4'b0010) || (status[52:49] == 4'b1100);
-wire PadPortAnalog2  = (status[52:49] == 4'b0011) || (status[52:49] == 4'b0111);
-wire PadPortGunCon2  = (status[52:49] == 4'b0100);
-wire PadPortNeGcon2  = (status[52:49] == 4'b0101) || (status[52:49] == 4'b0110);
-wire PadPortWheel2   = (status[52:49] == 4'b0110) || (status[52:49] == 4'b0111);
-wire PadPortMouse2   = (status[52:49] == 4'b1000);
-wire PadPortJustif2  = (status[52:49] == 4'b1001);
-wire snacPort2       = (status[52:49] == 4'b1010) && ~multitap;
-wire PadPortStick2   = (status[52:49] == 4'b1011);
-wire PadPortPopn2    = (status[52:49] == 4'b1100);
+wire PadPortDS2      = 1'b0;
+wire PadPortEnable2  = 1'b0;
+wire PadPortDigital2 = 1'b0;
+wire PadPortAnalog2  = 1'b0;
+wire PadPortGunCon2  = 1'b0;
+wire PadPortNeGcon2  = 1'b0;
+wire PadPortWheel2   = 1'b0;
+wire PadPortMouse2   = 1'b0;
+wire PadPortJustif2  = 1'b0;
+wire snacPort2       = 1'b0;
+wire PadPortStick2   = 1'b0;
+wire PadPortPopn2    = 1'b0;
 
 reg paddleMode = 0;
 reg paddleMin = 0;
@@ -1332,9 +1268,9 @@ end
 // 00 -> multitap off
 // 01 -> port1, 4 x digital
 // 10 -> port1, 4 x analog
-wire multitap        = (status[57:56] != 2'b00);
-wire multitapDigital = (status[57:56] == 2'b01);
-wire multitapAnalog  = (status[57:56] == 2'b10);
+wire multitap        = 1'b0;   // S573: no SIO0 devices (see PadPortEnable1)
+wire multitapDigital = 1'b0;
+wire multitapAnalog  = 1'b0;
 
 wire [1:0] padMode;
 reg  [1:0] padMode_1;
@@ -1388,7 +1324,7 @@ always @(posedge clk_1x) begin
       if (1'b0) begin   // S573: the unsafe options this warned about are gone from the OSD
          psx_info_req <= 1;
          psx_info     <= 8'd24;
-      end else if (status[40:39] == 2'b00) begin
+      end else if (1'b1) begin   // S573: System Type is always Auto (no OSD option)
          psx_info_req <= 1;
          case(region_out)
             0: begin psx_info <= 8'd19; end   // unknown => default to NTSC
@@ -1454,8 +1390,8 @@ always @(posedge clk_1x) begin
    end
 
    // Advance Pause OSD trigger
-   status1_1 <= status[1];
-   if (status[1] & ~status1_1) begin
+   status1_1 <= 1'b0;   // S573: "Advance Pause" debug trigger removed
+   if (1'b0) begin
       unpause <= 1023;
    end else if (unpause > 0) begin
       unpause <= unpause - 1'd1;
@@ -1523,7 +1459,7 @@ psx
    .FORCECDSPEED(3'b000),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .LIMITREADSPEED(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .IGNORECDDMATIMING(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
-   .ditherOff(status[22]),
+   .ditherOff(1'b0),        // S573: hardware dithering (GP0(E1h) bit 9); OSD option removed
    .interlaced480pHack(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .showGunCrosshairs(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .enableNeGconRumble(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
@@ -1547,11 +1483,11 @@ psx
    .fixedVBlank(status[55] && ~hack_480p),
    .vCrop(hack_480p ? 2'b00 : status[4:3]),
    .hCrop(status[67]),
-   .SPUon(~status[30]),
-   .SPUIRQTrigger(status[2]),
-   .SPUSDRAM(status[44] & SDRAM2_EN),
+   .SPUon(1'b1),            // S573: debug page removed
+   .SPUIRQTrigger(1'b0),    // S573: debug page removed
+   .SPUSDRAM(1'b0),         // S573: no OSD entry has set status[44]; SPU RAM stays in fabric RAM
    .REVERBOFF(0),
-   .REPRODUCIBLESPUDMA(status[43]),
+   .REPRODUCIBLESPUDMA(1'b0), // S573: debug page removed
    .WIDESCREEN(2'b00),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .oldGPU(1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)   
    // RAM/BIOS interface
@@ -1631,11 +1567,12 @@ psx
    // memcard
    .memcard_changed (bk_pending),
    .saving_memcard  (saving_memcard),
-   .memcard1_load   (memcard1_load),
-   .memcard2_load   (memcard2_load),
-   .memcard_save    (memcard_save),
-   .memcard1_mounted   (sd_mounted2),
-   .memcard1_available (memcard1_inserted),
+   // S573: no memory cards on SIO0 (psx-spx 573/index.md); the card ports are idle.
+   .memcard1_load   (1'b0),
+   .memcard2_load   (1'b0),
+   .memcard_save    (1'b0),
+   .memcard1_mounted   (1'b0),
+   .memcard1_available (1'b0),
    .memcard1_rd     (sd_rd[2]),
    .memcard1_wr     (sd_wr[2]),
    .memcard1_lba    (sd_lba2),
@@ -1644,8 +1581,8 @@ psx
    .memcard1_addr   (sd_buff_addr[8:0]),
    .memcard1_dataIn (sd_buff_dout),
    .memcard1_dataOut(sd_buff_din2),
-   .memcard2_mounted   (sd_mounted3),
-   .memcard2_available (memcard2_inserted),
+   .memcard2_mounted   (1'b0),
+   .memcard2_available (1'b0),
    .memcard2_rd     (sd_rd[3]),
    .memcard2_wr     (sd_wr[3]),
    .memcard2_lba    (sd_lba3),
@@ -1655,7 +1592,7 @@ psx
    .memcard2_dataIn (sd_buff_dout),
    .memcard2_dataOut(sd_buff_din3),
    // video
-   .videoout_on     (~status[14]),
+   .videoout_on     (1'b1),   // S573: DDR3 framebuffer debug view removed
    .isPal           (isPal),
    .pal60           (1'b0),   // S573: PSX-console option, tied to its default (HDMI area recovery 2026-10-18)
    .hsync           (hs),
@@ -1759,7 +1696,7 @@ psx
    .actionNextSnac(actionNextSnac),
    .receiveValidSnac(receiveValidSnac),
    .ackSnac(~ack),//using real ack not the 1 cycle ack
-   .snacMC(status[66]),
+   .snacMC(1'b0),
 
    //sound
 	// P4b(b): SPU no longer drives AUDIO_L/R directly -- it feeds the
@@ -1770,8 +1707,8 @@ psx
 	.sound_out_right(spu_r),
    //savestates
    .increaseSSHeaderCount (!status[36]),
-   .save_state            (ss_save_eff),
-   .load_state            (ss_load),
+   .save_state            (1'b0),   // S573: savestates off (SS_ENABLE); psx_patches/0034 relies on this
+   .load_state            (1'b0),   // S573: savestates off (SS_ENABLE)
    .savestate_number      (ss_slot_eff),
    .state_loaded          (),
    .validSStates          (validSStates),
@@ -1779,8 +1716,8 @@ psx
    .rewind_active         (0), //(status[27] & joy[15]),
    //cheats
    .cheat_clear(gg_reset),
-   .cheats_enabled(~status[6] && ~TURBO_MEM && ~ioctl_download),
-   .cheat_on(gg_valid),
+   .cheats_enabled(1'b0),   // S573: cheat engine removed (psx_patches/0008)
+   .cheat_on(1'b0),
    .cheat_in(gg_code),
    .cheats_active(gg_active),
 
@@ -2630,7 +2567,13 @@ function [23:0] dbg_field;
 endfunction
 
 reg [23:0] dbg_color;
+`ifdef S573_DEVTOOLS
 always @(*) dbg_color = dbg_field(status[96:95]);
+wire dbg_overlay_on = status[94];
+`else
+always @(*) dbg_color = 24'd0;
+wire dbg_overlay_on = 1'b0;   // release build: "573 Flash Debug" overlay compiled out
+`endif
 
 // FORCED 4-BAR PAINT (no OSD/PSX.CFG needed -- arcade .mra loads ignore PSX.CFG).
 // When DBG_FORCE_BARS=1 the whole active display is painted as 4 stacked
@@ -3484,7 +3427,7 @@ assign VGA_B    = video_gamma.blue;
 assign VGA_VS   = video_gamma.vs;
 assign VGA_HS   = video_gamma.hs;
 assign VGA_DE   = ~(video_gamma.vb | video_gamma.hb);
-assign VGA_F1   =  DBG_FORCE_BARS ? 1'b0 : (status[14] ? 1'b0 : video_aspect.interlace);
+assign VGA_F1   =  DBG_FORCE_BARS ? 1'b0 : video_aspect.interlace;
 assign VGA_SL = 0;
 logic [11:0] aspect_x, aspect_y;
 
@@ -3495,8 +3438,8 @@ video_freak video_freak
 	.VGA_DE_IN(VGA_DE),
 	.VGA_DE(),
 
-	.ARX(DBG_FORCE_BARS ? 12'd4 : ((!ar) ? ((status[54:53] == 1) ? 3 : (status[54:53] == 2) ? 5 : (status[54:53] == 3) ? 16 : status[11] ? 12'd2 : aspect_x) : (ar - 1'd1))),
-	.ARY(DBG_FORCE_BARS ? 12'd3 : ((!ar) ? ((status[54:53] == 1) ? 2 : (status[54:53] == 2) ? 3 : (status[54:53] == 3) ?  9 : status[11] ? 12'd1 : aspect_y) : 12'd0)),
+	.ARX(DBG_FORCE_BARS ? 12'd4 : ((!ar) ? ((status[54:53] == 1) ? 3 : (status[54:53] == 2) ? 5 : (status[54:53] == 3) ? 16 : aspect_x) : (ar - 1'd1))),
+	.ARY(DBG_FORCE_BARS ? 12'd3 : ((!ar) ? ((status[54:53] == 1) ? 2 : (status[54:53] == 2) ? 3 : (status[54:53] == 3) ?  9 : aspect_y) : 12'd0)),
 	.CROP_SIZE(0),
 	.CROP_OFF(0),
 	.SCALE(status[35:34])
@@ -3579,9 +3522,9 @@ always_ff @(posedge CLK_VIDEO) if (CE_PIXEL) begin
 	dbg_bar <= dbg_field(v_pos < 12'd60  ? 2'd0 :
 	                     v_pos < 12'd120 ? 2'd1 :
 	                     v_pos < 12'd180 ? 2'd2 : 2'd3);
-	video_aspect.red   <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[23:16] : (status[94] ? dbg_color[23:16] : r));
-	video_aspect.green <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[15:8]  : (status[94] ? dbg_color[15:8]  : g));
-	video_aspect.blue  <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[7:0]   : (status[94] ? dbg_color[7:0]   : b));
+	video_aspect.red   <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[23:16] : (dbg_overlay_on ? dbg_color[23:16] : r));
+	video_aspect.green <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[15:8]  : (dbg_overlay_on ? dbg_color[15:8]  : g));
+	video_aspect.blue  <= (vbl || hbl) ? 8'd0 : (DBG_FORCE_BARS ? dbg_bar[7:0]   : (dbg_overlay_on ? dbg_color[7:0]   : b));
 	{aspect_x, aspect_y} <= video_isPal ? aspect_ratio_lut_pal[v_total] : aspect_ratio_lut_ntsc[v_total];
 
 	VGA_DISABLE <= fast_forward;

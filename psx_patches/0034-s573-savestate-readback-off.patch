@@ -1,0 +1,44 @@
+diff --git a/rtl/savestates.vhd b/rtl/savestates.vhd
+index 1f8d70a..9e88992 100644
+--- a/rtl/savestates.vhd
++++ b/rtl/savestates.vhd
+@@ -233,24 +233,12 @@ begin
+             SS_rden      <= SS_rden_2x;     
+          end if;
+ 
+-         case (savetype_counter) is
+-            when  0 => SS_DataRead <= SS_DataRead_CPU;
+-            when  1 => SS_DataRead <= SS_DataRead_GPU;
+-            when  2 => SS_DataRead <= SS_DataRead_GPUTiming;
+-            when  3 => SS_DataRead <= SS_DataRead_DMA;
+-            when  4 => SS_DataRead <= SS_DataRead_GTE;
+-            when  5 => SS_DataRead <= SS_DataRead_JOYPAD;
+-            when  6 => SS_DataRead <= SS_DataRead_MDEC;
+-            when  7 => SS_DataRead <= SS_DataRead_MEMORY;
+-            when  8 => SS_DataRead <= SS_DataRead_TIMER;
+-            when  9 => SS_DataRead <= SS_DataRead_SOUND;
+-            when 10 => SS_DataRead <= SS_DataRead_IRQ;
+-            when 11 => SS_DataRead <= SS_DataRead_SIO;
+-            when 12 => SS_DataRead <= SS_DataRead_SCP;
+-            when 13 => SS_DataRead <= SS_DataRead_CD;
+-            when 16 => SS_DataRead <= ram_data;
+-            when others => SS_DataRead <= (others => '0');
+-         end case;
++         -- System 573: savestates are compiled out (rtl/emu.sv SS_ENABLE = 0 ties
++         -- save_state / load_state to 0), so this read-back bus -- which carries module
++         -- state only while SAVING -- never carries data. Constant zero lets synthesis
++         -- remove every module's ss_out read multiplexer (about 2,900 LEs of mux in the
++         -- 2026-10-23 map report: cpu, spu, dma, memctrl, gpu, timer, sio, ...).
++         SS_DataRead <= (others => '0');
+          
+          SPURAM_done1X <= '0';
+          if (SS_SPURAM_done = '1') then
+@@ -432,7 +420,7 @@ begin
+                      state                     <= SAVEMEMORY_WAITREAD;
+                   end if;
+                   slowcounter                  <= 0;
+-                  SS_rden_2x(savetype_counter) <= '1';
++                  -- System 573: no save-path read strobes (see SS_DataRead above).
+                   SS_Adr_2x                    <= RAMAddrNext;
+                   RAMAddrNext                  <= RAMAddrNext + 1;
+                end if;

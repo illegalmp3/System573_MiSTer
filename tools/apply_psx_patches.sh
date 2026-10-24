@@ -153,7 +153,13 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           # test are registered every o_clk instead of computed in the line-end cycle. With the
           # 2026-10-20 logic in, o_vcpt_pre3 -> o_vcpt_pre3 was the only failing path
           # (-0.163 / -0.221 ns, pll_hdmi). Output timing identical (sim/ascal_equiv).
-          "$ROOT/psx_patches/0033-s573-ascal-vcpt-pipeline.patch" )
+          "$ROOT/psx_patches/0033-s573-ascal-vcpt-pipeline.patch" \
+          # 0034 = savestate read-back off (rtl/savestates.vhd): SS_DataRead constant 0 and no
+          # save-path SS_rden strobes. Savestates are compiled out (emu.sv ties save_state /
+          # load_state to 0), so the bus never carried data; the constant lets synthesis drop
+          # every module's ss_out read mux (~2,900 LEs, 2026-10-23 map report). The reset
+          # sequencer (reset_out, ss_reset, the resetMode zeroing walk) is untouched.
+          "$ROOT/psx_patches/0034-s573-savestate-readback-off.patch" )
 
 if [ ! -e "$PSX/.git" ]; then
   echo "error: psx submodule not initialised. Run: git submodule update --init psx" >&2
