@@ -188,7 +188,7 @@ static void serve_request(uint16_t w0)
 void s573wio_poll(void)
 {
     uint64_t t = mono_us();
-    int m = (int)user_io_status_get("[112:111]");
+    int m = (int)user_io_status_get("[117:116]");
     if (m == 3) m = 0;
     if (m != mode) {
         if (on) { card_flush(0, 1); card_flush(1, 1); wio_flags(0); flags_sent = 0; }
@@ -206,7 +206,7 @@ void s573wio_poll(void)
 
     if (mode == 1) {
         for (int i = 0; i < 2; i++) {
-            int want = loaded[i] && !user_io_status_get(i ? "[114]" : "[113]");
+            int want = loaded[i] && !user_io_status_get(i ? "[119]" : "[118]");
             if (want != vc[i].inserted) {
                 wio_vcard_insert(&vc[i], want);
                 s573_log_ext("s573wio: card %d %s\n", i + 1, want ? "inserted" : "ejected");
