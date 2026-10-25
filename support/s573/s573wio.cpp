@@ -7,6 +7,13 @@
  *     CMD_573_WIO, runs it through the reader HLE (s573_whiteio.c), answers;
  *   - runs the reader's card jobs: Virtual = 128 KB raw images on the SD card,
  *     SNAC = real PS1 cards through the fabric byte engine (s573_wio_snac.v);
+ *   - Virtual card files: the file mounted from the OSD ("573 Card 1/2 File",
+ *     CONF_STR SC2/SC3 -> Main's SD slots 2/3) if there is one, else
+ *     saves/System573/memcard1.mcd / memcard2.mcd. Any raw 131,072-byte PS1 card
+ *     image works: .mcd, the PSX core's .sav, .mcr. Main keeps the slot's file open
+ *     read/write (user_io_file_mount, O_RDWR|O_SYNC); the card is read and written
+ *     through that open file (get_image), so no path handling is needed here, and
+ *     Main remembers the choice (config/System573.s2 / .s3) for the next launch.
  *   - drives the JVS sense line (addressed / not) via CMD_573_WIO op 4.
  * docs/2026-10-23-memory-card-reader.md has the protocol and the sources.
  *
@@ -35,6 +42,24 @@ static int         flags_sent = -1;
 static uint64_t    next_us = 0, dirty_since[2];
 static int         loaded[2];
 static const char *card_path[2] = { "saves/System573/memcard1.mcd", "saves/System573/memcard2.mcd" };
+static fileTYPE   *card_img[2];            /* the OSD-mounted file backing card i, or NULL */
+static char        card_key[2][300];       /* what backs card i, to notice an OSD change */
+
+#define CARD_SLOT0 2                       /* Main SD slot of "573 Card 1 File" (SC2) */
+
+/* The OSD-mounted file for card i, if any (opened, whatever its size). */
+static fileTYPE *mounted(int i)
+{
+    fileTYPE *f = get_image(CARD_SLOT0 + i);
+    return (f && f->opened() && f->size > 0) ? f : NULL;
+}
+
+static void backing_key(int i, char *k, size_t n)
+{
+    fileTYPE *f = mounted(i);
+    if (f) snprintf(k, n, "img:%lld:%s", (long long)f->size, f->name);
+    else   snprintf(k, n, "def:%s", card_path[i]);
+}
 
 static uint64_t mono_us(void)
 {
@@ -116,6 +141,21 @@ static void format_blank(uint8_t *d)
 static void card_load(int i)
 {
     loaded[i] = 0;
+    card_img[i] = NULL;
+    backing_key(i, card_key[i], sizeof(card_key[i]));
+    fileTYPE *f = mounted(i);
+    if (f) {
+        if (f->size == WIO_CARD_SIZE && FileSeek(f, 0, SEEK_SET) &&
+            FileReadAdv(f, vc[i].data, WIO_CARD_SIZE) == WIO_CARD_SIZE) {
+            card_img[i] = f;
+            loaded[i] = 1;
+            s573_log_ext("s573wio: card %d: %s (mounted from the OSD) loaded\n", i + 1, f->name);
+        } else {
+            s573_log_ext("s573wio: card %d: %s is %lld bytes, not a raw 131072-byte card -- card %d left out\n",
+                         i + 1, f->name, (long long)f->size, i + 1);
+        }
+        return;
+    }
     int sz = FileLoad(card_path[i], 0, 0);
     if (sz == WIO_CARD_SIZE && FileLoad(card_path[i], vc[i].data, WIO_CARD_SIZE) == WIO_CARD_SIZE) {
         loaded[i] = 1;
@@ -138,6 +178,15 @@ static void card_flush(int i, int force)
 {
     if (!vc[i].dirty || !loaded[i]) return;
     if (!force && (W.op.active || mono_us() - dirty_since[i] < 500000)) return;
+    if (card_img[i]) {
+        if (mounted(i) != card_img[i]) return;        /* the OSD changed it: see s573wio_poll */
+        if (FileSeek(card_img[i], 0, SEEK_SET) &&
+            FileWriteAdv(card_img[i], vc[i].data, WIO_CARD_SIZE) == WIO_CARD_SIZE) {
+            vc[i].dirty = 0;
+            s573_log_ext("s573wio: card %d saved to %s\n", i + 1, card_img[i]->name);
+        }
+        return;
+    }
     if (FileSave(card_path[i], vc[i].data, WIO_CARD_SIZE)) {
         vc[i].dirty = 0;
         s573_log_ext("s573wio: card %d saved\n", i + 1);
@@ -206,6 +255,24 @@ void s573wio_poll(void)
 
     if (mode == 1) {
         for (int i = 0; i < 2; i++) {
+            /* A different file chosen (or unmounted) in the OSD = a different card in
+               the slot: save what the old one still owes, load the new one, and pull
+               the card out for this poll so the game sees FLAG 08h on the new one. */
+            char k[sizeof(card_key[0])];
+            backing_key(i, k, sizeof(k));
+            if (strcmp(k, card_key[i])) {
+                if (vc[i].dirty && !card_img[i]) card_flush(i, 1);
+                else if (vc[i].dirty)
+                    s573_log_ext("s573wio: card %d: unsaved changes to the previous file dropped "
+                                 "(it was changed in the OSD within 0.5 s of a write)\n", i + 1);
+                vc[i].dirty = 0; dirty_since[i] = 0;
+                card_load(i);
+                if (vc[i].inserted) {
+                    wio_vcard_insert(&vc[i], 0);
+                    s573_log_ext("s573wio: card %d ejected (file changed)\n", i + 1);
+                }
+                continue;
+            }
             int want = loaded[i] && !user_io_status_get(i ? "[119]" : "[118]");
             if (want != vc[i].inserted) {
                 wio_vcard_insert(&vc[i], want);

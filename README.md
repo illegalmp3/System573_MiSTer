@@ -134,6 +134,12 @@ PS1 memory cards on the SNAC ports. *573 Card 1/2* = Ejected pulls a virtual car
 out. The reader is the Konami "White I/O" JVS board, emulated from the program
 the game uploads to it -- `docs/2026-10-23-memory-card-reader.md`. Needs
 `MiSTer_System573` (step 4). Leave it Off for games and cabinets without one.
+*573 Card 1 File* / *573 Card 2 File* pick the image behind each virtual card: any raw
+128 KB PS1 card file (`.mcd`, the PSX core's `.sav`, `.mcr`). The choice is remembered
+for the next launch; unmount it in the file browser to go back to `memcard1.mcd` /
+`memcard2.mcd`. DDR's arcade link data is made by the PlayStation home versions, so a
+card the PSX core saved for one of them (`saves/PSX/<game>.sav`) can be mounted here
+directly.
 
 Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-Video /
 composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
