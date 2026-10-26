@@ -488,8 +488,9 @@ parameter CONF_STR = {
 	// the memory card mounts and saves) removed 2026-10-24: psx-spx 573/index.md "The
 	// SIO0 bus for controllers and memory cards is unused ... no known I/O board uses
 	// it". The SIO0 controller itself is inside the CPU ASIC and stays; nothing is
-	// plugged into it (PadPortEnable1/2 = 0, no memory card). The 573's own card reader
-	// is the White I/O JVS board ("573 Card Reader" above).
+	// plugged into it (PadPortEnable1/2 = 0, no memory card). (The 573's own card reader,
+	// the White I/O JVS board, is not modelled -- removed 2026-10-25, branch
+	// memcard-wip-20261025.)
 
 	"P1,Video & Audio;",
 	"P1-;",

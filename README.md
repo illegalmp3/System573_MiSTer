@@ -116,8 +116,7 @@ three downloads:
    Linux than stock Main has needed since late 2021 (glibc 2.29, libstdc++
    GLIBCXX 3.4.21). The launchers use only MGL features from 2022 (`setname`,
    `reset`). Without the `main=` line, or on a Main older than 20240505, the
-   core still runs, just without music (keep *573 Card Reader* Off then: the
-   reader lives in `MiSTer_System573`).
+   core still runs, just without music.
 
    Upgrading from v0.1.x, which replaced `/media/fat/MiSTer`: put the stock binary
    back (run the updater, or copy your `MiSTer.orig` over `MiSTer`), then do the
