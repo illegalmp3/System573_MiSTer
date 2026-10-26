@@ -162,20 +162,7 @@ static void serve_request(uint16_t w0)
     handled_seq = seq;
 
     W.now_us = mono_us();
-    int was = W.mode;
     int n = wio_packet(&W, req, len, resp);
-    if (was != W.mode) {
-        if (W.mode == WIO_FW)
-            s573_log_ext("s573wio: program uploaded and started: %s (unpacked CRC-32 %08x)\n",
-                         W.fw_ok ? "the ddr4m firmware this HLE models"
-                                 : "NOT the modelled firmware -- ddr4m rules applied anyway",
-                         (unsigned)W.fw_crc);
-        else
-            s573_log_ext("s573wio: F0 D9 -- reader rebooted into its boot ROM\n");
-    }
-    if (W.n_packets <= 8 || (W.n_packets & 1023) == 0)
-        s573_log_ext("s573wio: packet %u: cmd %02x len %d -> %d bytes, status %04x\n",
-                     W.n_packets, len > 3 ? req[3] : 0, len, n, W.status);
     if (n <= 0) return;                       /* the board does not answer this one */
     spi_uio_cmd_cont(CMD_573_WIO);
     spi_w((uint16_t)(0x2000 | (n & 0x1ff)));
@@ -220,12 +207,7 @@ void s573wio_poll(void)
     uint16_t w0 = wio_status(NULL);
     if (w0 & 0x8000) serve_request(w0);
     else handled_seq = -1;                    /* answered, or the MCU was reset */
-    int busy0 = W.op.active;
     wio_tick(&W, mono_us(), 1);
-    if (busy0 && !W.op.active)
-        s573_log_ext("s573wio: card %s port %d frame %03x x%d -> result %d, status %04x\n",
-                     W.op.write ? "write" : "read", W.op.port + 1, W.op.frame, W.op.count,
-                     W.op.result, W.status);
 
     int f = 1 | (wio_sense(&W) ? 0 : 2);
     if (f != flags_sent) { wio_flags(f); flags_sent = f; }
