@@ -117,9 +117,6 @@ sim/**/build*/run*.log
 /out/
 support/s573/tests/test
 support/s573/tests/test_S573_MUT_*
-support/s573/tests/test_wio
-support/s573/tests/test_glue
-support/s573/tests/build_glue/
 
 # macOS AppleDouble sidecars left by copying the tree from the Mac (2026-09-18)
 ._*
