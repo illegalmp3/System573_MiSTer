@@ -125,6 +125,10 @@ toolchain or delete $TC and re-run setup to extract it." ;;
 stage_graft() {
   [ -f "$MAIN/Makefile" ] || die "run the setup stage first"
   say "grafting support/s573 into the Main tree"
+  # Start from an empty folder: Main's Makefile globs support/*/*.c and *.cpp, so a
+  # file a previous graft left behind (2026-10-25: the removed card reader,
+  # s573wio.cpp / s573_whiteio.c) would still be compiled and linked.
+  rm -rf "$MAIN/support/s573"
   mkdir -p "$MAIN/support/s573"
   cp -f "$PROJ/support/s573/s573mp3.cpp" \
         "$PROJ/support/s573/s573mp3_core.c" "$PROJ/support/s573/s573mp3_core.h" \
