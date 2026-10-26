@@ -5,8 +5,12 @@ SRC      = test_s573mp3_core.c ../s573mp3_core.c ../s573_descramble.c
 MUTS     = S573_MUT_WROTE_MASK15 S573_MUT_FREE_MASK15 S573_MUT_APPLY_NOFLUSH \
            S573_MUT_TAIL_STRICT S573_MUT_NO_WP_GATE S573_MUT_HOLD_SKIP S573_MUT_KEEP_TAIL
 
-all: test
+all: test test_logdir
 	./test
+	./test_logdir
+
+test_logdir: test_s573_logdir.c ../s573_logdir.c ../s573_logdir.h
+	$(CC) $(CFLAGS) test_s573_logdir.c ../s573_logdir.c -o test_logdir
 
 test: $(SRC) ../s573mp3_core.h ../s573_descramble.h
 	$(CC) $(CFLAGS) $(SRC) -o test
@@ -31,6 +35,6 @@ loader: sim_loader.c ../s573mp3_core.c ../s573_descramble.c
 	  && PRELOAD=1 START=0x4077ea STALEWP=0x7044cc ./sim_loader $(MP3) 0
 
 clean:
-	rm -f test test_S573_MUT_* sim_loader
+	rm -f test test_logdir test_S573_MUT_* sim_loader
 
 .PHONY: all mutate loader clean

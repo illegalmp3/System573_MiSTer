@@ -130,6 +130,19 @@ Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-V
 composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
 music together.
 
+## Diagnostic logs
+
+With a file named `s573mp3.debug` in the root of the SD card, `MiSTer_System573` keeps
+a log of every System 573 session in `logs/System573/` on the SD card:
+
+* one file per session, `session-00042.log` (with the date and time in the name when
+  the MiSTer has a clock from the network, e.g. `session-00042_2026-10-25_2017.log`);
+* every line starts with the seconds since that session started;
+* `logs/System573/sessions.txt` lists each session with its game CD and `.sav`;
+* old sessions are deleted only when the folder passes 2 GB (oldest first);
+* a log from before this (`s573mp3.log` in the SD card root) is moved in once as
+  `s573mp3-before-sessions.log`.
+
 ## What this board is
 
 The System 573 is, at its core, a Sony PlayStation:

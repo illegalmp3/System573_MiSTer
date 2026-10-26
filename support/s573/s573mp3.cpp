@@ -57,8 +57,10 @@
 
 #include "../../spi.h"
 #include "../../user_io.h"
+#include "../../menu.h"      /* GetIdx_S: the files Main mounted (CD, .sav) */
 
 #include "s573mp3_core.h"
+#include "s573_logdir.h"
 
 #define MINIMP3_IMPLEMENTATION
 #define MINIMP3_ONLY_MP3          /* Layer III only: smaller and faster */
@@ -108,7 +110,20 @@ static uint64_t            next_due_us = 0;
  * evidence" has burned this project three times; this is what makes the log
  * exist at all. */
 #define S573_DEBUG_FILE  "/media/fat/s573mp3.debug"
-#define S573_LOG_FILE    "/media/fat/s573mp3.log"
+/* 2026-10-25: one file per session under logs/System573, kept until the folder
+ * passes S573_LOG_KEEP_BYTES (oldest sessions go first). The old single
+ * s573mp3.log was cut back to nothing whenever it passed 4 MB -- about an hour of
+ * play -- so the previous day's sessions were gone by the time they were needed.
+ * logs/System573/sessions.txt lists every session: number, clock (when Main has
+ * one from the network; a MiSTer without an RTC board and without network has
+ * none), file, and the game's CD and .sav once Main has mounted them. */
+#define S573_LOG_ROOT        "/media/fat/logs"
+#define S573_LOG_DIR         "/media/fat/logs/System573"
+#define S573_LOG_INDEX       S573_LOG_DIR "/sessions.txt"
+#define S573_LOG_OLD         "/media/fat/s573mp3.log"
+#define S573_LOG_KEEP_BYTES  (2048ull << 20)   /* the whole folder: 2 GB          */
+#define S573_LOG_KEEP_FILES  5000              /* and at most this many sessions  */
+#define S573_LOG_SESSION_MAX (512ull << 20)    /* one session stops logging here  */
 
 static int   opt_hb    = 0;      /* hb=1     state line per second            */
 static int   opt_tone  = 0;      /* tone=1   440 Hz instead of decode          */
@@ -180,6 +195,10 @@ static pthread_mutex_t logq_mx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  logq_cv = PTHREAD_COND_INITIALIZER;
 static pthread_t       logq_thr;
 static int             logq_started = 0;
+static uint64_t        log_bytes = 0;     /* written to this session's file */
+static int             log_capped = 0;
+static uint64_t        log_t0_us = 0;     /* session start, for the line timestamps */
+static unsigned        log_session = 0;
 
 static void *logger_main(void *arg)
 {
@@ -194,9 +213,19 @@ static void *logger_main(void *arg)
         logq_tail++;
         pthread_mutex_unlock(&logq_mx);
 
+        if (logf && log_bytes >= S573_LOG_SESSION_MAX) {
+            /* this session is over its cap: say so once, then drop lines */
+            if (!log_capped) {
+                const char *m = "s573mp3: log: this session reached its size cap -- nothing more is logged\n";
+                fwrite(m, 1, strlen(m), logf); fflush(logf); fsync(fileno(logf));
+                log_capped = 1;
+            }
+            continue;
+        }
         if (logf) {
             uint64_t lt0 = now_us();
             int more;
+            log_bytes += len;
             fwrite(line, 1, len, logf);
             fflush(logf);
             /* fsync when the queue has drained, not per line: a burst of lines costs
@@ -222,7 +251,15 @@ static void s573_log(const char *fmt, ...)
     char line[LOGQ_LINE];
     int n;
     va_start(ap, fmt);
-    n = vsnprintf(line, sizeof line, fmt, ap);
+    {
+        /* every line starts with the seconds since the session started, so a
+         * report ("about four minutes into the credit") can be found in the log */
+        uint64_t t = log_t0_us ? now_us() - log_t0_us : 0;
+        int pre = snprintf(line, sizeof line, "[%6u.%01u] ", (unsigned)(t / 1000000u),
+                           (unsigned)((t / 100000u) % 10u));
+        n = vsnprintf(line + pre, sizeof line - pre, fmt, ap);
+        if (n >= 0) n += pre;
+    }
     va_end(ap);
     if (n < 0) return;
     if (n >= (int)sizeof line) n = (int)sizeof line - 1;
@@ -263,22 +300,79 @@ static void logger_start(void)
     pthread_attr_destroy(&attr);
 }
 
-/* Open the sink BEFORE anything that can fail. Appends, so a later core load
- * cannot erase a 573 run's evidence; truncates only once the file gets large. */
+/* ---- per-session log files (see S573_LOG_DIR, s573_logdir.c) ---- */
+/* Main sets the clock from the network (NTP) when it has one. Before 2024 = none. */
+static int log_clock(char *buf, size_t n, const char *fmt)
+{
+    time_t t = time(NULL);
+    struct tm tm;
+    if (t < 1704067200 || !localtime_r(&t, &tm)) { snprintf(buf, n, "no clock"); return 0; }
+    strftime(buf, n, fmt, &tm);
+    return 1;
+}
+
+static void log_index(const char *fmt, ...)
+{
+    FILE *f = fopen(S573_LOG_INDEX, "a");
+    if (!f) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fflush(f); fsync(fileno(f)); fclose(f);
+}
+
+/* Open the sink BEFORE anything that can fail. A new file per session, so a later
+ * core load cannot erase a 573 run's evidence. */
 static void s573_open_log(void)
 {
-    struct stat st;
-    const char *mode = "a";
+    char clk[40], path[256], name[96];
     if (logf) return;
-    if (!stat(S573_LOG_FILE, &st) && st.st_size > (4 << 20)) mode = "w";
-    logf = fopen(S573_LOG_FILE, mode);
+    mkdir(S573_LOG_ROOT, 0777);
+    mkdir(S573_LOG_DIR, 0777);
+    {   /* the old single log moves in once, so nothing in it is lost */
+        struct stat st;
+        char old[256];
+        snprintf(old, sizeof old, "%s/s573mp3-before-sessions.log", S573_LOG_DIR);
+        if (!stat(S573_LOG_OLD, &st) && stat(old, &st)) rename(S573_LOG_OLD, old);
+    }
+    log_session = s573_logdir_prune(S573_LOG_DIR, S573_LOG_KEEP_BYTES, S573_LOG_KEEP_FILES) + 1;
+    s573_logdir_name(name, sizeof name, log_session, (int64_t)time(NULL));
+    snprintf(path, sizeof path, "%s/%s", S573_LOG_DIR, name);
+    logf = fopen(path, "w");
     if (logf) {
         /* fully buffered: the logger thread hands it whole lines and flushes each */
         setvbuf(logf, NULL, _IOFBF, 8192);
-        fprintf(logf, "\n===== s573mp3 session start =====\n");
+        log_t0_us = now_us();
+        log_clock(clk, sizeof clk, "%Y-%m-%d %H:%M:%S");
+        fprintf(logf, "===== s573mp3 session %u start (clock: %s) =====\n", log_session, clk);
         fflush(logf); fsync(fileno(logf));
+        log_index("session %05u  %-19s  %s\n", log_session, clk, name);
     }
     logger_start();
+}
+
+/* Once per session, when Main has mounted them: which game this session is. */
+static void log_note_game(void)
+{
+    static int cd_done = 0, sav_done = 0;
+    if (!logf) return;
+    if (!cd_done) {
+        const char *cd = GetIdx_S(1);
+        if (cd && *cd) {
+            s573_log("s573mp3: game: CD %s\n", cd);
+            log_index("session %05u  game CD   %s\n", log_session, cd);
+            cd_done = 1;
+        }
+    }
+    if (!sav_done) {
+        const char *sv = GetIdx_S(4);
+        if (sv && *sv) {
+            s573_log("s573mp3: game: save %s\n", sv);
+            log_index("session %05u  game save %s\n", log_session, sv);
+            sav_done = 1;
+        }
+    }
 }
 
 /* key=value lines, '#' comments. Absent file = diagnostics off. */
@@ -1386,6 +1480,7 @@ static void s573mp3_poll_body(void)
     if (!is_573()) return;
     if (gave_up)   return;
     if (!inited && !s573_init()) { gave_up = 1; return; }
+    log_note_game();
 
     t = now_us();
     /* Main's loop period as seen from inside it: the worst gap is how long a CD

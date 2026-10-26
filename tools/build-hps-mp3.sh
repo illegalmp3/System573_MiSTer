@@ -129,6 +129,7 @@ stage_graft() {
   cp -f "$PROJ/support/s573/s573mp3.cpp" \
         "$PROJ/support/s573/s573mp3_core.c" "$PROJ/support/s573/s573mp3_core.h" \
         "$PROJ/support/s573/s573_descramble.c" "$PROJ/support/s573/s573_descramble.h" \
+        "$PROJ/support/s573/s573_logdir.c" "$PROJ/support/s573/s573_logdir.h" \
         "$MAIN/support/s573/"
 
   # The two touch points in Main. Both are discovered, never assumed: if the
