@@ -242,17 +242,6 @@ static void s573_log(const char *fmt, ...)
     pthread_mutex_unlock(&logq_mx);
 }
 
-/* for the other service files (s573wio.cpp) */
-void s573_log_ext(const char *fmt, ...)
-{
-    va_list ap;
-    char line[LOGQ_LINE];
-    va_start(ap, fmt);
-    vsnprintf(line, sizeof line, fmt, ap);
-    va_end(ap);
-    s573_log("%s", line);
-}
-
 static void logger_start(void)
 {
     pthread_attr_t attr;
@@ -1357,7 +1346,6 @@ int s573_sav_cangrow(int index)
 /* ---------------------------------------------------------------- the hook --
  * Register next to mdplus_poll()/psx_poll() in user_io_poll(). */
 static void s573mp3_poll_body(void);
-void s573wio_poll(void);                   /* s573wio.cpp */
 void s573mp3_poll(void)
 {
     uint64_t w0 = now_us();
@@ -1396,9 +1384,6 @@ static void s573mp3_poll_body(void)
     }
 
     if (!is_573()) return;
-    /* White I/O card reader (OSD "573 Card Reader"): its own 1 ms cadence, and
-     * independent of the MP3 transport's init (it needs no /dev/mem) */
-    s573wio_poll();
     if (gave_up)   return;
     if (!inited && !s573_init()) { gave_up = 1; return; }
 

@@ -3,7 +3,6 @@
 // way a PS1 CPU would and checks the peripherals respond through the fabric.
 module tb_system573_top;
     reg clk = 0, rst = 1;
-    reg wio_en = 0; wire wio_req_ready; wire [8:0] wio_req_len;
     reg [23:0] exp1_addr = 0;
     reg [1:0]  exp1_reqsize = 2'b01;   // default lh (pass-through); byte tests set 00
     reg [15:0] exp1_wdata = 0;
@@ -56,11 +55,7 @@ module tb_system573_top;
         .sec_eep_we(1'b0), .sec_eep_addr(10'd0), .sec_eep_din(8'd0),
         .sec_ser_we(1'b0), .sec_ser_addr(3'd0), .sec_ser_din(8'd0),
         // second (install) cassette + restore flag: not used by this bench
-        .sec_eep_zs01_only(1'b0), .sec_inst_sel(1'b0), .sec_inst_type(1'b0), .sec_ieep_we(1'b0), .sec_ieep_addr(10'd0), .sec_ieep_din(8'd0), .sec_iser_we(1'b0), .sec_iser_addr(3'd0), .sec_iser_din(8'd0),
-        // White I/O reader off (the pre-reader core)
-        .wio_en(wio_en), .wio_sense(1'b1), .wio_req_ready(wio_req_ready), .wio_req_len(wio_req_len), .wio_req_seq(),
-        .wio_req_raddr(8'd0), .wio_req_rdata(), .wio_resp_we(1'b0), .wio_resp_waddr(8'd0),
-        .wio_resp_wdata(16'd0), .wio_resp_commit(1'b0), .wio_resp_len(9'd0), .wio_resp_seq(8'd0)
+        .sec_eep_zs01_only(1'b0), .sec_inst_sel(1'b0), .sec_inst_type(1'b0), .sec_ieep_we(1'b0), .sec_ieep_addr(10'd0), .sec_ieep_din(8'd0), .sec_iser_we(1'b0), .sec_iser_addr(3'd0), .sec_iser_din(8'd0)
     );
 
     always #5 clk = ~clk;
@@ -244,35 +239,6 @@ module tb_system573_top;
         repeat (15) @(posedge clk);
         if (bites < 1) begin
             $display("FAIL: watchdog never bit"); errors = errors + 1;
-        end
-
-        // ---- White I/O on: 0x1f680000 / 0x1f400006 / 0x1f400000 bit 8 reach the MCU ----
-        begin : wio_on
-            reg [15:0] a4, a6;
-            exp1_read(24'h400006, a6);
-            if (a6[5:3] !== 3'b001) begin $display("FAIL: wio off: 0x06[5:3] = %b", a6[5:3]); errors = errors + 1; end
-            exp1_write(24'h680000, 16'h01e0);          // off: the write goes nowhere
-            exp1_read(24'h400006, a6);
-            if (a6[5] !== 1'b0) begin $display("FAIL: wio off: JVSDRDY moved"); errors = errors + 1; end
-            wio_en = 1;
-            exp1_write(24'h400000, 16'h0100);          // MCU out of reset (bit 8)
-            exp1_read(24'h400004, a4);
-            if (a4[7:4] !== 4'hc) begin $display("FAIL: wio on: idle nibble %h", a4[7:4]); errors = errors + 1; end
-            exp1_write(24'h680000, 16'h01e0);
-            exp1_read(24'h400006, a6);
-            if (a6[5] !== 1'b1) begin $display("FAIL: wio on: JVSDRDY not set by 0x1f680000"); errors = errors + 1; end
-            repeat (100) @(posedge clk);
-            exp1_read(24'h400006, a6);
-            if (a6[5] !== 1'b0) begin $display("FAIL: wio on: word not consumed"); errors = errors + 1; end
-            exp1_read(24'h400004, a4);
-            if (a4[5:4] !== 2'd2) begin $display("FAIL: wio on: status not 2 mid-packet (%h)", a4[7:4]); errors = errors + 1; end
-            exp1_write(24'h680000, 16'h7102); repeat (100) @(posedge clk);
-            exp1_write(24'h680000, 16'h0074); repeat (100) @(posedge clk);
-            if (!(wio_req_ready && wio_req_len == 9'd5)) begin $display("FAIL: wio on: request not handed to the HPS side"); errors = errors + 1; end
-            exp1_write(24'h400000, 16'h0000);          // MCU reset drops it
-            repeat (4) @(posedge clk);
-            if (wio_req_ready) begin $display("FAIL: wio on: MCU reset kept the request"); errors = errors + 1; end
-            wio_en = 0;
         end
 
         if (errors == 0) $display("RESULT: PASS (system573_top)");

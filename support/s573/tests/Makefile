@@ -5,27 +5,8 @@ SRC      = test_s573mp3_core.c ../s573mp3_core.c ../s573_descramble.c
 MUTS     = S573_MUT_WROTE_MASK15 S573_MUT_FREE_MASK15 S573_MUT_APPLY_NOFLUSH \
            S573_MUT_TAIL_STRICT S573_MUT_NO_WP_GATE S573_MUT_HOLD_SKIP S573_MUT_KEEP_TAIL
 
-all: test wio glue
+all: test
 	./test
-	WIO_DDR4M_EXE=$(WIO_DDR4M_EXE) ./test_wio
-	./test_glue
-
-# White I/O HLE. WIO_DDR4M_EXE=<ddr4m game exe> adds the real upload replay.
-WIO_DDR4M_EXE ?=
-wio: test_s573_whiteio.c ../s573_whiteio.c ../s573_whiteio.h
-	$(CC) $(CFLAGS) test_s573_whiteio.c ../s573_whiteio.c -o test_wio
-
-# s573wio.cpp (Main-side glue) against a mock CMD_573_WIO mailbox. The glue
-# includes "../../spi.h" etc., so it is built from a mirror of Main's layout
-# whose headers are the stubs in glue/.
-CXX ?= g++
-glue: test_s573wio_glue.cpp ../s573wio.cpp ../s573_whiteio.c ../s573_whiteio.h glue/spi.h
-	rm -rf build_glue && mkdir -p build_glue/support/s573
-	cp glue/*.h build_glue/
-	cp ../s573wio.cpp ../s573_whiteio.c ../s573_whiteio.h build_glue/support/s573/
-	$(CC) $(CFLAGS) -c build_glue/support/s573/s573_whiteio.c -o build_glue/wio.o
-	$(CXX) -std=gnu++14 -Wall -Wextra -Wno-unused-parameter -O1 -g -Iglue test_s573wio_glue.cpp \
-	  build_glue/support/s573/s573wio.cpp build_glue/wio.o -o test_glue
 
 test: $(SRC) ../s573mp3_core.h ../s573_descramble.h
 	$(CC) $(CFLAGS) $(SRC) -o test
@@ -50,6 +31,6 @@ loader: sim_loader.c ../s573mp3_core.c ../s573_descramble.c
 	  && PRELOAD=1 START=0x4077ea STALEWP=0x7044cc ./sim_loader $(MP3) 0
 
 clean:
-	rm -rf test test_wio test_glue build_glue test_S573_MUT_* sim_loader
+	rm -f test test_S573_MUT_* sim_loader
 
-.PHONY: all wio glue mutate loader clean
+.PHONY: all mutate loader clean

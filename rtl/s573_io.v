@@ -42,15 +42,6 @@ module s573_io (
     input  wire        adc_do,
     input  wire        adc_sars,
 
-    // ---- JVS host MCU (s573_jvs_mcu) -- used only when jvs_en (OSD "573 Card
-    // Reader" not Off). jvs_en = 0 keeps every bit below exactly as before. ----
-    input  wire        jvs_en,
-    input  wire [3:0]  jvs_nib,        // {error[1:0], status[1:0]} -> 0x1f400004 [7:4]
-    input  wire        jvs_sense,      // 0x1f400006 [3]
-    input  wire        jvs_irdy,       // 0x1f400006 [4]
-    input  wire        jvs_drdy,       // 0x1f400006 [5]
-    input  wire [15:0] jvs_rdata,      // 0x1f40000a
-
     // ---- control-register outputs to the board ----
     output reg         adc_di,
     output reg         adc_cs_n,
@@ -129,9 +120,7 @@ module s573_io (
           1'b1,                   // [12] "Network?" = Off (no network board present)
           2'b00,                  // [11:10]
           2'b00,                  // [9:8]  cassette ADC SARS/DO (absent on a digital cart)
-          jvs_en ? jvs_nib : 4'b1100, // [7:4] H8/18E response nibble = 0xC (h8a01.bin); with
-                                  //       the MCU model: psx-spx's error [7:6] / status [5:4],
-                                  //       which idles at error 3 / status 0 = the same 0xC
+          4'b1100,                // [7:4]  H8/18E response nibble = 0xC (h8a01.bin)
           dip_sw };               // [3:0]  DIP switches
 
     // 0x06 misc inputs
@@ -141,12 +130,11 @@ module s573_io (
           pcmcia_present,         // [11:10]
           coin_sw,                // [9:8]
           sec_drdy, sec_irdy,     // [7:6]
-          jvs_en ? {jvs_drdy, jvs_irdy} : 2'b00,
-                                  // [5:4] JVS rx-ready(.4)/tx-write-ready(.5) = 0: keeps the
+          2'b00,                  // [5:4] JVS rx-ready(.4)/tx-write-ready(.5) = 0: keeps the
                                   //       JVS send+recv timing out like MAME (received_packet()
                                   //       =0 / IPT_UNKNOWN). Do NOT drive .5=1 -- a "send OK"
                                   //       makes the game block on a JVS reply that never comes.
-          jvs_en ? jvs_sense : 1'b1, // [3] JVS port sense = 1 (no JVS I/O board attached; MAME
+          1'b1,                   // [3]   JVS port sense = 1 (no JVS I/O board attached; MAME
                                   //       jvs_sense_r = !address_set_line = 1). The game's I/O
                                   //       detect (flash 0x8017153c) require-1 ENTERs on this; its
                                   //       JVS send then times out -> returns -3 (negative) -> the
@@ -186,7 +174,6 @@ module s573_io (
             4'h4:    dout = r_status;
             4'h6:    dout = r_misc;
             4'h8:    dout = r_jamma;
-            4'ha:    dout = jvs_en ? jvs_rdata : 16'h0000;   // JVS data from the MCU
             4'hc:    dout = r_extra_c;
             4'he:    dout = r_extra_e;
             default: dout = 16'h0000;

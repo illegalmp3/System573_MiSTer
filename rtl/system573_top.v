@@ -237,24 +237,7 @@ module system573_top #(
     output wire [15:0] prof_sectors,
     output wire [15:0] prof_frames,
     output wire [15:0] prof_ide,
-    output wire [15:0] prof_exp1,
-
-    // ---- White I/O memory card reader: the 573's JVS host MCU (s573_jvs_mcu) and
-    // its HPS-side bus (emu.sv -> s573_hps_ext CMD_573_WIO). wio_en = 0 is the
-    // pre-reader core: the MCU sits idle and s573_io reads its old constants. ----
-    input  wire        wio_en,
-    input  wire        wio_sense,          // 1 = no device addressed (JVS sense)
-    output wire        wio_req_ready,
-    output wire [8:0]  wio_req_len,
-    output wire [7:0]  wio_req_seq,
-    input  wire [7:0]  wio_req_raddr,
-    output wire [15:0] wio_req_rdata,
-    input  wire        wio_resp_we,
-    input  wire [7:0]  wio_resp_waddr,
-    input  wire [15:0] wio_resp_wdata,
-    input  wire        wio_resp_commit,
-    input  wire [8:0]  wio_resp_len,
-    input  wire [7:0]  wio_resp_seq
+    output wire [15:0] prof_exp1
 );
     wire access = exp1_we | exp1_re;
 
@@ -533,22 +516,6 @@ module system573_top #(
         .trace_addr(stage_trace_addr), .trace_data(stage_trace_data), .trace_count(stage_trace_count)
     );
 
-    // --- JVS host MCU (H8/3644) model, psx-spx builtin-io.md ---
-    wire        jvs_mcu_rst_n;
-    wire [15:0] jvs_rdata;
-    wire        jvs_irdy, jvs_drdy;
-    wire [1:0]  jvs_status, jvs_err;
-    s573_jvs_mcu u_jvs (
-        .clk(clk), .rst(rst | ~wio_en), .mcu_rst_n(jvs_mcu_rst_n),
-        .wr_data(wio_en & sel_jvsdata & exp1_we), .wdata(exp1_wdata),
-        .clr_irdy(wio_en & sel_jvsclr & exp1_we),
-        .rdata(jvs_rdata), .irdy(jvs_irdy), .drdy(jvs_drdy), .status(jvs_status), .err(jvs_err),
-        .req_ready(wio_req_ready), .req_len(wio_req_len), .req_seq(wio_req_seq),
-        .req_raddr(wio_req_raddr), .req_rdata(wio_req_rdata),
-        .resp_we(wio_resp_we), .resp_waddr(wio_resp_waddr), .resp_wdata(wio_resp_wdata),
-        .resp_commit(wio_resp_commit), .resp_len(wio_resp_len), .resp_seq(wio_resp_seq)
-    );
-
     s573_io u_io (
         .clk(clk), .rst(rst),
         .sel(sel_asic), .off(asic_off),
@@ -564,9 +531,7 @@ module system573_top #(
         .adc_di(adc_di), .adc_cs_n(adc_cs_n), .adc_clk(adc_clk),
         .coin_counter(coin_counter),
         .audio_amp_en(audio_amp_en), .audio_mute(audio_mute),
-        .spu_dac_en(spu_dac_en), .jvs_mcu_rst_n(jvs_mcu_rst_n),
-        .jvs_en(wio_en), .jvs_nib({jvs_err, jvs_status}), .jvs_sense(wio_sense),
-        .jvs_irdy(jvs_irdy), .jvs_drdy(jvs_drdy), .jvs_rdata(jvs_rdata)
+        .spu_dac_en(spu_dac_en), .jvs_mcu_rst_n()
     );
 
     // --- read data mux back to the CPU ---
