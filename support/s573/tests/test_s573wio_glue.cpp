@@ -31,9 +31,9 @@ static int fails = 0;
 static uint32_t st_mode = 0, st_ej1 = 0, st_ej2 = 0;
 uint32_t user_io_status_get(const char *opt, int)
 {
-    if (!strcmp(opt, "[117:116]")) return st_mode;
-    if (!strcmp(opt, "[118]")) return st_ej1;
-    if (!strcmp(opt, "[119]")) return st_ej2;
+    if (!strcmp(opt, "[112:111]")) return st_mode;
+    if (!strcmp(opt, "[113]")) return st_ej1;
+    if (!strcmp(opt, "[114]")) return st_ej2;
     return 0;
 }
 static uint8_t sd_file[2][WIO_CARD_SIZE]; static int sd_size[2] = { 0, 0 }, sd_saves[2] = { 0, 0 };
