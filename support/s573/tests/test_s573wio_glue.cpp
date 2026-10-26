@@ -43,22 +43,6 @@ int FileSave(const char *n, void *b, int s) { int i = fidx(n); memcpy(sd_file[i]
 int FileLoad(const char *n, void *b, int s) { int i = fidx(n); if (!b) return sd_size[i]; if (s > sd_size[i]) return 0; memcpy(b, sd_file[i], (size_t)s); return s; }
 void s573_log_ext(const char *fmt, ...) { va_list ap; va_start(ap, fmt); printf("      | "); vprintf(fmt, ap); va_end(ap); }
 
-/* Main's SD slots: slot 2 = 573 Card 1, slot 3 = 573 Card 2 (CONF_STR SC2/SC3). */
-static fileTYPE img[16];
-static uint8_t img_data[16][WIO_CARD_SIZE + 64]; static int img_writes[16];
-fileTYPE *get_image(int i) { return &img[i]; }
-static int iidx(fileTYPE *f) { return (int)(f - img); }
-int FileSeek(fileTYPE *f, __off64_t o, int) { f->offset = o; return 1; }
-int FileReadAdv(fileTYPE *f, void *b, int n, int) { int i = iidx(f); if (f->offset + n > f->size) return 0; memcpy(b, img_data[i] + f->offset, (size_t)n); f->offset += n; return n; }
-int FileWriteAdv(fileTYPE *f, void *b, int n, int) { int i = iidx(f); memcpy(img_data[i] + f->offset, b, (size_t)n); f->offset += n; img_writes[i]++; return n; }
-static void mount(int slot, const char *name, int size, uint8_t fill)
-{
-    img[slot].filp = (void *)1; img[slot].size = size; img[slot].offset = 0;
-    snprintf(img[slot].name, sizeof(img[slot].name), "%s", name);
-    memset(img_data[slot], fill, sizeof(img_data[slot]));
-}
-static void unmount(int slot) { img[slot].filp = 0; img[slot].size = 0; img[slot].name[0] = 0; }
-
 /* ---- mock fabric ---- */
 static uint16_t req[132]; static int req_ready = 0, req_len = 0; static uint8_t req_seq = 0;
 static uint8_t resp[264]; static int resp_len = 0, resp_got = 0;
@@ -184,37 +168,6 @@ int main(void)
     X(1, 0x76); st_ej1 = 0; idle(5);
     X(1, 0x74, 0x00, 0x3f, 0x02, 0x00, 0x00, 0x00, 0x01); idle(40);
     CHECK(st71() == 0x0000, "re-inserted: FLAG back to 08h -> 0000 (a game sees the card change)");
-
-    printf("-- G5 OSD-mounted card files (.sav / .mcd in slots 2/3)\n");
-    mount(2, "DDR Extra Mix (Japan).sav", WIO_CARD_SIZE, 0x5a);
-    img_data[2][0x3f * 128] = 0x11;
-    idle(5);
-    X(1, 0x76);
-    X(1, 0x74, 0x00, 0x3f, 0x02, 0x00, 0x00, 0x00, 0x01); idle(40);
-    CHECK(st71() == 0x0000, "mounted file: card 1 swapped in as a new card (FLAG 08h)");
-    X(1, 0x70, 0x00, 0x02, 0x00, 0x00, 0x80);
-    CHECK(resp_len == 4 + 130 && resp[5] == 0x11 && resp[6] == 0x5a, "card 1 reads the mounted file, not memcard1.mcd");
-    {
-        uint8_t pl[6 + 128] = { 0x70, 0x01, 0x03, 0x00, 0x00, 0x80 };
-        for (int j = 0; j < 128; j++) pl[6 + j] = (uint8_t)(0x90 + j);
-        xact(1, pl, sizeof(pl), 50);
-    }
-    int saves0 = sd_saves[0];
-    X(1, 0x75, 0x03, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01); idle(60);
-    idle(700);
-    CHECK(img_writes[2] >= 1 && img_data[2][0x10 * 128] == 0x90 && img_data[2][0x10 * 128 + 127] == (uint8_t)(0x90 + 127),
-          "write lands in the mounted file");
-    CHECK(sd_saves[0] == saves0, "memcard1.mcd untouched while a file is mounted");
-    mount(3, "bad.mcd", 3904 + WIO_CARD_SIZE, 0);
-    idle(5);
-    X(1, 0x76);
-    X(1, 0x74, 0x80, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01); idle(40);
-    CHECK(st71() == 0x0008, "a file that is not a raw 128 KB card: card 2 absent");
-    unmount(3); unmount(2); idle(5);
-    X(1, 0x76);
-    X(1, 0x74, 0x00, 0x3f, 0x02, 0x00, 0x00, 0x00, 0x01); idle(40);
-    X(1, 0x70, 0x00, 0x02, 0x00, 0x00, 0x80);
-    CHECK(resp[5] == 0x40, "unmounted: card 1 is memcard1.mcd again (frame 3F as written in G3)");
 
     printf("-- G4 off again: flags cleared\n");
     st_mode = 0; idle(5);

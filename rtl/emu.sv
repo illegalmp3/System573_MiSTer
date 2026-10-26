@@ -460,15 +460,6 @@ parameter CONF_STR = {
 	"O[117:116],573 Card Reader,Off,Virtual cards,SNAC cards;",
 	"O[118],573 Card 1,Inserted,Ejected;",
 	"O[119],573 Card 2,Inserted,Ejected;",
-	// 573 Card 1/2 File (2026-10-25): which raw 128 KB PS1 card image backs each
-	// virtual card -- .mcd, the PSX core's .sav, .mcr. Main's SD slots 2/3 (freed when
-	// the PSX core's memory card mounts went, 2026-10-24); the fabric never reads them:
-	// MiSTer_System573 reads and writes the card through the file Main holds open
-	// (support/s573/s573wio.cpp). The browser opens in saves/System573 (Main's
-	// is_psx() rule for slots 2/3); "C" makes Main remember the choice for the next
-	// launch. Nothing mounted = saves/System573/memcard1.mcd / memcard2.mcd.
-	"SC2,MCDSAVMCR,573 Card 1 File;",
-	"SC3,MCDSAVMCR,573 Card 2 File;",
 	// MDEC TIMING (diagnostic, 2026-09-17). psx/rtl/mdec.vhd waits 2171 clk between
 	// macroblocks in 15-bit output mode and 10 in every other depth. That asymmetry
 	// is not a measured hardware figure -- it came in upstream as "reduce decoding
