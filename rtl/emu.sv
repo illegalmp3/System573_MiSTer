@@ -306,8 +306,12 @@ wire download_settle_hold = (settle_cnt != 0);
 // saver_saving are declared with the saver wiring below; both 0 outside a
 // save/load, so this term is inert except during a restore.)
 wire flash_loading = saver_busy & ~saver_saving;
+// ...and from the moment a non-empty save is mounted until its restore has run to
+// the end (flash_restored, below). This covers the cycles between a reset that aborted
+// a restore and the restore starting again (2026-10-25, sim S6), and any arming gap.
+wire flash_restore_hold;
 
-wire reset_or = RESET | buttons[1] | status[0] | bios_download | exe_download | flash_download | nvram_download | seceep_download | secser_download | download_settle_hold | cdDownloadReset | flash_loading;
+wire reset_or = RESET | buttons[1] | status[0] | bios_download | exe_download | flash_download | nvram_download | seceep_download | secser_download | download_settle_hold | cdDownloadReset | flash_loading | flash_restore_hold;
 
 ////////////////////////////  HPS I/O  //////////////////////////////////
 
@@ -2218,6 +2222,16 @@ reg  flash_load_taken = 1'b0;
 wire flash_load_arm = flash_save_mounted && (flash_save_size > 0)
                       && ~flash_download && ~download_settle_hold
                       && ~flash_load_taken;
+// flash_restored: the restore of the CURRENT mount ran to its last block (see the
+// always block below). Until it has, nothing may be written to the mounted file:
+// the SDRAM flash, the cassette and the timekeeper do not hold the file's contents
+// yet, so any SAVE -- the OSD-open auto-save, "Save Flash", the install auto-save,
+// the timekeeper's partial save -- would replace the user's install with them.
+// "Erase Flash Save" stays available (it is a deliberate wipe).
+reg  flash_restored = 1'b0;
+reg  loading_d      = 1'b0;
+wire sav_writes_ok  = ~flash_save_mounted | flash_restored;
+assign flash_restore_hold = flash_save_mounted & (flash_save_size[63:10] != 54'd0) & ~flash_restored;   // >= 1 block: a shorter file is never loaded (the saver refuses 0 blocks)
 
 // Card presence from the save itself (see the card_en declaration). tools/stage_573.py
 // sizes a card title's .sav at exactly 48 MiB and every other title's at 16 MiB, so the
@@ -2316,6 +2330,25 @@ always @(posedge clk_1x) begin
    if (flash_load_arm && saver_busy && ~saver_saving)
       flash_load_taken <= 1'b1;
 
+   // RESTORE COMPLETION (2026-10-25, ddrextrm ERROR 175). A LOAD that ends with the
+   // saver's busy dropping while saver_reset is LOW ran to its last block: the mounted
+   // file is now in SDRAM, the cassette and the timekeeper. Any other end is an ABORT --
+   // saver_reset includes status[0] (the OSD "Reset"), and a Reset pressed during the
+   // ~25 s boot-time restore stopped it. `taken` stayed set, so the restore never ran
+   // again: the CPU booted off whatever the SDRAM held from the previous session (that
+   // boot said PCCARD2 was not installed), with the pristine .u1 in the cassette and an
+   // empty timekeeper -- and the timekeeper's partial save then wrote exactly that over
+   // the .sav's cassette and timekeeper blocks. The next boot restored the damaged file
+   // and the launcher answered ERROR 175 (cassette not matching the machine).
+   loading_d <= flash_loading;
+   if (loading_d & ~flash_loading & ~saver_reset & flash_load_taken)
+      flash_restored <= 1'b1;
+   // an aborted restore re-arms (the saver is idle once its reset clears, and the CPU
+   // stays held by flash_loading while the restore runs again)
+   if (saver_reset & flash_load_taken & ~flash_restored)
+      flash_load_taken <= 1'b0;
+   if (img_mounted[4]) flash_restored <= 1'b0;   // a new mount must be restored first
+
    // ORDERING FIX (2026-07-31): an index-2 flash download rewrites the ENTIRE 16 MB image,
    // so it INVALIDATES any restore that already ran -- re-arm and let the load run again
    // once the download + settle hold clear. The original one-shot assumed the slot-4 mount
@@ -2331,11 +2364,14 @@ always @(posedge clk_1x) begin
    // Same for the cassette .u1 (index 4): it overwrites any cassette state a LOAD
    // already restored, so the LOAD must run (again) after it.
    // And the timekeeper .22h (index 3): same reason, same fix (2026-09-28).
-   if (flash_download | seceep_download | nvram_download) flash_load_taken <= 1'b0;
+   if (flash_download | seceep_download | nvram_download) begin
+      flash_load_taken <= 1'b0;
+      flash_restored   <= 1'b0;
+   end
 
    // edge -> 1-cycle save pulse. Saving clears dirty so a single OSD open does
    // not re-save unchanged flash on the next open.
-   if ((~old_sflash & bk_save_flash) | (~old_sflash_a & bk_save_flash_a)) begin
+   if (((~old_sflash & bk_save_flash) | (~old_sflash_a & bk_save_flash_a)) & sav_writes_ok) begin
       flash_save_trigger <= 1'b1;
       flash_dirty        <= 1'b0;
    end
@@ -2361,8 +2397,8 @@ s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .reset        (saver_reset),
    .save_trigger (flash_save_trigger),
    .erase_trigger(flash_erase_trigger),
-   .flash_wr_ack (saver_activity),     // install-activity strobe (flash OR cassette write) -> arms the auto-save
-   .autosave_en  (~status[99]),        // OSD "Auto Save Install" (default On; status[99]=0)
+   .flash_wr_ack (saver_activity & sav_writes_ok),  // install-activity strobe (flash OR cassette write) -> arms the auto-save
+   .autosave_en  (~status[99] & sav_writes_ok),     // OSD "Auto Save Install" (default On; status[99]=0)
    .auto_saved   (saver_auto_saved),   // 1-cycle: self-fired auto-save completed
    .save_done    (saver_save_done),    // 1-cycle: a SAVE completed (toast)
    .erase_done   (saver_erase_done),   // 1-cycle: an ERASE completed (toast)
@@ -2377,7 +2413,7 @@ s573_flash_saver #(.NUM_BLOCKS(16384)) u_flash_saver (
    .xtra_wr_addr (xtra_wr_addr),
    .xtra_wr_word (xtra_wr_word),
    .xtra_wr_ack  (xtra_wr_ack),
-   .part_trigger (tk_save_req),
+   .part_trigger (tk_save_req & sav_writes_ok),   // not before the restore (flash_restored)
    .part_skip    (4'd0),               // rewrite the cassette block too (its dump port is a pure read); a legacy file with no cassette block then grows contiguously
    .part_started (saver_part_started),
    .part_done    (saver_part_done),

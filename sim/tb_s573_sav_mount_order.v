@@ -42,11 +42,20 @@
 //   S4 the fixed order with the bookmark == the own .sav     -> image == own .sav
 //   S5 the old order with the bookmark == the own .sav       -> image == own .sav
 //      (why relaunching one title always worked)
+//   S6 (2026-10-25, ddrextrm ERROR 175) the fixed order, and the user presses the OSD
+//      "Reset" (status[0], a saver_reset term) while the boot-time restore runs; once
+//      the CPU is out of reset the game writes the timekeeper, whose partial save
+//      (part_trigger) follows.                                -> the restore must run
+//      again to the end, the CPU must stay held until it has, and nothing may be
+//      written to the file before it has (sd_wr only after the restore).
 // Every scenario also asserts: no SAVE ran (sd_wr never rose -- neither file is
 // ever written during a launch) and the CPU was held in reset (flash_loading or a
 // download/settle term) until the final restore finished.
 //
-// RED/GREEN: default -> S1 must show the mix, S2..S5 must be clean -> PASS.
+// RED/GREEN: default -> S1 must show the mix, S2..S6 must be clean -> PASS.
+//   -DNO_RESTORE_GUARD : the emu.sv arming logic as it was before 2026-10-25 (no
+//                    flash_restored) -> S6 must FAIL: the restore is never re-run and
+//                    the partial save writes the un-restored state over the file.
 //   -DMGL_SAV_LAST : S2/S3/S4 use the OLD order -> S2 and S3 mix -> FAIL (proves the
 //                    bench can see the defect in the scenario the fix is for).
 // =============================================================================
@@ -71,6 +80,8 @@ module tb_s573_sav_mount_order;
     reg  [4:0]  img_mounted    = 5'd0;
     reg  [63:0] img_size       = 64'd0;
     reg         button2        = 1'b0;     // the .mgl reset item (CPU only)
+    reg         osd_reset      = 1'b0;     // status[0], the OSD "Reset" (CPU AND saver)
+    reg         tk_save_req    = 1'b0;     // u_tk_nv save_req: the game wrote the timekeeper
     integer     mounted_file   = 0;        // 0 none, 1 = bookmark file A, 2 = own file B
     reg         cd_mount_rst   = 1'b0;     // stands in for cdDownloadReset (CPU only)
 
@@ -97,7 +108,8 @@ module tb_s573_sav_mount_order;
 
     wire saver_busy, saver_saving;
     wire flash_loading = saver_busy & ~saver_saving;
-    wire reset_or = RESET | button2 | bios_download | exe_download | flash_download | nvram_download | seceep_download | secser_download | download_settle_hold | cd_mount_rst | flash_loading;
+    wire flash_restore_hold;
+    wire reset_or = RESET | button2 | osd_reset | bios_download | exe_download | flash_download | nvram_download | seceep_download | secser_download | download_settle_hold | cd_mount_rst | flash_loading | flash_restore_hold;
 
     reg        flash_save_mounted = 1'b0;
     reg [63:0] flash_save_size    = 64'd0;
@@ -105,13 +117,23 @@ module tb_s573_sav_mount_order;
     wire flash_load_arm = flash_save_mounted && (flash_save_size > 0)
                           && ~flash_download && ~download_settle_hold
                           && ~flash_load_taken;
+    reg  flash_restored = 1'b0;
+    reg  loading_d      = 1'b0;
+`ifdef NO_RESTORE_GUARD
+    wire sav_writes_ok  = 1'b1;
+    assign flash_restore_hold = 1'b0;
+`else
+    wire sav_writes_ok  = ~flash_save_mounted | flash_restored;
+    assign flash_restore_hold = flash_save_mounted & (flash_save_size[63:10] != 54'd0) & ~flash_restored;   // >= 1 block: a shorter file is never loaded (the saver refuses 0 blocks)
+`endif
     wire card_from_save = flash_save_mounted && (flash_save_size >= TOT * 1024);   // HW 64'd50331648
     wire card_en = card_from_save;
-    wire [3:0]  xtra_blocks = 4'd0;
+    wire [3:0]  xtra_blocks = 4'd1;      // one extra block, so a partial save has something to write
     wire [31:0] saver_save_blocks = (card_en ? TOT : NUM_BLOCKS) + {28'd0, xtra_blocks};   // HW 49152 : 16384
     wire [31:0] saver_file_blocks = flash_save_size[41:10];
     wire [31:0] saver_load_blocks = (saver_file_blocks > saver_save_blocks)
                                     ? saver_save_blocks : saver_file_blocks;
+    wire saver_reset = RESET | osd_reset | flash_download | seceep_download | nvram_download;
     always @(posedge clk) begin
         if (img_mounted[4]) begin
             flash_load_taken <= 1'b0;
@@ -125,9 +147,19 @@ module tb_s573_sav_mount_order;
         end
         if (flash_load_arm && saver_busy && ~saver_saving)
             flash_load_taken <= 1'b1;
-        if (flash_download | seceep_download | nvram_download) flash_load_taken <= 1'b0;
+`ifndef NO_RESTORE_GUARD
+        loading_d <= flash_loading;
+        if (loading_d & ~flash_loading & ~saver_reset & flash_load_taken)
+            flash_restored <= 1'b1;
+        if (saver_reset & flash_load_taken & ~flash_restored)
+            flash_load_taken <= 1'b0;
+        if (img_mounted[4]) flash_restored <= 1'b0;
+`endif
+        if (flash_download | seceep_download | nvram_download) begin
+            flash_load_taken <= 1'b0;
+            flash_restored   <= 1'b0;
+        end
     end
-    wire saver_reset = RESET | flash_download | seceep_download | nvram_download;   // HW: | status[0]
 
     // ---------------------------------------------------------------- the DUT
     wire        sd_rd, sd_wr;
@@ -141,14 +173,17 @@ module tb_s573_sav_mount_order;
     wire [15:0] wr_data;
     reg         wr_ack = 1'b0;
 
+    wire xrd_req, xwr_req;
+    reg  xrd_ack = 1'b0, xwr_ack = 1'b0;
+    always @(posedge clk) begin xrd_ack <= xrd_req; xwr_ack <= xwr_req; end
     s573_flash_saver #(.NUM_BLOCKS(NUM_BLOCKS), .CARD_BLOCKS(CARD_BLOCKS), .AUTOSAVE_THRESH(1000000)) dut (
         .clk(clk), .reset(saver_reset),
         .save_trigger(1'b0), .erase_trigger(1'b0), .flash_wr_ack(1'b0), .autosave_en(1'b1), .auto_saved(),
         .save_done(), .erase_done(),
         .load_arm(flash_load_arm), .card_en(card_en),
-        .xtra_blocks(xtra_blocks), .xtra_rd_req(), .xtra_rd_addr(), .xtra_rd_word(16'd0), .xtra_rd_ack(1'b0),
-        .xtra_wr_req(), .xtra_wr_addr(), .xtra_wr_word(), .xtra_wr_ack(1'b0),
-        .part_trigger(1'b0), .part_skip(4'd0), .part_started(), .part_done(),
+        .xtra_blocks(xtra_blocks), .xtra_rd_req(xrd_req), .xtra_rd_addr(), .xtra_rd_word(16'h7777), .xtra_rd_ack(xrd_ack),
+        .xtra_wr_req(xwr_req), .xtra_wr_addr(), .xtra_wr_word(), .xtra_wr_ack(xwr_ack),
+        .part_trigger(tk_save_req & sav_writes_ok), .part_skip(4'd0), .part_started(), .part_done(),
         .load_blocks(saver_load_blocks),
         .busy(saver_busy), .saving(saver_saving),
         .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_lba(sd_lba), .sd_ack(sd_ack),
@@ -183,12 +218,25 @@ module tb_s573_sav_mount_order;
     // Served from the file mounted WHEN THE BLOCK IS SERVED (Main reads sd_image[4]).
     integer served_from_a = 0, served_from_b = 0, served_total = 0;
     integer lba_l, ra, f_srv;
-    integer sd_wr_seen = 0;
-    always @(posedge clk) if (sd_wr) sd_wr_seen = sd_wr_seen + 1;
+    integer sd_wr_seen = 0, sd_wr_early = 0;
+    reg     restore_done_seen = 1'b0;    // set by the scenario once the image is final
+    always @(posedge clk) if (sd_wr) begin
+        sd_wr_seen = sd_wr_seen + 1;
+        if (!restore_done_seen) sd_wr_early = sd_wr_early + 1;
+    end
     initial begin
         forever begin
             @(posedge clk);
-            if (sd_rd && !sd_ack) begin
+            if (sd_wr && !sd_ack) begin
+                // a SAVE block: Main reads the 512 words out and writes the file
+                repeat (SD_LAT / 4) @(posedge clk);
+                @(negedge clk); sd_ack = 1;
+                for (ra = 0; ra < WPB; ra = ra + 1) begin
+                    @(negedge clk); sd_buff_addr = ra[8:0];
+                    @(posedge clk);
+                end
+                @(negedge clk); sd_ack = 0;
+            end else if (sd_rd && !sd_ack) begin
                 lba_l = sd_lba;
                 repeat (SD_LAT) @(posedge clk);
                 f_srv = mounted_file;
@@ -321,6 +369,77 @@ module tb_s573_sav_mount_order;
         end
     endtask
 
+    // ------------------------------------------------ S6: OSD Reset during the restore
+    function image_is_b(input integer dummy);
+        integer bb, ww;
+        begin
+            image_is_b = 1;
+            for (bb = 0; bb < TOT; bb = bb + 1)
+                for (ww = 0; ww < WPB; ww = ww + 1)
+                    if (sdram[bb * WPB + ww] !== file_word(2, bb, ww)) image_is_b = 0;
+        end
+    endfunction
+    integer wr_bad = 0, rel_bad = 0, rel_cnt = 0;
+    reg sd_wr_d = 1'b0, rst_d6 = 1'b1, s6_on = 1'b0, s6_after = 1'b0;   // s6_after: the OSD Reset has happened
+    always @(posedge clk) begin
+        sd_wr_d <= sd_wr; rst_d6 <= reset_or;
+        if (s6_on && sd_wr && !sd_wr_d && !image_is_b(0)) wr_bad = wr_bad + 1;
+        if (s6_on && s6_after && rst_d6 && !reset_or) begin   // the boot after the Reset
+            rel_cnt = rel_cnt + 1;
+            if (!image_is_b(0)) rel_bad = rel_bad + 1;
+        end
+    end
+    task launch_osd_reset(input [8*40-1:0] name);
+        begin
+            for (blk = 0; blk < TOT * WPB; blk = blk + 1) sdram[blk] = 16'h5555;
+            served_from_a = 0; served_from_b = 0; served_total = 0; sd_wr_seen = 0; releases = 0;
+            wr_bad = 0; rel_bad = 0; rel_cnt = 0; s6_after = 1'b0;
+            mounted_file = 0; img_size = 0;
+            RESET = 1'b1; repeat (20) @(negedge clk); RESET = 1'b0;
+            s6_on = 1'b1;
+            mount4(2);                     // the bookmark = this title's own .sav
+            download(0, 2);                // boot.rom autoload
+            mgl_new;
+            // the restore is running: the user presses Reset in the OSD 3 s into it
+            while (!(saver_busy && !saver_saving)) @(posedge clk);
+            wait_s(30);
+            @(negedge clk); osd_reset = 1'b1; s6_after = 1'b1; wait_s(2); @(negedge clk); osd_reset = 1'b0;
+            // the CPU leaves reset; 1 s later the game writes the timekeeper and
+            // u_tk_nv asks for its partial save (save_req is a level until started)
+            while (reset_or) @(posedge clk);
+            wait_s(10);
+            @(negedge clk); tk_save_req = 1'b1; wait_s(1); @(negedge clk); tk_save_req = 1'b0;
+            // a request that was refused because the restore had not finished comes
+            // again (u_tk_nv's 30 s age limit); give everything time to finish
+            wait_s(40);
+            while (saver_busy || download_settle_hold || reset_or) @(posedge clk);
+            @(negedge clk); tk_save_req = 1'b1; wait_s(1); @(negedge clk); tk_save_req = 1'b0;
+            wait_s(10);
+            while (saver_busy) @(posedge clk);
+            wait_s(5);
+            s6_on = 1'b0;
+            $display("  %0s: blocks served B=%0d; image==own .sav: %0d; CPU releases after the Reset=%0d (%0d before the image was complete); writes=%0d (%0d before the image was complete)",
+                     name, served_from_b, image_is_b(0), rel_cnt, rel_bad, sd_wr_seen, wr_bad);
+            if (!image_is_b(0)) begin
+                $display("  FAIL %0s: the restore never completed -- the image is not the launcher's own .sav", name); errors = errors + 1;
+            end
+            if (rel_bad != 0) begin
+                $display("  FAIL %0s: the CPU ran before the restore finished", name); errors = errors + 1;
+            end
+            if (wr_bad != 0) begin
+                $display("  FAIL %0s: the file was written before the restore finished (the un-restored state replaced the install)", name); errors = errors + 1;
+            end
+            if (sd_wr_seen == 0) begin
+                $display("  FAIL %0s: the timekeeper's partial save never ran after the restore", name); errors = errors + 1;
+            end
+            if (image_is_b(0) && rel_bad == 0 && wr_bad == 0 && sd_wr_seen != 0)
+                $display("  ok   %0s: the restore ran again to the end, the CPU waited for it, the partial save came after it", name);
+            if (reset_or) begin
+                $display("  FAIL %0s: CPU still held in reset at the end", name); errors = errors + 1;
+            end
+        end
+    endtask
+
     initial begin
         $display("tb_s573_sav_mount_order: %0d blocks (%0d onboard + %0d card), 1 s = %0d cycles, %0d cycles/block",
                  TOT, NUM_BLOCKS, CARD_BLOCKS, SEC, BLK_CYC);
@@ -337,6 +456,7 @@ module tb_s573_sav_mount_order;
         launch("S4 new order, same bookmark",         2, 1, 1, 0);
 `endif
         launch("S5 old order, same bookmark",         2, 1, 0, 0);
+        launch_osd_reset("S6 OSD Reset during the restore");
         if (errors == 0) $display("RESULT: PASS");
         else             $display("RESULT: FAIL (%0d)", errors);
         $finish;

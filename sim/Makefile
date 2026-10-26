@@ -291,6 +291,11 @@ SAVER_UNGATED_BUFF_WR ?=
 # title's .sav) and the image comes out mixed -- RED under the define, GREEN by default
 # (docs/2026-09-29-sav-mount-order.md).
 MGL_SAV_LAST ?=
+# NO_RESTORE_GUARD=1: tb_s573_sav_mount_order runs the emu.sv arming logic as it was
+# before 2026-10-25 (no flash_restored): an OSD Reset during the boot-time restore stops
+# it for good and the timekeeper's partial save then writes the un-restored cassette and
+# timekeeper over the .sav (ddrextrm ERROR 175). S6 is RED under the define, GREEN by default.
+NO_RESTORE_GUARD ?=
 HPS_EXT_WIDE_DELTA ?=
 DEFS :=
 ifeq ($(HPS_EXT_WIDE_DELTA),1)
@@ -319,6 +324,9 @@ DEFS += -DSAVER_UNGATED_BUFF_WR
 endif
 ifeq ($(MGL_SAV_LAST),1)
 DEFS += -DMGL_SAV_LAST
+endif
+ifeq ($(NO_RESTORE_GUARD),1)
+DEFS += -DNO_RESTORE_GUARD
 endif
 ifeq ($(PCM_NO_PAUSE_HOLD),1)
 DEFS += -DPCM_NO_PAUSE_HOLD
