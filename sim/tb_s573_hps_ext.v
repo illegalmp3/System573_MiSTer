@@ -75,6 +75,17 @@ module tb_s573_hps_ext;
     reg  [15:0] pc_samples = 0, pc_ram_hi = 0, pc_bios = 0, pc_other = 0;
     always @(posedge clk) pc_data <= pc_bins[pc_addr];
 
+    wire        wio_stb;
+    wire [9:0]  wio_idx;
+    wire [15:0] wio_din;
+    integer     wio_n = 0;
+    reg  [9:0]  wio_log_idx [0:7];
+    reg  [15:0] wio_log_din [0:7];
+    always @(posedge clk) if (wio_stb) begin
+        if (wio_n < 8) begin wio_log_idx[wio_n] = wio_idx; wio_log_din[wio_n] = wio_din; end
+        wio_n = wio_n + 1;
+    end
+
     s573_hps_ext dut (
         .clk_sys(clk), .rst(tb_rst), .EXT_BUS(EXT_BUS), .heartbeat(heartbeat),
         .fab_pcm_rd(fab_pcm_rd), .hps_pcm_wr(hps_pcm_wr),
@@ -85,6 +96,7 @@ module tb_s573_hps_ext;
         .status_flags(status_flags), .underrun_cnt(underrun_cnt), .buf_level(buf_level), .stage_dbg(48'h0), .stage_trace_addr(), .stage_trace_data(16'h0), .stage_trace_count(8'd0),
         .pcprof_addr(pc_addr), .pcprof_data(pc_data), .pcprof_samples(pc_samples),
         .pcprof_ram_hi(pc_ram_hi), .pcprof_bios(pc_bios), .pcprof_other(pc_other),
+        .wio_stb(wio_stb), .wio_idx(wio_idx), .wio_din(wio_din), .wio_dout({8'hA5, wio_idx[7:0]}),
         .ctrl_flags(ctrl_flags), .dec_frame_sync(dec_frame_sync),
         .dec_frame_idle(dec_frame_idle), .evt_ovf(evt_ovf)
     );
@@ -209,8 +221,8 @@ module tb_s573_hps_ext;
         chk(dut_en == 0,            "P2 boundary 0x67: not claimed");
         spi_end;
         spi_begin;
-        spi_word(16'h006F, r0);     // one above CMD_573_PCPROF (the new top)
-        chk(dut_en == 0,            "P2 boundary 0x6F: not claimed");
+        spi_word(16'h0070, r0);     // one above CMD_573_WIO (the new top)
+        chk(dut_en == 0,            "P2 boundary 0x70: not claimed");
         spi_end;
         spi_begin;
         spi_word(16'h0033, r0);     // one below CD_GET
@@ -629,12 +641,17 @@ module tb_s573_hps_ext;
         spi_begin;
         @(negedge clk); tb_din = 16'h006E; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 1,            "P11: dout_en asserted for 0x6E (CMD_573_PCPROF, the new top)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6E (CMD_573_PCPROF)");
         spi_end;
         spi_begin;
         @(negedge clk); tb_din = 16'h006F; tb_strobe = 1;
         @(negedge clk); tb_strobe = 0; @(negedge clk);
-        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x6F (one past the range)");
+        chk(dut_en == 1,            "P11: dout_en asserted for 0x6F (CMD_573_WIO, the new top)");
+        spi_end;
+        spi_begin;
+        @(negedge clk); tb_din = 16'h0070; tb_strobe = 1;
+        @(negedge clk); tb_strobe = 0; @(negedge clk);
+        chk(dut_en == 0,            "P11: dout_en STAYS LOW for 0x70 (one past the range)");
         spi_end;
 
         // ---------- P12: CMD_573_PCPROF (0x6E) -- PC profile read-out ----------
@@ -672,6 +689,26 @@ module tb_s573_hps_ext;
         spi_word(16'h0000, r2); chk(r2 == 16'h1000, "P12 PCPROF second dump: bin 0");
         spi_word(16'h0000, r2); chk(r2 == 16'h1003, "P12 PCPROF second dump: bin 1");
         spi_end;
+
+        // ---------- P13: CMD_573_WIO (0x6F) -- every word goes to the reader ----------
+        // The reader model answers {A5, idx} and logs each strobe: the HPS must get
+        // the answer to word k on word k, and the reader must see word k's data
+        // with idx k -- including word 0, the command word itself.
+        wio_n = 0;
+        spi_begin;
+        spi_word(16'h006F, r0); chk(r0 == 16'hA500, "P13 WIO word0: the reader's answer to idx 0");
+        spi_word(16'h0601, r1); chk(r1 == 16'hA501, "P13 WIO word1: answer to idx 1");
+        spi_word(16'h1234, r2); chk(r2 == 16'hA502, "P13 WIO word2: answer to idx 2");
+        spi_end;
+        chk(wio_n == 3, "P13 WIO: three strobes reached the reader");
+        chk(wio_log_idx[0] == 0 && wio_log_din[0] == 16'h006F, "P13 WIO: strobe 0 = the command word, idx 0");
+        chk(wio_log_idx[1] == 1 && wio_log_din[1] == 16'h0601, "P13 WIO: strobe 1, idx 1");
+        chk(wio_log_idx[2] == 2 && wio_log_din[2] == 16'h1234, "P13 WIO: strobe 2, idx 2");
+        // other commands never strobe the reader
+        wio_n = 0;
+        spi_begin; spi_word(16'h0069, r0); spi_word(16'h0000, r1); spi_end;
+        naked_strobe(16'h006F);
+        chk(wio_n == 0, "P13 WIO: no strobe for STATUS or a strobe outside a transaction");
 
         if (errors == 0) $display("RESULT: PASS (s573_hps_ext)");
         else             $display("RESULT: FAIL (s573_hps_ext, %0d errors)", errors);

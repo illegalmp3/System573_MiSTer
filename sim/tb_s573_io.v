@@ -16,6 +16,10 @@ module tb_s573_io;
     reg [7:0]  sec_in = 8'hE7;
     reg        sec_io0 = 1, sec_irdy = 1, sec_drdy = 0;
     reg        adc_do = 1, adc_sars = 0;
+    // the JVS MCU as s573_jvs_mcu presents it with the reader Off
+    reg [1:0]  jvs_status = 2'd0, jvs_error = 2'd3;
+    reg        jvs_irdy = 0, jvs_drdy = 0, jvs_sense = 1;
+    reg [15:0] jvs_rdata = 16'h0000;
 
     wire adc_di, adc_cs_n, adc_clk;
     wire [1:0] coin_counter;
@@ -31,6 +35,8 @@ module tb_s573_io;
         .pcmcia_present(pcmcia_present),
         .sec_in(sec_in), .sec_io0(sec_io0), .sec_irdy(sec_irdy), .sec_drdy(sec_drdy),
         .adc_do(adc_do), .adc_sars(adc_sars),
+        .jvs_status(jvs_status), .jvs_error(jvs_error), .jvs_irdy(jvs_irdy),
+        .jvs_drdy(jvs_drdy), .jvs_sense(jvs_sense), .jvs_rdata(jvs_rdata),
         .adc_di(adc_di), .adc_cs_n(adc_cs_n), .adc_clk(adc_clk),
         .coin_counter(coin_counter), .audio_amp_en(audio_amp_en),
         .audio_mute(audio_mute), .spu_dac_en(spu_dac_en),
@@ -174,6 +180,16 @@ module tb_s573_io;
             rd_reg(4'he, r); chk(r ^ b0e, 16'h0000, "panel !IN3hi");
             p1_ctrl = 8'h5A; #1;                               // restore
         end
+
+        // --- JVS MCU routing (reader On): psx-spx 0x1f400004 [5:4] status, [7:6] error;
+        //     0x1f400006 [3] sense, [4] JVSIRDY, [5] JVSDRDY; 0x1f40000a data ---
+        jvs_status = 2'd1; jvs_error = 2'd2; jvs_irdy = 1; jvs_drdy = 1; jvs_sense = 0;
+        jvs_rdata = 16'h1e5a; #1;
+        rd_reg(4'h4, r); chk({12'h0, r[7:4]}, 16'h0009, "jvs: 0x04 [7:6]=error 2, [5:4]=status 1");
+        chk({12'h0, r[3:0]}, {12'h0, dip_sw}, "jvs: DIP unchanged");
+        rd_reg(4'h6, r); chk({13'h0, r[5:3]}, 16'h0006, "jvs: 0x06 drdy=1 irdy=1 sense=0");
+        chk({8'h0, r[7:6], 3'b0, r[2:0]}, {8'h0, sec_drdy, sec_irdy, 3'b0, sec_io0, adc_sars, adc_do}, "jvs: other 0x06 bits unchanged");
+        rd_reg(4'ha, r); chk(r, 16'h1e5a, "jvs: 0x0a = MCU data word");
 
         if (errors == 0) $display("RESULT: PASS (s573_io)");
         else             $display("RESULT: FAIL (s573_io, %0d errors)", errors);

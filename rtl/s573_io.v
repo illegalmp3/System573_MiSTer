@@ -41,6 +41,15 @@ module s573_io (
     // ADC0834
     input  wire        adc_do,
     input  wire        adc_sars,
+    // JVS MCU (H8/3644 at 18E, s573_jvs_mcu.v via s573_wio.v). With the reader
+    // Off these read the constants this block always returned: nibble 0xC,
+    // IRDY = DRDY = 0, sense = 1, data 0.
+    input  wire [1:0]  jvs_status,     // -> 0x04 [5:4]
+    input  wire [1:0]  jvs_error,      // -> 0x04 [7:6]
+    input  wire        jvs_irdy,       // -> 0x06 [4]
+    input  wire        jvs_drdy,       // -> 0x06 [5]
+    input  wire        jvs_sense,      // -> 0x06 [3]
+    input  wire [15:0] jvs_rdata,      // -> 0x0a
 
     // ---- control-register outputs to the board ----
     output reg         adc_di,
@@ -89,16 +98,16 @@ module s573_io (
     end
 
     // --- read mux ---
-    // 0x04 H8 (18E) response nibble + security + DIP
-    // Bits [7:4] are the H8/3644 MCU (board location 18E) response nibble. The GX700
-    // power-on self-test pulses the H8 response clock (control reg bit 8) to step an
-    // index through the H8's internal 64-byte response ROM and compares bits [7:4] at
-    // each step; a mismatch fails the 18E check and the BIOS gates boot there. For the
-    // 700A BIOS the response ROM (dumps/bios/h8a01.bin) is 64x 0x0C, so the constant
-    // nibble 0xC passes at every index. (These bits were previously mislabelled "JVS
-    // error/status" -- the JVS serial-packet I/O path is a separate thing; see
-    // 0x1f680000.) TODO multi-BIOS: 700B's h8b01.bin varies, so it needs a
-    // clock-stepped ROM-backed shift register here instead of this constant.
+    // 0x04 JVS MCU status/error + security + DIP
+    // Bits [5:4] are the JVS MCU's (H8/3644 at 18E) status code and [7:6] its error
+    // code (psx-spx "0x1f400004"): 0 / 3 = idle, no error, i.e. nibble 0xC, which
+    // is what the MCU reads while held in reset and what h8a01.bin -- MAME's table
+    // of the nibbles the 700A01 shell expects -- holds at every index. The 700B01
+    // shell's sequence (h8b01.bin) and the packet protocol are modelled in
+    // s573_jvs_mcu.v; with the card reader Off these are the old constant 0xC.
+    // (An earlier comment here read the bits as an H8 "response ROM" stepped by
+    // control bit 8; psx-spx documents bit 8 as the MCU reset and these bits as
+    // its status, and sim/tb_s573_jvs_mcu.v replays both BIOS sequences.)
     // [15:8] high byte = the MAME IN1 (0x1f400004) bit map, konami/ksys573.cpp
     // PORT_START("IN1"): [8]=cassette ADC0834 DO, [9]=cassette ADC0834 SARS (NO cassette
     // ADC on a DIGITAL cart -> 0), [12]="Network?"=1 (Off; no network board present),
@@ -120,7 +129,8 @@ module s573_io (
           1'b1,                   // [12] "Network?" = Off (no network board present)
           2'b00,                  // [11:10]
           2'b00,                  // [9:8]  cassette ADC SARS/DO (absent on a digital cart)
-          4'b1100,                // [7:4]  H8/18E response nibble = 0xC (h8a01.bin)
+          jvs_error, jvs_status,  // [7:4]  H8/18E: JVS error/status code (psx-spx; 0xC idle,
+                                  //        which is also all of h8a01.bin)
           dip_sw };               // [3:0]  DIP switches
 
     // 0x06 misc inputs
@@ -130,11 +140,12 @@ module s573_io (
           pcmcia_present,         // [11:10]
           coin_sw,                // [9:8]
           sec_drdy, sec_irdy,     // [7:6]
-          2'b00,                  // [5:4] JVS rx-ready(.4)/tx-write-ready(.5) = 0: keeps the
+          jvs_drdy, jvs_irdy,     // [5:4] JVSDRDY (.5) / JVSIRDY (.4), psx-spx. Reader Off: 0, which keeps the
                                   //       JVS send+recv timing out like MAME (received_packet()
                                   //       =0 / IPT_UNKNOWN). Do NOT drive .5=1 -- a "send OK"
                                   //       makes the game block on a JVS reply that never comes.
-          1'b1,                   // [3]   JVS port sense = 1 (no JVS I/O board attached; MAME
+          jvs_sense,              // [3]   JVS port sense (the reader's sense output; reader Off:
+                                  //       1 = no JVS I/O board attached; MAME
                                   //       jvs_sense_r = !address_set_line = 1). The game's I/O
                                   //       detect (flash 0x8017153c) require-1 ENTERs on this; its
                                   //       JVS send then times out -> returns -3 (negative) -> the
@@ -174,6 +185,7 @@ module s573_io (
             4'h4:    dout = r_status;
             4'h6:    dout = r_misc;
             4'h8:    dout = r_jamma;
+            4'ha:    dout = jvs_rdata;    // JVS data from the MCU (psx-spx 0x1f40000a)
             4'hc:    dout = r_extra_c;
             4'he:    dout = r_extra_e;
             default: dout = 16'h0000;

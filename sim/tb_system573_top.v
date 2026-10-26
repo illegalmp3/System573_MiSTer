@@ -20,9 +20,28 @@ module tb_system573_top;
     wire audio_amp_en, audio_mute, spu_dac_en, wdog_reset, cdrom_irq;
     wire [31:0] lamp_out;
     integer errors = 0, bites = 0;
+    reg         wio_on = 0, wio_stb = 0;
+    reg  [9:0]  wio_idx = 0;
+    reg  [15:0] wio_din = 0;
+    wire [15:0] wio_dout;
+    // one CMD_573_WIO transaction, as s573_hps_ext forwards it
+    reg  [15:0] wtx [0:15];
+    integer     wn, wk;
+    task wio_spi;
+        begin
+            for (wk = 0; wk < wn; wk = wk + 1) begin
+                @(negedge clk); wio_stb = 1; wio_idx = wk; wio_din = wtx[wk];
+                @(negedge clk); wio_stb = 0;
+                repeat (4) @(negedge clk);
+            end
+        end
+    endtask
 
     system573_top #(.CLK_FREQ_HZ(1_000_000), .WDOG_TIMEOUT(20)) dut (
         .clk(clk), .rst(rst), .card_en(1'b0), .card_slot1(1'b0),
+        // the card reader (s573_wio): Off for parts 1-4, On for part 5
+        .wio_osd_en(wio_on), .wio_snac_en(1'b0), .wio_stb(wio_stb), .wio_idx(wio_idx), .wio_din(wio_din),
+        .wio_dout(wio_dout), .wio_user_out(), .wio_user_in(7'h7f),
         .exp1_addr(exp1_addr), .exp1_reqsize(exp1_reqsize), .exp1_wdata(exp1_wdata),
         .exp1_we(exp1_we), .exp1_re(exp1_re), .exp1_rdata(exp1_rdata),
         .dip_sw(dip_sw), .stage_mux_en(1'b0), .stage_trace_addr(7'd0), .stage_trace_data(), .stage_trace_count(), .p1_ctrl(p1_ctrl), .p2_ctrl(p2_ctrl),
@@ -228,6 +247,31 @@ module tb_system573_top;
         if (lamp_out[3:0] !== 4'b1100) begin
             $display("FAIL: digio lamp %b", lamp_out[3:0]); errors = errors + 1;
         end
+
+        // 5) The JVS MCU through the 573's own registers (reader On): DDR's 01 71.
+        wio_on = 1;
+        wtx[0] = 16'h006f; wtx[1] = 16'h0101; wn = 2; wio_spi;      // ATTACH
+        exp1_write(24'h400000, 16'h0000);                           // MCU reset (bit 8 low)
+        exp1_write(24'h400000, 16'h0100);                           // and released
+        exp1_write(24'h520000, 16'h0000);                           // JVSIRDY clear
+        exp1_read(24'h400004, r);
+        if (r[7:4] !== 4'hc) begin $display("FAIL: jvs nibble after reset %h", r[7:4]); errors = errors + 1; end
+        exp1_write(24'h680000, 16'h01e0);
+        exp1_write(24'h680000, 16'h7102);
+        exp1_write(24'h680000, 16'h0074);
+        exp1_read(24'h400004, r);
+        if (r[7:4] !== 4'hd) begin $display("FAIL: jvs nibble after the request %h (want D)", r[7:4]); errors = errors + 1; end
+        wtx[0] = 16'h006f; wtx[1] = 16'h0700; wtx[2] = 16'd8; wtx[3] = 16'd1;
+        wtx[4] = 16'h00e0; wtx[5] = 16'h0105; wtx[6] = 16'h0001; wtx[7] = 16'h0700; wn = 8; wio_spi;
+        exp1_read(24'h400006, r);
+        if (r[4] !== 1'b1) begin $display("FAIL: JVSIRDY not set by the response"); errors = errors + 1; end
+        exp1_read(24'h40000a, r);
+        if (r !== 16'h00e0) begin $display("FAIL: 0x1f40000a = %h (want 00E0)", r); errors = errors + 1; end
+        exp1_write(24'h520000, 16'h0000);
+        exp1_read(24'h40000a, r);
+        if (r !== 16'h0105) begin $display("FAIL: second word %h (want 0105)", r); errors = errors + 1; end
+        exp1_write(24'h400000, 16'h0000);                           // leave the ctrl reg as found
+        wio_on = 0;
 
         // 4) Watchdog: kick, confirm no early bite, then let it bite.
         exp1_write(24'h5c0000, 16'h0000);   // kick

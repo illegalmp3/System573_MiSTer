@@ -34,7 +34,45 @@ loader: sim_loader.c ../s573mp3_core.c ../s573_descramble.c
 	./sim_loader $(MP3) 1 && ./sim_loader $(MP3) 0 && JUNK=old ./sim_loader $(MP3) 0 \
 	  && PRELOAD=1 START=0x4077ea STALEWP=0x7044cc ./sim_loader $(MP3) 0
 
-clean:
-	rm -f test test_logdir test_S573_MUT_* sim_loader
+# The DDR card reader (s573_wio*.c, s573wio.cpp). Both need the board's boot ROM
+# (MAME ddr3ma.zip 885a01.bin) and a DDR game's GAME.DAT (the reader program is in
+# it; ddrextrm's at container offset 0x144678), neither of which is committed:
+#   make wio WIO_ROM=/path/885a01.bin WIO_GAME=/path/GAME.DAT
+#   test_wio_board    the board alone: the game's JVS sequence, a virtual card and
+#                     (-ext) the SNAC byte engine stand-in
+#   test_wio_service  the whole service with Main's thread, the board thread, the
+#                     card file writer and a model of the fabric (rtl/s573_wio.v)
+#   wio-red           the service test with the fabric reporting no reader: must FAIL
+WIO_ROM  ?= 885a01.bin
+WIO_GAME ?= GAME.DAT
+WIO_SRC   = ../s573_wio.c ../s573_wio_cpu.c ../s573_wio_card.c
+WIO_HDR   = ../s573_wio.h ../s573_wio_cpu.h ../s573_wio_card.h
+CXX      ?= g++
 
-.PHONY: all mutate loader clean
+test_wio_board: test_s573_wio.c $(WIO_SRC) $(WIO_HDR)
+	$(CC) -std=gnu99 -O2 -Wall -Wextra test_s573_wio.c $(WIO_SRC) -o $@
+
+wio_c.o: $(WIO_SRC) $(WIO_HDR)
+	$(CC) -std=gnu99 -O2 -Wall -Wextra -c ../s573_wio.c -o wio_c.o
+	$(CC) -std=gnu99 -O2 -Wall -Wextra -c ../s573_wio_cpu.c -o wio_cpu_c.o
+	$(CC) -std=gnu99 -O2 -Wall -Wextra -c ../s573_wio_card.c -o wio_card_c.o
+
+test_wio_service: test_s573wio.cpp ../s573wio.cpp host_main_stubs.h wio_c.o
+	$(CXX) -std=gnu++14 -O2 -Wall -Wno-format-truncation -DS573_HOST_TEST -I.. test_s573wio.cpp ../s573wio.cpp wio_c.o wio_cpu_c.o wio_card_c.o -lpthread -o $@
+
+test_wio_service_red: test_s573wio.cpp ../s573wio.cpp host_main_stubs.h wio_c.o
+	$(CXX) -std=gnu++14 -O2 -Wall -Wno-format-truncation -DS573_HOST_TEST -DTEST_RED -I.. test_s573wio.cpp ../s573wio.cpp wio_c.o wio_cpu_c.o wio_card_c.o -lpthread -o $@
+
+wio: test_wio_board test_wio_service
+	./test_wio_board $(WIO_ROM) $(WIO_GAME)
+	./test_wio_board $(WIO_ROM) $(WIO_GAME) -ext
+	./test_wio_service $(WIO_ROM) $(WIO_GAME)
+
+wio-red: test_wio_service_red
+	@if ./test_wio_service_red $(WIO_ROM) $(WIO_GAME) >/dev/null 2>&1; then echo "wio-red: *** PASSES with no reader -- the test tests nothing ***"; exit 1; \
+	else echo "wio-red: RED (good)"; fi
+
+clean:
+	rm -f test test_logdir test_S573_MUT_* sim_loader test_wio_board test_wio_service test_wio_service_red wio_c.o wio_cpu_c.o wio_card_c.o
+
+.PHONY: all mutate loader clean wio wio-red

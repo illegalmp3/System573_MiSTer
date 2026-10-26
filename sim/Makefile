@@ -10,7 +10,7 @@ IVFLAGS := -g2005-sv -Wall
 RTL     := ../rtl
 BUILD   := build
 
-TESTS := s573_cfg_trailer s573_flash_pccard1 573in1_ide 573in1_rtc 573in1_cart k573dio_cpld x76f041_konami gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_mas_gain s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io system573_top drivecheck s573_cdimg s573_cdimg_ack s573_cdtoc atapi_cdread cdboot
+TESTS := s573_cfg_trailer s573_flash_pccard1 573in1_ide 573in1_rtc 573in1_cart k573dio_cpld x76f041_konami gn845pwbb s573_sav_mount_order s573_seccart_dual s573_tk_nv s573_press_hold s573_prof s573_prof_gpu s573_prof_pc s573_cass_nv watchdog adc0834 m48t58 s573_nvram_loader s573_nvram_saver s573_flash_saver s573_flash_saver_card s573_ch4_arb s573_seccart_loader ds2401 adc0838 x76f100 x76f100_hypbbc2p x76f041 crc16 zs01 zs01_golden zs01_rtr zs01_detect zs01_cmd sectrace_arm k573dio k573dio_ram s573_ddram_arb s573_mp3_pcm s573_audio_mix s573_mas_gain s573_pcm_ring s573_mp3_credit s573_hps_ext s573_mp3_path s573_dio_mux_seam dio_i2c dio_mp3_reload k573_mp3dec k573_mp3stream k573_mp3stream_engate atapi atapi_settle atapi_inquiry irqdeliver s573_flash s573_flash_sdram s573_flash_erase s573_flash_pccard s573_flash_image flash_nor s573_seccart s573_bus s573_io s573_jvs_mcu s573_wio_port s573_wio system573_top drivecheck s573_cdimg s573_cdimg_ack s573_cdtoc atapi_cdread cdboot
 
 # `make` with no target must run the whole suite: the secdata/cddata helper
 # targets were added ABOVE `all`, silently turning `make -C sim` into a no-op
@@ -43,7 +43,7 @@ SRC_x76f041_konami := $(RTL)/x76f041.v
 SRC_crc16         := $(RTL)/crc16.v
 SRC_zs01          := $(RTL)/zs01.v
 SRC_zs01_golden   := $(RTL)/zs01.v
-SRC_zs01_detect   := $(RTL)/system573_top.v $(RTL)/s573_prof.v $(RTL)/s573_bus.v $(RTL)/s573_io.v $(RTL)/gn845pwbb.v \
+SRC_zs01_detect   := $(RTL)/system573_top.v $(RTL)/s573_prof.v $(RTL)/s573_bus.v $(RTL)/s573_io.v $(RTL)/s573_wio.v $(RTL)/s573_jvs_mcu.v $(RTL)/s573_wio_port.v $(RTL)/gn845pwbb.v \
                      $(RTL)/watchdog.v $(RTL)/adc0834.v $(RTL)/m48t58.v $(RTL)/ds2401.v \
                      $(RTL)/s573_flash.v $(RTL)/flash_nor.v $(RTL)/s573_seccart.v $(RTL)/s573_sectrace.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v \
                      $(RTL)/atapi.v $(RTL)/s573_cdimg.v $(RTL)/s573_cdtoc.v $(RTL)/k573dio.v $(RTL)/k573dio_cpld.v $(RTL)/k573_mp3stream.v $(RTL)/k573_mp3dec.v $(RTL)/mas3507d_i2c.v
@@ -91,8 +91,11 @@ SRC_s573_seccart  := $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(R
 SRC_s573_seccart_dual := $(RTL)/s573_cass_pack.v $(RTL)/s573_seccart.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v $(RTL)/ds2401.v
 SRC_s573_bus      := $(RTL)/s573_bus.v
 SRC_s573_io       := $(RTL)/s573_io.v
+SRC_s573_jvs_mcu  := $(RTL)/s573_jvs_mcu.v
+SRC_s573_wio_port := $(RTL)/s573_wio_port.v
+SRC_s573_wio      := $(RTL)/s573_wio.v $(RTL)/s573_jvs_mcu.v $(RTL)/s573_wio_port.v
 SRC_gn845pwbb     := $(RTL)/gn845pwbb.v
-SRC_system573_top := $(RTL)/system573_top.v $(RTL)/s573_prof.v $(RTL)/s573_bus.v $(RTL)/s573_io.v $(RTL)/gn845pwbb.v \
+SRC_system573_top := $(RTL)/system573_top.v $(RTL)/s573_prof.v $(RTL)/s573_bus.v $(RTL)/s573_io.v $(RTL)/s573_wio.v $(RTL)/s573_jvs_mcu.v $(RTL)/s573_wio_port.v $(RTL)/gn845pwbb.v \
                      $(RTL)/watchdog.v $(RTL)/adc0834.v $(RTL)/m48t58.v $(RTL)/ds2401.v \
                      $(RTL)/s573_flash.v $(RTL)/flash_nor.v $(RTL)/s573_seccart.v $(RTL)/s573_sectrace.v $(RTL)/x76f100.v $(RTL)/x76f041.v $(RTL)/zs01.v \
                      $(RTL)/atapi.v $(RTL)/s573_cdimg.v $(RTL)/s573_cdtoc.v $(RTL)/k573dio.v $(RTL)/k573dio_cpld.v $(RTL)/k573_mp3stream.v $(RTL)/k573_mp3dec.v $(RTL)/mas3507d_i2c.v

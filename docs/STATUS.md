@@ -1,6 +1,6 @@
 # System 573 core -- status
 
-The one live status page. Last updated 2026-10-18. The page this replaced (the
+The one live status page. Last updated 2026-10-26. The page this replaced (the
 2026-09-09 evidence ledger and dump hashes) is `docs/archive/STATUS-2026-09-09.md`.
 Dated notes in `docs/` are the record of how each thing was found; `docs/README.md`
 says which ones still describe the current tree.
@@ -43,6 +43,16 @@ CRT at the same time, confirmed on the cabinet (docs/2026-10-18-hdmi-output.md).
 Out of scope for this core as it stands:
 the analog-board titles (2nd Mix family, dsfdcta, dsftkd) -- they play songs as
 CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
+
+## Memory cards (2026-10-26)
+
+DDR's memory card reader (the White I/O board on the JVS port) is in, for card files
+and for real cards on SNAC: the board's CPU runs its own boot ROM and the program the
+game uploads, emulated on the HPS; the 573's JVS MCU and the SNAC byte exchange are in
+the fabric. OSD "573 Card Reader" (Auto = DDR profiles), "573 P1/P2 Card" (File /
+SNAC), "573 P1/P2 Card File" (S2/S3). Needs `885a01.bin` (MAME ddr3m*/ddr4m* zips)
+in `games/System573`. Built and simulated; not yet run on the cabinet.
+docs/2026-10-26-white-io-reader.md.
 
 ## Open
 

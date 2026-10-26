@@ -450,6 +450,19 @@ parameter CONF_STR = {
 	// (status[115:114]: 108 is MDEC Timing; the old 1-bit O[107] is retired -- a card is
 	// now fitted automatically from the save size or the launcher's trailer.)
 	"O[115:114],573 PCMCIA Card,Auto,32MB (slot 2),32MB (slot 1);",
+	// 573 CARD READER (2026-10-26): the White I/O memory card reader of DDR cabinets
+	// (GE885-PWB(A) on the JVS port). Its CPU and the program the game uploads run on
+	// the HPS (MiSTer_System573 support/s573/wio*.c); the fabric half is s573_wio.v.
+	// Auto = fitted for the DDR control profiles (DDR / DDR Solo), as on a real DDR
+	// cabinet; On/Off force it. Off is the core exactly as before: the JVS bits read
+	// their old constants. Each slot takes a card file (S2/S3: a raw 128 KB .mcd /
+	// .mcr / .sav, browsed from saves/) or a real PS1 card on SNAC (SNAC port 1 = P1,
+	// port 2 = P2). No file mounted = no card in that slot.
+	"O[117:116],573 Card Reader,Auto,On,Off;",
+	"O[118],573 P1 Card,File,SNAC;",
+	"SC2,MCDMCRSAV,573 P1 Card File;",
+	"O[119],573 P2 Card,File,SNAC;",
+	"SC3,MCDMCRSAV,573 P2 Card File;",
 	// MDEC TIMING (diagnostic, 2026-09-17). psx/rtl/mdec.vhd waits 2171 clk between
 	// macroblocks in 15-bit output mode and 10 in every other depth. That asymmetry
 	// is not a measured hardware figure -- it came in upstream as "reduce decoding
@@ -795,6 +808,13 @@ s573_prof_pc u_prof_pc (
    .cnt_samples(pcprof_samples), .cnt_ram_hi(pcprof_ram_hi),
    .cnt_bios(pcprof_bios), .cnt_other(pcprof_other)
 );
+// ---- the White I/O card reader (s573_wio.v inside system573_top) ----
+wire        wio_stb;
+wire [9:0]  wio_idx;
+wire [15:0] wio_din;
+wire [15:0] wio_dout;
+wire [6:0]  wio_user_out;
+
 s573_hps_ext hps_ext
 (
 	.clk_sys(clk_1x),
@@ -839,6 +859,7 @@ s573_hps_ext hps_ext
 	.pcprof_ram_hi(pcprof_ram_hi), .pcprof_bios(pcprof_bios), .pcprof_other(pcprof_other),
 	.sec_trace_addr(sec_trace_addr), .sec_trace_data(sec_trace_data), .sec_trace_count(sec_trace_count),
 	.stage_trace_addr(stage_trace_addr), .stage_trace_data(stage_trace_data), .stage_trace_count(stage_trace_count),
+	.wio_stb(wio_stb), .wio_idx(wio_idx), .wio_din(wio_din), .wio_dout(wio_dout),
 
 	.ctrl_flags(mp3_ctrl_flags),
 	.dec_frame_sync(mp3_dec_frame_sync),
@@ -2802,6 +2823,15 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .prof_frames    (prof_frames),
    .prof_ide       (prof_ide),
    .prof_exp1      (prof_exp1),
+   // White I/O card reader: Auto = fitted for the DDR profiles (standard / Solo)
+   .wio_osd_en     ((status[117:116] == 2'd1) || (status[117:116] == 2'd0 && ctl_profile[1] == 1'b0)),
+   .wio_snac_en    (status[118] | status[119]),
+   .wio_stb        (wio_stb),
+   .wio_idx        (wio_idx),
+   .wio_din        (wio_din),
+   .wio_dout       (wio_dout),
+   .wio_user_out   (wio_user_out),
+   .wio_user_in    (USER_IN),
    .sec_ser_we     (sec_ser_we),
    .sec_ser_addr   (sec_ser_addr),
    .sec_ser_din    (sec_ser_din),
@@ -3709,7 +3739,9 @@ begin
 		end
 	end
 	else begin
-		USER_OUT  <= '1;
+		// the PSX SNAC path is gone (snacPort1/2 = 0); the 573's card reader drives
+		// the pins when a slot is on SNAC, else s573_wio_port releases them (all 1)
+		USER_OUT  <= wio_user_out;
 		irq10Snac <= 1'b0;
 		ack       <= 1'b1;
 		Dat       <= 1'b1;

@@ -237,7 +237,17 @@ module system573_top #(
     output wire [15:0] prof_sectors,
     output wire [15:0] prof_frames,
     output wire [15:0] prof_ide,
-    output wire [15:0] prof_exp1
+    output wire [15:0] prof_exp1,
+
+    // ---- the White I/O memory card reader (s573_wio.v) ----
+    input  wire        wio_osd_en,      // OSD "573 Card Reader" resolves to On
+    input  wire        wio_snac_en,     // a card slot is on SNAC
+    input  wire        wio_stb,         // CMD_573_WIO words (s573_hps_ext)
+    input  wire [9:0]  wio_idx,
+    input  wire [15:0] wio_din,
+    output wire [15:0] wio_dout,
+    output wire [6:0]  wio_user_out,    // SNAC pins (emu.sv USER_OUT / USER_IN)
+    input  wire [6:0]  wio_user_in
 );
     wire access = exp1_we | exp1_re;
 
@@ -516,6 +526,22 @@ module system573_top #(
         .trace_addr(stage_trace_addr), .trace_data(stage_trace_data), .trace_count(stage_trace_count)
     );
 
+    // --- JVS MCU + the card reader's card port (the reader's CPU runs on the HPS) ---
+    wire        jvs_mcu_rst_n;
+    wire [1:0]  jvs_status, jvs_error;
+    wire        jvs_irdy, jvs_drdy, jvs_sense;
+    wire [15:0] jvs_rdata;
+    s573_wio #(.CLK_HZ(CLK_FREQ_HZ)) u_wio (
+        .clk(clk), .rst(rst), .osd_en(wio_osd_en), .snac_en(wio_snac_en),
+        .mcu_rst_n(jvs_mcu_rst_n),
+        .jvs_wr(sel_jvsdata & exp1_we), .jvs_wdata(exp1_wdata),
+        .jvs_clr(sel_jvsclr & exp1_we),
+        .jvs_status(jvs_status), .jvs_error(jvs_error), .jvs_irdy(jvs_irdy),
+        .jvs_drdy(jvs_drdy), .jvs_sense(jvs_sense), .jvs_rdata(jvs_rdata),
+        .stb(wio_stb), .idx(wio_idx), .din(wio_din), .dout(wio_dout),
+        .user_out(wio_user_out), .user_in(wio_user_in)
+    );
+
     s573_io u_io (
         .clk(clk), .rst(rst),
         .sel(sel_asic), .off(asic_off),
@@ -528,10 +554,12 @@ module system573_top #(
         .sec_in(sec_in), .sec_io0(sec_io0),
         .sec_irdy(sec_irdy), .sec_drdy(sec_drdy),
         .adc_do(adc_do), .adc_sars(adc_sars),
+        .jvs_status(jvs_status), .jvs_error(jvs_error), .jvs_irdy(jvs_irdy),
+        .jvs_drdy(jvs_drdy), .jvs_sense(jvs_sense), .jvs_rdata(jvs_rdata),
         .adc_di(adc_di), .adc_cs_n(adc_cs_n), .adc_clk(adc_clk),
         .coin_counter(coin_counter),
         .audio_amp_en(audio_amp_en), .audio_mute(audio_mute),
-        .spu_dac_en(spu_dac_en), .jvs_mcu_rst_n()
+        .spu_dac_en(spu_dac_en), .jvs_mcu_rst_n(jvs_mcu_rst_n)
     );
 
     // --- read data mux back to the CPU ---

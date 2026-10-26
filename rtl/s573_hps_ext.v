@@ -129,6 +129,13 @@
 //                    256..559 silently selects an X76F041 and the game sees the
 //                    wrong response-to-reset.
 //
+// CMD_573_WIO (0x6F) -- the White I/O card reader (s573_wio.v). Every word of the
+// command, the command word included, is handed to the reader as {stb, idx, din}
+// and its combinational answer is what this word returns; the protocol itself is
+// documented in s573_wio.v. 0x6F was free on both sides (Main_MiSTer user_io.h
+// defines nothing in 0x65..0x6F; sys/hps_io.sv nothing either), and it is now the
+// top of the claimed range.
+//
 // CMD_573_CTRL (0x6A) -- HPS->fabric control + decode events:
 //   word0 (cmd)  up: {last_sync_cnt, last_idle_cnt} (the fabric's current
 //                    cumulative baselines -- a RESTARTED HPS must read these
@@ -265,6 +272,11 @@ module s573_hps_ext
     output reg [6:0]  stage_trace_addr,
     input      [15:0] stage_trace_data,   // valid the cycle after stage_trace_addr
     input      [7:0]  stage_trace_count,
+    // ---- CMD_573_WIO: the card reader (s573_wio.v) ----
+    output wire       wio_stb,         // one word of CMD_573_WIO (idx 0 = the command word)
+    output wire [9:0] wio_idx,
+    output wire [15:0] wio_din,
+    input      [15:0] wio_dout,        // the reader's answer to this word (combinational)
 
     // ---- CMD_573_CTRL: HPS -> fabric control + decode events ----
     output reg [15:0] ctrl_flags,      // bit0=cfg_ddrsbm, bit1=mp3_drain_en, rest reserved
@@ -283,6 +295,7 @@ assign EXT_BUS[32] = dout_en;
 wire io_strobe = EXT_BUS[33];
 wire io_enable = EXT_BUS[34];
 
+
 // PSX stub parity range (claimed-with-zeros exactly like psx/rtl/hps_ext.v;
 // Main never sends these to a non-"PSX" core name, but behavior must not drift).
 localparam CD_GET = 'h34;
@@ -295,7 +308,8 @@ localparam CMD_573_CTRL   = 'h6A;
 localparam CMD_573_MP3CFG = 'h6B;
 localparam CMD_573_STAGETRACE = 'h6C;
 localparam CMD_573_SECTRACE   = 'h6D;
-localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_en)
+localparam CMD_573_PCPROF     = 'h6E;
+localparam CMD_573_WIO        = 'h6F;  // must stay the TOP of the range (dout_en)
 // CMD_573_SECTRACE (0x6D): word0 up = {armed, entries[8:0]} (0..256); word1 dn =
 // base index (8-bit), words 2..9 up = eight consecutive entries. Same shape as
 // STAGETRACE apart from the wider address and count.
@@ -304,6 +318,17 @@ localparam CMD_573_PCPROF     = 'h6E;  // must stay the TOP of the range (dout_e
 // index (HPS), up = echo; words 2..9 up = trace[base+0..7]. Same-word semantics:
 // the address for word k+1 is set at word k's strobe, the registered read is
 // ready long before the next SPI word.
+
+// CMD_573_WIO words go to the reader as they arrive (cmd is the registered
+// command word, so word 0 is recognised from io_din itself)
+reg [15:0] cmd_q = 0;
+assign wio_stb = io_enable & io_strobe &
+                 ((byte_cnt == 0) ? (io_din == CMD_573_WIO) : (cmd_q == CMD_573_WIO));
+assign wio_idx = byte_cnt;
+assign wio_din = io_din;
+always @(posedge clk_sys)
+    if (~io_enable)                     cmd_q <= 16'd0;
+    else if (io_strobe && byte_cnt == 0) cmd_q <= io_din;
 
 // Snapshot bank: latched at the cmd strobe, served on words 1..N. ONE command
 // is in flight at a time, so the bank is shared across PTRS (3), STATUS (2)
@@ -393,7 +418,7 @@ always @(posedge clk_sys) begin
         if(byte_cnt == 0) begin
             cmd <= io_din;
             dout_en <= (io_din >= CD_GET && io_din <= CD_SET) ||
-                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_PCPROF);
+                       (io_din >= CMD_573_PTRS && io_din <= CMD_573_WIO);
             case(io_din)
                 CMD_573_PTRS: begin
                     io_dout <= fab_pcm_rd;
@@ -473,6 +498,7 @@ always @(posedge clk_sys) begin
                 CMD_573_CTRL: begin
                     io_dout <= {last_sync_cnt, last_idle_cnt};
                 end
+                CMD_573_WIO: io_dout <= wio_dout;
                 default: ; // CD_GET/CD_SET answer zeros (stub parity)
             endcase
         end else begin
@@ -573,6 +599,7 @@ always @(posedge clk_sys) begin
                     // early (drop io_enable) when the epoch is unchanged
                     if(byte_cnt >= 1 && byte_cnt <= 11) io_dout <= snap[byte_cnt[3:0]];
                 end
+                CMD_573_WIO: io_dout <= wio_dout;
                 CMD_573_CTRL: begin
                     if(byte_cnt == 1) begin
                         if (rebaseline) begin

@@ -279,6 +279,17 @@ static void s573_log(const char *fmt, ...)
     pthread_mutex_unlock(&logq_mx);
 }
 
+/* for the card reader service (s573wio.cpp), which shares this session's log */
+void s573_logf(const char *fmt, ...)
+{
+    char line[LOGQ_LINE];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    s573_log("%s", line);
+}
+
 static void logger_start(void)
 {
     pthread_attr_t attr;
@@ -1437,13 +1448,23 @@ int s573_sav_cangrow(int index)
     return (index == 4) && is_573();
 }
 
+/* support/psx/psx.cpp: do not auto-mount a per-CD .sav into slot 2 -- on this core
+ * that slot is the card reader's player-1 card (s573wio.cpp, OSD S2) */
+int s573_keep_card_slots(void)
+{
+    return is_573();
+}
+
 /* ---------------------------------------------------------------- the hook --
  * Register next to mdplus_poll()/psx_poll() in user_io_poll(). */
 static void s573mp3_poll_body(void);
+extern void s573wio_poll(void);
 void s573mp3_poll(void)
 {
     uint64_t w0 = now_us();
     s573mp3_poll_body();
+    /* the DDR card reader (s573wio.cpp): every pass, gated on this core here */
+    if (is_573()) s573wio_poll();
     ours_last_us = (uint32_t)(now_us() - w0);
     if (ours_last_us > ours_us_max) ours_us_max = ours_last_us;
     ours_us_sum += ours_last_us; ours_calls++;

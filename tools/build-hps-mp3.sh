@@ -134,6 +134,10 @@ stage_graft() {
         "$PROJ/support/s573/s573mp3_core.c" "$PROJ/support/s573/s573mp3_core.h" \
         "$PROJ/support/s573/s573_descramble.c" "$PROJ/support/s573/s573_descramble.h" \
         "$PROJ/support/s573/s573_logdir.c" "$PROJ/support/s573/s573_logdir.h" \
+        "$PROJ/support/s573/s573wio.cpp" \
+        "$PROJ/support/s573/s573_wio.c" "$PROJ/support/s573/s573_wio.h" \
+        "$PROJ/support/s573/s573_wio_cpu.c" "$PROJ/support/s573/s573_wio_cpu.h" \
+        "$PROJ/support/s573/s573_wio_card.c" "$PROJ/support/s573/s573_wio_card.h" \
         "$MAIN/support/s573/"
 
   # The two touch points in Main. Both are discovered, never assumed: if the
@@ -234,6 +238,27 @@ else:
                   'extern void s573mp3_poll(void);\nextern int s573_sav_cangrow(int index);\n', 1)
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
     print('user_io.cpp: cangrow hook inserted')
+
+# ---- 5. keep the card reader's slots (2026-10-26) ----------------------------
+# Main's PSX support mounts saves/<core>/<CD name>.sav into slot 2 whenever a CD
+# is mounted (support/psx/psx.cpp psx_mount_cd -> psx_mount_save, unless status
+# bit 63). On this core slot 2 is the card reader's player-1 card file (OSD
+# "573 P1 Card File"), so that would swap the player's chosen card for a per-game
+# file on every launch. Gated on the core name inside s573_keep_card_slots().
+p = os.path.join(main, 'support', 'psx', 'psx.cpp')
+s = open(p, encoding='utf-8', errors='surrogateescape').read()
+if 's573_keep_card_slots' in s:
+    print('psx.cpp: card slot guard already present')
+else:
+    old = 'if (!(user_io_status_get("[63]"))) psx_mount_save(last_dir);'
+    if s.count(old) != 1:
+        sys.exit('psx.cpp: expected exactly one "%s"' % old)
+    s = s.replace(old, 'if (!(user_io_status_get("[63]")) && !s573_keep_card_slots()) psx_mount_save(last_dir);   // System 573: slot 2 is a card reader slot')
+    incs = list(re.finditer(r'^#include[^\n]*\n', s, re.M))
+    at = incs[-1].end() if incs else 0
+    s = s[:at] + '\n/* support/s573/s573mp3.cpp */\nextern int s573_keep_card_slots(void);\n' + s[at:]
+    open(p, 'w', encoding='utf-8', errors='surrogateescape').write(s)
+    print('psx.cpp: card slot guard inserted')
 PYEOF
   say "graft OK"
 }
