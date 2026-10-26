@@ -193,61 +193,6 @@ static void card_flush(int i, int force)
     }
 }
 
-/* ---- trace (2026-10-25: a virtual card with valid link data was not used by
- * DDR Extreme; these lines show what the game asked the reader for) ---- */
-static unsigned trace_lines = 0;
-#define TRACE_MAX 4000
-
-/* Every command of a request with its parameters (70 01 data omitted, a bare
- * 71 status poll not logged). */
-static void trace_request(const uint8_t *req, int len)
-{
-    if (trace_lines >= TRACE_MAX || len < 5) return;
-    char b[400]; int o = 0, only71 = 1;
-    const uint8_t *c = req + 3; int n = len - 4;          /* E0 dst len | body | sum */
-    for (int i = 0; i < n && o < (int)sizeof(b) - 48; ) {
-        uint8_t k = c[i++];
-        if (k != 0x71) only71 = 0;
-        if (k == 0x70 && i < n) {
-            uint8_t sub = c[i++];
-            int pn = sub == 2 ? 3 : 4;
-            o += snprintf(b + o, sizeof(b) - o, " 70%02x:", sub);
-            for (int t = 0; t < pn && i < n; t++) o += snprintf(b + o, sizeof(b) - o, "%02x", c[i++]);
-            if (sub == 1 && i <= n) { int dn = c[i - 1]; i += dn; o += snprintf(b + o, sizeof(b) - o, "+%dB", dn); }
-            continue;
-        }
-        if (k == 0x74 || k == 0x75) {
-            o += snprintf(b + o, sizeof(b) - o, " %02x:", k);
-            for (int t = 0; t < 7 && i < n; t++) o += snprintf(b + o, sizeof(b) - o, "%02x", c[i++]);
-            continue;
-        }
-        o += snprintf(b + o, sizeof(b) - o, " %02x", k);
-        if (!(k == 0x71 || k == 0x73 || k == 0x76)) break;   /* anything else: rest not parsed */
-    }
-    if (only71) return;
-    s573_log_ext("s573wio: req%s\n", b);
-    trace_lines++;
-}
-
-/* The directory the game is about to see: names of the used entries in the 16
- * frames a "frame 0 x16" read put into reader RAM. */
-static void trace_dir(int port, uint32_t ram)
-{
-    if (ram + 16 * WIO_FRAME > WIO_RAM_SIZE) return;
-    const uint8_t *d = W.ram + ram;
-    char b[600]; int o = 0;
-    for (int f = 1; f < 16 && o < (int)sizeof(b) - 48; f++) {
-        const uint8_t *e = d + f * WIO_FRAME;
-        uint32_t st = (uint32_t)e[0] | ((uint32_t)e[1] << 8) | ((uint32_t)e[2] << 16) | ((uint32_t)e[3] << 24);
-        if (st == 0xa0) continue;
-        char nm[21]; memcpy(nm, e + 0x0a, 20); nm[20] = 0;
-        for (int k = 0; nm[k]; k++) if (nm[k] < 0x20 || nm[k] > 0x7e) nm[k] = '?';
-        uint8_t x = 0; for (int k = 0; k < 127; k++) x ^= e[k];
-        o += snprintf(b + o, sizeof(b) - o, " [%d %02x %s%s]", f, st & 0xff, nm, x == e[127] ? "" : " BADSUM");
-    }
-    s573_log_ext("s573wio: card %d directory as read:%s\n", port + 1, o ? b : " (empty)");
-}
-
 /* ---- one JVS request ---- */
 static void serve_request(uint16_t w0)
 {
@@ -264,7 +209,6 @@ static void serve_request(uint16_t w0)
     int seq = w1 & 0xff;
     if (seq == handled_seq) return;           /* already answered or deliberately not */
     handled_seq = seq;
-    trace_request(req, len);
 
     W.now_us = mono_us();
     int was = W.mode;
@@ -298,7 +242,6 @@ void s573wio_poll(void)
     if (m != mode) {
         if (on) { card_flush(0, 1); card_flush(1, 1); wio_flags(0); flags_sent = 0; }
         on = 0; mode = m;
-        trace_lines = 0;
         if (!m) return;
         memset(vc, 0, sizeof(vc));
         if (m == 1) { card_load(0); card_load(1); }
@@ -346,13 +289,10 @@ void s573wio_poll(void)
     else handled_seq = -1;                    /* answered, or the MCU was reset */
     int busy0 = W.op.active;
     wio_tick(&W, mono_us(), 1);
-    if (busy0 && !W.op.active) {
+    if (busy0 && !W.op.active)
         s573_log_ext("s573wio: card %s port %d frame %03x x%d -> result %d, status %04x\n",
                      W.op.write ? "write" : "read", W.op.port + 1, W.op.frame, W.op.count,
                      W.op.result, W.status);
-        if (!W.op.write && W.op.frame == 0 && W.op.count >= 16 && W.op.result >= 0)
-            trace_dir(W.op.port, W.op.ram);
-    }
 
     int f = 1 | (wio_sense(&W) ? 0 : 2);
     if (f != flags_sent) { wio_flags(f); flags_sent = f; }
