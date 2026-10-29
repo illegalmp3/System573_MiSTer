@@ -544,7 +544,11 @@ parameter CONF_STR = {
 	// 0x80034f14, ddrextrm GAME.DAT 0x8003c940): the label "SELECT L" is drawn from
 	// input bit 0x20 = JAMMA B2 (0x1f400008 bit 13) and "SELECT R" from 0x40 = JAMMA
 	// B3 (bit 14). Standard-cab Select L therefore IS Button 2 and Select R IS Button 3.
-	"J1,Button 1/Pad UpLeft,Button 2/Select L,Button 3/Select R,Button 4/Pad UpRight,Coin,Start,Service,Test,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock;",
+	// 2026-10-28: position 17 (joy bit 20) "Card In/Out" -- pulls the player's card
+	// file out of the card reader and pushes it back in (s573_wio.v card_btn), which
+	// DDR asks for after saving. Added at the END, so existing .map files keep their
+	// meaning; it has no default (jn names the first eight only).
+	"J1,Button 1/Pad UpLeft,Button 2/Select L,Button 3/Select R,Button 4/Pad UpRight,Coin,Start,Service,Test,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock,Card In/Out;",
 	"jn,X,A,B,Y,Select,Start,L,R;",
 	"I,",
 	"Load=DPAD Up|Save=Down|Slot=L+R,",
@@ -623,9 +627,9 @@ wire [15:0] ioctl_din;
 reg         nvram_dirty = 0;   // game wrote the timekeeper -> request an OSD save
 
 wire [19:0] joy;
-wire [19:0] joy_unmod;
+wire [20:0] joy_unmod;   // [20] = "Card In/Out" (J1 position 17)
 wire [19:0] joy2;
-wire [19:0] joy2_unmod;
+wire [20:0] joy2_unmod;
 wire [19:0] joy3;
 wire [19:0] joy4;
 
@@ -2826,6 +2830,7 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    // White I/O card reader: Auto = fitted for the DDR profiles (standard / Solo)
    .wio_osd_en     ((status[117:116] == 2'd1) || (status[117:116] == 2'd0 && ctl_profile[1] == 1'b0)),
    .wio_snac_en    (status[118] | status[119]),
+   .wio_card_btn   ({joy2_unmod[20], joy_unmod[20]}),
    .wio_stb        (wio_stb),
    .wio_idx        (wio_idx),
    .wio_din        (wio_din),

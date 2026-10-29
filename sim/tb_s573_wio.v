@@ -8,6 +8,9 @@
 //   4. SENSE drives 0x1f400006 bit 3
 //   5. CARDREG + XFER exchange a byte with the card; NOP polls the result
 //   6. a PUTRESP cut short commits nothing
+//   7. each press of a "Card In/Out" button flips that player's card_sw bit in
+//      word 1 (P1 bit 10, P2 bit 11) -- once per press, not per clock -- and a
+//      core reset leaves it alone
 // +red: osd_en = 0 (reader Off) -- everything above must fail.
 `timescale 1ns/1ps
 module tb_s573_wio;
@@ -25,10 +28,11 @@ module tb_s573_wio;
     wire [15:0] dout;
     wire [6:0] uo;
     reg        card_ack_n = 1, card_dat = 1;
+    reg  [1:0] card_btn = 2'b00;
     wire [6:0] ui = {1'b1, 1'b1, card_dat, card_ack_n, 1'b1, 1'b1, 1'b1};
 
     s573_wio dut (
-        .clk(clk), .rst(rst), .osd_en(osd_en), .snac_en(1'b1),
+        .clk(clk), .rst(rst), .osd_en(osd_en), .snac_en(1'b1), .card_btn(card_btn),
         .mcu_rst_n(mcu_rst_n), .jvs_wr(jvs_wr), .jvs_wdata(jvs_wdata), .jvs_clr(jvs_clr),
         .jvs_status(st), .jvs_error(er), .jvs_irdy(irdy), .jvs_drdy(drdy),
         .jvs_sense(sense), .jvs_rdata(rdata),
@@ -128,6 +132,20 @@ module tb_s573_wio;
         check(rx[0][11] == 1 && rx[0][10:9] == 2'd0, "5: XFER done, result 0");
         check(rx[1][7:0] == 8'ha5 && rx[1][15:12] == 4'd1, "5: the card's byte, xfer_cnt 1");
         check(in_byte == 8'h01, "5: the card got the command byte");
+
+        // 7. the card buttons
+        op(8'h00, 8'h00);
+        check(rx[1][11:10] == 2'b00, "7: card_sw 00 before any press");
+        card_btn = 2'b01; repeat (50) @(posedge clk); card_btn = 2'b00; repeat (5) @(posedge clk);
+        op(8'h00, 8'h00);
+        check(rx[1][11:10] == 2'b01, "7: P1 press (held 50 clocks) flips bit 10 once");
+        card_btn = 2'b10; repeat (3) @(posedge clk); card_btn = 2'b00; repeat (5) @(posedge clk);
+        op(8'h00, 8'h00);
+        check(rx[1][11:10] == 2'b11, "7: P2 press flips bit 11");
+        card_btn = 2'b01; repeat (3) @(posedge clk); card_btn = 2'b00; repeat (5) @(posedge clk);
+        rst <= 1; repeat (3) @(posedge clk); rst <= 0; repeat (3) @(posedge clk);
+        op(8'h00, 8'h00);
+        check(rx[1][11:10] == 2'b10, "7: second P1 press flips back; a core reset leaves card_sw alone");
 
         if (fails) $display("RESULT: FAIL (s573_wio, %0d of %0d checks)", fails, checks);
         else       $display("RESULT: PASS (s573_wio, %0d checks)", checks);

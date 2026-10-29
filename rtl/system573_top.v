@@ -242,6 +242,7 @@ module system573_top #(
     // ---- the White I/O memory card reader (s573_wio.v) ----
     input  wire        wio_osd_en,      // OSD "573 Card Reader" resolves to On
     input  wire        wio_snac_en,     // a card slot is on SNAC
+    input  wire [1:0]  wio_card_btn,    // "Card In/Out" buttons {P2, P1}
     input  wire        wio_stb,         // CMD_573_WIO words (s573_hps_ext)
     input  wire [9:0]  wio_idx,
     input  wire [15:0] wio_din,
@@ -532,7 +533,7 @@ module system573_top #(
     wire        jvs_irdy, jvs_drdy, jvs_sense;
     wire [15:0] jvs_rdata;
     s573_wio #(.CLK_HZ(CLK_FREQ_HZ)) u_wio (
-        .clk(clk), .rst(rst), .osd_en(wio_osd_en), .snac_en(wio_snac_en),
+        .clk(clk), .rst(rst), .osd_en(wio_osd_en), .snac_en(wio_snac_en), .card_btn(wio_card_btn),
         .mcu_rst_n(jvs_mcu_rst_n),
         .jvs_wr(sel_jvsdata & exp1_we), .jvs_wdata(exp1_wdata),
         .jvs_clr(sel_jvsclr & exp1_we),

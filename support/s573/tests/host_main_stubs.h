@@ -15,4 +15,5 @@ fileTYPE   *get_image(int i);
 const char *GetIdx_S(int idx);
 const char *getFullPath(const char *name);
 const char *HomeDir(void);
+void        Info(const char *message, int timeout = 2000, int width = 0, int height = 0, int frame = 0);
 #endif

@@ -40,7 +40,7 @@ module tb_system573_top;
     system573_top #(.CLK_FREQ_HZ(1_000_000), .WDOG_TIMEOUT(20)) dut (
         .clk(clk), .rst(rst), .card_en(1'b0), .card_slot1(1'b0),
         // the card reader (s573_wio): Off for parts 1-4, On for part 5
-        .wio_osd_en(wio_on), .wio_snac_en(1'b0), .wio_stb(wio_stb), .wio_idx(wio_idx), .wio_din(wio_din),
+        .wio_osd_en(wio_on), .wio_snac_en(1'b0), .wio_card_btn(2'b00), .wio_stb(wio_stb), .wio_idx(wio_idx), .wio_din(wio_din),
         .wio_dout(wio_dout), .wio_user_out(), .wio_user_in(7'h7f),
         .exp1_addr(exp1_addr), .exp1_reqsize(exp1_reqsize), .exp1_wdata(exp1_wdata),
         .exp1_we(exp1_we), .exp1_re(exp1_re), .exp1_rdata(exp1_rdata),

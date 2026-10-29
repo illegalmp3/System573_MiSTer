@@ -24,7 +24,7 @@ module tb_drivecheck;
     system573_top #(.CLK_FREQ_HZ(1_000_000), .WDOG_TIMEOUT(100000)) dut (
         .clk(clk), .rst(rst), .card_en(1'b0), .card_slot1(1'b0),
         // the card reader Off (s573_wio): JVS bits read their legacy constants
-        .wio_osd_en(1'b0), .wio_snac_en(1'b0), .wio_stb(1'b0), .wio_idx(10'd0), .wio_din(16'd0),
+        .wio_osd_en(1'b0), .wio_snac_en(1'b0), .wio_card_btn(2'b00), .wio_stb(1'b0), .wio_idx(10'd0), .wio_din(16'd0),
         .wio_dout(), .wio_user_out(), .wio_user_in(7'h7f),
         .exp1_addr(exp1_addr), .exp1_reqsize(exp1_reqsize), .exp1_wdata(exp1_wdata),
         .exp1_we(exp1_we), .exp1_re(exp1_re), .exp1_rdata(exp1_rdata),

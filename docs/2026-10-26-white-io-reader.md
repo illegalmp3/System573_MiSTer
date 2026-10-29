@@ -77,6 +77,19 @@ OSD (CONF_STR):
   browse `saves/System573/` for a .mcd/.mcr/.sav. No file = no card in that slot.
   `saves/System573/memcard1.mcd` and `memcard2.mcd` are blank formatted cards.
 
+**Card In/Out** (2026-10-28): after saving, DDR tells the player to pull the card
+out and waits for it. A card file has no hand to pull it, so each player has a
+"Card In/Out" button (J1 position 17, joy bit 20; map it in Define System573
+buttons). A press pulls that player's card out of the slot (the game sees no card)
+and the next press pushes it back in -- as a fresh insertion, FLAG 08h, exactly like
+re-inserting a real card. The file stays mounted; a newly chosen file goes in. An OSD
+popup confirms each press ("P1 card removed" / "P1 card inserted"). The fabric flips
+a bit per press (`s573_wio.v` card_sw, CMD_573_WIO word 1 bits 11:10, not cleared by a
+core reset) and the service turns each flip into a pull or push. Found on the
+cabinet 2026-10-28 (ddrextrm, a home DDR 5th Mix .sav): the old workaround -- the OSD
+"573 Card Reader" Off and back -- power-cycles the reader board, which loses the
+program the game uploaded at boot, and the game stops talking to it.
+
 Main used to mount `saves/<core>/<CD name>.sav` into slot 2 whenever a CD was mounted
 (support/psx/psx.cpp); the graft now skips that for this core so the player's chosen
 card stays in (`tools/build-hps-mp3.sh` step 5).
@@ -145,8 +158,11 @@ on`, `JVS -> 10 ID`, `uploaded program running: CRC-32 08844237`, `board status 
 
 ## Open
 
-* Not yet run on hardware. The interpreter's speed on the Cortex-A9 is unmeasured;
-  the 10-second log line reports it (`worst lag`).
+* Cabinet, 2026-10-28 (sessions 1-4): SNAC cards read and write; a home DDR 5th Mix
+  .sav reads and the game's save lands in the file (frames 042, 043, 046, 072, 093,
+  0b7). Worst lag ~1 s during the program upload + FPGA configuration (the board CPU
+  bit-bangs 95,737 FPGA bits), 20-230 ms during play; the game resent one `73` and
+  recovered. A faster interpreter would remove the 1 s.
 * JVS bus ownership: only the reader is on the bus. A cabinet with other JVS devices
   is not modelled.
 * The fabric drives the SNAC pins only while a slot is set to SNAC.

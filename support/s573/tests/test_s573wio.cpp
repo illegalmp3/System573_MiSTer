@@ -156,6 +156,7 @@ static void port_xfer(uint8_t cmd, unsigned tmo)
 
 /* -- s573_wio: the CMD_573_WIO words -- */
 static int      w_attached, w_sense = 1, w_osd_en = 1;
+static int      w_card_sw;                       /* s573_wio card_sw: flips per button press */
 static uint8_t  w_op, w_cmd;
 static int      w_raddr, w_rlen;
 static uint8_t  w_rseq;
@@ -169,7 +170,7 @@ static uint16_t wio_word(int idx, uint16_t din)
     /* the answer: combinational from the state before this word */
     if (idx == 0) d = (uint16_t)((w_attached << 15) | (w_osd_en << 14) | ((m_st == S_BUSY) << 13) |
                                  (p_busy << 12) | (p_done << 11) | (p_result << 9) | m_req_seq);
-    else if (idx == 1) d = (uint16_t)((p_xcnt << 12) | (p_result << 8) | p_rx);
+    else if (idx == 1) d = (uint16_t)((p_xcnt << 12) | (w_card_sw << 10) | (p_result << 8) | p_rx);
     else if (idx == 2) d = (uint16_t)(w_op == 6 ? m_req_len : 0);
     else if (idx == 3) d = (uint16_t)(w_op == 6 ? m_req_seq : 0);
     else d = (uint16_t)(w_op == 6 ? m_req[w_raddr & 255] : 0);
@@ -236,6 +237,15 @@ fileTYPE *get_image(int i) { return &slot[i]; }
 const char *GetIdx_S(int idx) { return slot_path[idx]; }
 const char *getFullPath(const char *name) { return name; }
 const char *HomeDir(void) { return rom_dir; }
+static char last_info[128];
+void Info(const char *message, int, int, int, int) { snprintf(last_info, sizeof last_info, "%s", message); }
+static void press_card_button(int p)
+{
+    pthread_mutex_lock(&fab);
+    w_card_sw ^= 1 << p;
+    pthread_mutex_unlock(&fab);
+    usleep(200000);
+}
 
 static std::atomic<int> main_run{1};
 static void *main_loop(void *)
@@ -462,6 +472,22 @@ int main(int argc, char **argv)
         CHECK(p_xfers - x0 >= 140, "SNAC byte exchanges %u (a frame read is 140)", p_xfers - x0);
         osd_snac[0] = 0;
         usleep(300000);
+    }
+
+    /* 8b. DDR after a save: "pull the card out". The Card In/Out button takes it
+     *     out (no card), and back in (a fresh insertion: FLAG 08h, 0x8000 clear) */
+    {
+        press_card_button(0);
+        printf("card button: \"%s\"\n", last_info);
+        CHECK(!strcmp(last_info, "P1 card removed"), "Info after the first press: \"%s\"", last_info);
+        unsigned s = (unsigned)read_frame_check(0, 0x45, 0, "pulled out");
+        CHECK(s & 0x0008, "card pulled out: no-card bit expected (%04x)", s);
+        press_card_button(0);
+        CHECK(!strcmp(last_info, "P1 card inserted"), "Info after the second press: \"%s\"", last_info);
+        s = (unsigned)read_frame_check(0, 0x45, img + 0x45 * 128, "pushed back in");
+        CHECK(!(s & 0x8000), "a re-inserted card answers FLAG 08h: 0x8000 must be clear (%04x)", s);
+        press_card_button(1);
+        CHECK(!strcmp(last_info, "P2: no card file chosen"), "P2 press with no file: \"%s\"", last_info);
     }
 
     /* 9. a core reset: the service must re-attach and the board keep answering */

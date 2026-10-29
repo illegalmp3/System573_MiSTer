@@ -51,7 +51,9 @@ and for real cards on SNAC: the board's CPU runs its own boot ROM and the progra
 game uploads, emulated on the HPS; the 573's JVS MCU and the SNAC byte exchange are in
 the fabric. OSD "573 Card Reader" (Auto = DDR profiles), "573 P1/P2 Card" (File /
 SNAC), "573 P1/P2 Card File" (S2/S3). Needs `885a01.bin` (MAME ddr3m*/ddr4m* zips)
-in `games/System573`. Built and simulated; not yet run on the cabinet.
+in `games/System573`. Cabinet 2026-10-28: SNAC cards and a home-version .sav both
+read and save in ddrextrm. Each player's "Card In/Out" button (map it in Define
+System573 buttons) pulls the card file out when the game asks and pushes it back in.
 docs/2026-10-26-white-io-reader.md.
 
 ## Open
@@ -77,10 +79,10 @@ docs/2026-10-26-white-io-reader.md.
 
 | | |
 |---|---|
-| bitstream | job 326, HDMI + analog (no `-Crt`), seed 5: 38,903 ALM (93 %), LABs 4,181 / 4,191, DSP 97 / 112, worst setup 0.035 ns (pll_hdmi) / hold 0.069 ns. docs/2026-10-18-hdmi-output.md |
-| firmware | Main_MiSTer at the 2026-09-07 release + `support/s573` (MP3 service, CD trace hook, .sav grow hook) |
+| bitstream | job 419 (branch wio-reader, card reader), HDMI + analog: 35,964 ALM (86 %), LABs 4,118 / 4,191, DSP 95 / 112, worst setup 0.139 ns (pll_hdmi) / hold 0.241 ns. Previous: job 326, docs/2026-10-18-hdmi-output.md |
+| firmware | Main_MiSTer release 2026-10-10 + `support/s573` (MP3 service, card reader service, CD trace hook, .sav grow hook, card slot guard) |
 | PSX core | `psx/` submodule + `psx_patches/` (list and order: `tools/apply_psx_patches.sh`) |
-| tests | `sim/`: 65 Icarus benches; `support/s573/tests`: 27 host groups + 7 mutations |
+| tests | `sim/`: 76 Icarus benches; `support/s573/tests`: `make test mutate`, `make wio wio-red` (needs 885a01.bin + a DDR GAME.DAT) |
 
 ## How things are done here
 

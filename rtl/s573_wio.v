@@ -16,7 +16,10 @@
 // CMD_573_WIO protocol (one op per transaction):
 //   word0 (cmd)  up: status {attached, osd_en, waiting, port_busy, port_done,
 //                            port_result[1:0], 0, req_seq[7:0]}
-//   word1        dn: {op, arg}   up: {xfer_cnt[3:0], 00, port_result[1:0], rx_byte}
+//   word1        dn: {op, arg}   up: {xfer_cnt[3:0], card_sw[1:0], port_result[1:0], rx_byte}
+//                card_sw: one bit per player that flips on each press of that
+//                player's "Card In/Out" button; the HPS takes each flip as a card
+//                pulled out / pushed back in (a card file has no hand to pull it)
 //   op 00 NOP
 //   op 01 ATTACH   arg[0]: the board emulation is running (gates the MCU and pins)
 //   op 02 SENSE    arg[0]: the board's JVS sense output (PIO1 bit 29)
@@ -43,6 +46,7 @@ module s573_wio #(
     input  wire        rst,
     input  wire        osd_en,         // OSD: a reader is fitted
     input  wire        snac_en,        // OSD: a card slot is on SNAC
+    input  wire [1:0]  card_btn,       // "Card In/Out" buttons, P2/P1 (level)
 
     // ---- 573 side (s573_io / bus) ----
     input  wire        mcu_rst_n,      // 0x1f400000 bit 8
@@ -70,6 +74,15 @@ module s573_wio #(
     reg        sense_r;
     reg  [7:0] op;
     wire       en = osd_en & attached;
+
+    // ---- the card buttons: flip on each press. Deliberately NOT cleared by rst:
+    // the HPS counts flips, and a core reset must not look like a press. ----
+    reg  [1:0] btn_s = 2'b00, btn_d = 2'b00, card_sw = 2'b00;
+    always @(posedge clk) begin
+        btn_s <= card_btn;
+        btn_d <= btn_s;
+        card_sw <= card_sw ^ (btn_s & ~btn_d);
+    end
 
     // ---- MCU ----
     reg  [7:0] req_raddr;
@@ -114,7 +127,7 @@ module s573_wio #(
     always @(*) begin
         case (idx)
         10'd0:   dout = {attached, osd_en, waiting, p_busy, p_done, p_result, 1'b0, req_seq};
-        10'd1:   dout = {xfer_cnt, 2'b00, p_result, p_rx};
+        10'd1:   dout = {xfer_cnt, card_sw, p_result, p_rx};
         10'd2:   dout = (op == 8'h06) ? {7'd0, req_len} : 16'h0000;
         10'd3:   dout = (op == 8'h06) ? {8'd0, req_seq} : 16'h0000;
         default: dout = (op == 8'h06) ? req_rword : 16'h0000;
