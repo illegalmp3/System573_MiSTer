@@ -218,6 +218,7 @@ int main(int argc, char **argv)
     for (i = 0; i < 128; i++) c0->data[0x45 * 128 + i] = (uint8_t)(i * 7 + 3);
     wio_card_insert(c0);
 
+    for (i = 3; i < argc; i++) if (!strcmp(argv[i], "-slow")) { wio_set_slow(w, 1); printf("reader-program loop shortcuts OFF\n"); }
     wio_power_on(w);
     wio_run(w, MS(100));
     st = wio_stats(w);
@@ -366,10 +367,28 @@ int main(int argc, char **argv)
         CHECK((s & 0x001e) == 0, "76 clears errors (%04x)", s);
     }
 
-    printf("interpreted %llu, external byte exchanges %u, ", (unsigned long long)st->interp, ext_xfers);
+    printf("interpreted %llu, external byte exchanges %u, virtual (routine-level) %u, ", (unsigned long long)st->interp, ext_xfers, st->card_xfers_virt);
     printf("insns %llu, idle-skipped %llu cycles of %llu, unmapped %u, rx dropped %u\n",
            (unsigned long long)st->insns, (unsigned long long)st->idle_skipped,
            (unsigned long long)wio_now(w), st->unmapped, st->rx_dropped);
+    printf("shortcuts: delay %llu, /ACK wait %llu, FPGA bitstream %llu, guard time %llu cycles\n",
+           (unsigned long long)wio_fast_cycles(w, 0), (unsigned long long)wio_fast_cycles(w, 1),
+           (unsigned long long)wio_fast_cycles(w, 2), (unsigned long long)wio_fast_cycles(w, 3));
+    {
+        int slow = 0, ext = 0;
+        for (i = 3; i < argc; i++) { if (!strcmp(argv[i], "-slow")) slow = 1; if (!strcmp(argv[i], "-ext")) ext = 1; }
+        /* the shortcuts must actually apply to the real program (they are keyed to
+         * its CRC and addresses), and must stay off with -slow */
+        if (!slow) {
+            CHECK(wio_fast_cycles(w, 2) > 3000000u, "FPGA bitstream shortcut did not run (%llu)", (unsigned long long)wio_fast_cycles(w, 2));
+            CHECK(wio_fast_cycles(w, 3) > 0, "guard-time shortcut did not run");
+            CHECK(ext || st->card_xfers_virt > 2000u, "card file bytes not exchanged at routine level (%u)", st->card_xfers_virt);
+            CHECK(st->interp < 4000000u, "interpreted %llu instructions (3.07M expected with the shortcuts)", (unsigned long long)st->interp);
+        } else {
+            CHECK(wio_fast_cycles(w, 0) + wio_fast_cycles(w, 1) + wio_fast_cycles(w, 2) + wio_fast_cycles(w, 3) == 0 &&
+                  st->card_xfers_virt == 0, "-slow still took shortcuts");
+        }
+    }
     if (getenv("WIO_PROF")) prof_dump();
     printf("%s (%d failures)\n", fails ? "FAILED" : "PASSED", fails);
     wio_destroy(w);

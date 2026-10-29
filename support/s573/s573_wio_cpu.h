@@ -47,6 +47,12 @@ typedef struct wio_cpu {
     int (*read)(void *ctx, uint32_t paddr, int size, uint32_t *val);
     int (*write)(void *ctx, uint32_t paddr, int size, uint32_t val);
     int (*fetch)(void *ctx, uint32_t paddr, uint32_t *insn);
+
+    /* fast path: RAM at physical 0 (big-endian bytes), read and written directly
+     * instead of through the callbacks; ram_stores counts the stores it took */
+    uint8_t *ram;
+    uint32_t ram_size;
+    uint64_t ram_stores;
 } wio_cpu_t;
 
 void wio_cpu_reset(wio_cpu_t *c);
@@ -56,10 +62,12 @@ int  wio_cpu_step(wio_cpu_t *c);
 void wio_cpu_exception(wio_cpu_t *c, int code);
 /* 1 if an enabled interrupt is pending (so the board may wake the CPU) */
 int  wio_cpu_irq_pending(const wio_cpu_t *c);
-/* virtual -> physical (kseg0/kseg1 strip, kuseg/kseg2 identity) */
+/* virtual -> physical, as the CPU maps it: kseg0/kseg1 strip the top bits,
+ * kuseg is +0x40000000 (TMPR3904F manual Fig. 5-1), kseg2 is identity */
 static inline uint32_t wio_vtop(uint32_t va)
 {
     if ((va & 0xc0000000u) == 0x80000000u) return va & 0x1fffffffu;
+    if (va < 0x80000000u) return va + 0x40000000u;
     return va;
 }
 

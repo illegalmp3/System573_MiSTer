@@ -230,7 +230,8 @@ static int        xfer_wait;         /* the routine is parked on the hardware  *
 static int        xfer_have;
 static int        xfer_result;
 static uint32_t   n_xfer;
-static uint64_t   lag_max;           /* the board behind the wall clock, worst, per 10 s */
+static uint64_t   lag_max;
+static uint64_t   busy_ns, busy_interp;  /* time in wio_run / instructions interpreted, per 10 s */           /* the board behind the wall clock, worst, per 10 s */
 
 static uint64_t wall_cyc(void)
 {
@@ -581,7 +582,12 @@ static void *board_main(void *arg)
             if (target > now + 66000000ull) { t0_ns = mono_ns(); t0_cyc = now; target = now; }
             /* run in slices of at most 2 ms so Main's messages are seen promptly */
             if (target > now + 132000u) target = now + 132000u;
-            if (target > now) wio_run(brd, target);
+            if (target > now) {
+                uint64_t b0 = mono_ns(), i0 = wio_stats(brd)->interp;
+                wio_run(brd, target);
+                busy_ns += mono_ns() - b0;
+                busy_interp += wio_stats(brd)->interp - i0;
+            }
             now = wio_now(brd);
             if (wall_cyc() > now && wall_cyc() - now > lag_max) lag_max = wall_cyc() - now;
         }
@@ -614,14 +620,17 @@ static void *board_main(void *arg)
                 s573_logf("s573wio: (%u repeated JVS lines not shown)\n", log_suppressed);
                 log_suppressed = 0;
             }
-            s573_logf("s573wio: 10 s: board %.3f s (worst lag %.1f ms), insns %llu (interpreted %llu), resets %u (watchdog %u), "
+            s573_logf("s573wio: 10 s: board %.3f s (worst lag %.1f ms; emulating %llu ms, %.1f M instructions/s), "
+                      "insns %llu (interpreted %llu), resets %u (watchdog %u), "
                       "JVS req %u rsp %u (bad sum %u, unanswered %u), rx dropped %u, FPGA configs %u, "
-                      "card xfers SNAC %u, frames saved %u (errors %u, dropped %u), program crc %08x%s\n",
-                      (double)wio_now(brd) / WIO_FC_HZ, (double)lag_max / 66000.0, (unsigned long long)st->insns,
+                      "card xfers SNAC %u file %u, frames saved %u (errors %u, dropped %u), program crc %08x%s\n",
+                      (double)wio_now(brd) / WIO_FC_HZ, (double)lag_max / 66000.0,
+                      (unsigned long long)(busy_ns / 1000000u),
+                      busy_ns ? (double)busy_interp * 1000.0 / (double)busy_ns : 0.0, (unsigned long long)st->insns,
                       (unsigned long long)st->interp, st->resets, st->wd_resets, n_req, n_rsp, n_rsp_bad,
-                      n_rsp_orphan, st->rx_dropped, st->fpga_configs, st->card_xfers_ext, w_frames, w_errors,
+                      n_rsp_orphan, st->rx_dropped, st->fpga_configs, st->card_xfers_ext, st->card_xfers_virt, w_frames, w_errors,
                       w_dropped, wio_fw_crc(brd), st->fatal ? " FIRMWARE FATAL" : "");
-            lag_max = 0;
+            lag_max = 0; busy_ns = 0; busy_interp = 0;
         }
     }
     return 0;

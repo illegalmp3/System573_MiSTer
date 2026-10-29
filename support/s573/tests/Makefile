@@ -39,7 +39,9 @@ loader: sim_loader.c ../s573mp3_core.c ../s573_descramble.c
 # it; ddrextrm's at container offset 0x144678), neither of which is committed:
 #   make wio WIO_ROM=/path/885a01.bin WIO_GAME=/path/GAME.DAT
 #   test_wio_board    the board alone: the game's JVS sequence, a virtual card and
-#                     (-ext) the SNAC byte engine stand-in
+#                     (-ext) the SNAC byte engine stand-in; -slow interprets the
+#                     reader program's loops instead of taking the shortcuts, so
+#                     the same checks pass both ways
 #   test_wio_service  the whole service with Main's thread, the board thread, the
 #                     card file writer and a model of the fabric (rtl/s573_wio.v)
 #   wio-red           the service test with the fabric reporting no reader: must FAIL
@@ -66,6 +68,8 @@ test_wio_service_red: test_s573wio.cpp ../s573wio.cpp host_main_stubs.h wio_c.o
 wio: test_wio_board test_wio_service
 	./test_wio_board $(WIO_ROM) $(WIO_GAME)
 	./test_wio_board $(WIO_ROM) $(WIO_GAME) -ext
+	./test_wio_board $(WIO_ROM) $(WIO_GAME) -slow
+	./test_wio_board $(WIO_ROM) $(WIO_GAME) -slow -ext
 	./test_wio_service $(WIO_ROM) $(WIO_GAME)
 
 wio-red: test_wio_service_red

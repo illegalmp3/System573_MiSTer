@@ -71,6 +71,7 @@ typedef struct wio_stats {
     uint32_t resets, wd_resets;
     uint32_t rx_bytes, tx_bytes, rx_dropped;
     uint32_t fpga_configs, card_xfers_ext;
+    uint32_t card_xfers_virt;   /* card-file byte exchanges done without the bit loop */
     uint32_t unmapped;
     uint32_t fatal;             /* firmware reached its fatal-error loop */
 } wio_stats_t;
@@ -108,6 +109,12 @@ const wio_cpu_t *wio_cpu(const wio_t *w);
 /* debug: read board memory (virtual address) */
 int      wio_peek(wio_t *w, uint32_t va, int size, uint32_t *v);
 void     wio_trace(wio_t *w, int on);
+/* 1 = interpret the reader program's delay, /ACK-wait, guard-time and FPGA-bitstream loops
+ * instruction by instruction instead of jumping over them (tests compare) */
+void     wio_set_slow(wio_t *w, int on);
+/* board cycles each shortcut covered: 0 delay, 1 /ACK wait, 2 FPGA bitstream,
+ * 3 card command guard time */
+uint64_t wio_fast_cycles(const wio_t *w, int which);
 
 #ifdef __cplusplus
 }

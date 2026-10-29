@@ -68,17 +68,35 @@ int wio_cpu_irq_pending(const wio_cpu_t *c)
 }
 
 /* --- memory helpers: return 0 on success, else an exception was taken --- */
-static int ld(wio_cpu_t *c, uint32_t va, int size, uint32_t *v)
+static inline int ld(wio_cpu_t *c, uint32_t va, int size, uint32_t *v)
 {
+    uint32_t pa;
     if (va & (uint32_t)(size - 1)) { take_exception(c, WIO_EXC_ADEL, va); return 1; }
-    if (c->read(c->mem_ctx, vtop(va), size, v)) { take_exception(c, WIO_EXC_DBE, va); return 1; }
+    pa = vtop(va);
+    if (pa < c->ram_size) {
+        const uint8_t *p = c->ram + pa;
+        *v = size == 1 ? p[0] : size == 2 ? (uint32_t)(p[0] << 8 | p[1])
+           : ((uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]);
+        return 0;
+    }
+    if (c->read(c->mem_ctx, pa, size, v)) { take_exception(c, WIO_EXC_DBE, va); return 1; }
     return 0;
 }
 
-static int st(wio_cpu_t *c, uint32_t va, int size, uint32_t v)
+static inline int st(wio_cpu_t *c, uint32_t va, int size, uint32_t v)
 {
+    uint32_t pa;
     if (va & (uint32_t)(size - 1)) { take_exception(c, WIO_EXC_ADES, va); return 1; }
-    if (c->write(c->mem_ctx, vtop(va), size, v)) { take_exception(c, WIO_EXC_DBE, va); return 1; }
+    pa = vtop(va);
+    if (pa < c->ram_size) {
+        uint8_t *p = c->ram + pa;
+        if (size == 1) p[0] = (uint8_t)v;
+        else if (size == 2) { p[0] = (uint8_t)(v >> 8); p[1] = (uint8_t)v; }
+        else { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }
+        c->ram_stores++;
+        return 0;
+    }
+    if (c->write(c->mem_ctx, pa, size, v)) { take_exception(c, WIO_EXC_DBE, va); return 1; }
     return 0;
 }
 
@@ -104,7 +122,13 @@ int wio_cpu_step(wio_cpu_t *c)
 
     pc = c->pc;
     if (pc & 3) { take_exception(c, WIO_EXC_ADEL, pc); c->cycles++; return 0; }
-    if (c->fetch(c->mem_ctx, vtop(pc), &insn)) { take_exception(c, WIO_EXC_IBE, pc); c->cycles++; return 0; }
+    {
+        uint32_t pa = vtop(pc);
+        if (pa < c->ram_size) {
+            const uint8_t *p = c->ram + pa;
+            insn = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+        } else if (c->fetch(c->mem_ctx, pa, &insn)) { take_exception(c, WIO_EXC_IBE, pc); c->cycles++; return 0; }
+    }
 
     /* default sequencing: the instruction after this one */
     npc = c->npc + 4;

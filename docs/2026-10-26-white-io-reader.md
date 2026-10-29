@@ -156,13 +156,41 @@ on`, `JVS -> 10 ID`, `uploaded program running: CRC-32 08844237`, `board status 
 `74 card read: player N frame ...`, `player N card: k frame(s) ... written`, and the
 10-second line (`worst lag` = how far the board fell behind the wall clock).
 
+## Emulation speed (2026-10-29)
+
+Cabinet logs (sessions 1-5): the board fell up to ~1 s behind the wall clock twice
+-- while the uploaded program configured the FPGA, and while it read 16-36 frames
+from a card file -- and the game re-sent one `73`. Profiled on the host
+(`WIO_PROFILE`), the time went to loops whose outcome is fixed: the FPGA counter
+read inside delay(us) (0x800003b4, 218k calls), the FPGA bitstream bit routines
+(0x80004f98/fb8, 191k calls), the /ACK wait and the card-command guard time
+(0x80005714, 0x800057d0), and the card byte routine's bit loop for card files.
+All in `support/s573/s573_wio.c`; no FPGA change:
+
+* the interpreter reads, writes and fetches RAM directly and looks for loop
+  shortcuts only at branches (bit-identical results, 1.8x faster on the host);
+* delay(us), the /ACK wait and the guard time jump to just before the time that
+  ends them, never past the next device event; the FPGA bitstream loop does each
+  byte's 24 PIO writes directly in 270 cycles, the interpreter's own count, and
+  leaves the registers as the loop does (checked against interpretation:
+  identical cycles and registers at 0x80005130);
+* a card file's byte exchange is done at routine level, as the SNAC path already
+  was: the routine's algorithm with the card model, durations as interpreted
+  (2354 cycles of bits; +/ACK delay +481; +timeout +11 with no /ACK).
+
+All only for the known program (CRC 08844237). Host test, the whole DDR flow:
+12.6 M instructions interpreted -> 3.07 M; the worst 100 ms of board time
+3.6 M -> 0.37 M. `test_wio_board -slow` runs everything interpreted and passes the
+same checks; the fast run checks the shortcuts actually applied. The 10-second log
+line now also says how long the board thread ran and how fast it interpreted.
+
 ## Open
 
 * Cabinet, 2026-10-28 (sessions 1-4): SNAC cards read and write; a home DDR 5th Mix
   .sav reads and the game's save lands in the file (frames 042, 043, 046, 072, 093,
   0b7). Worst lag ~1 s during the program upload + FPGA configuration (the board CPU
   bit-bangs 95,737 FPGA bits), 20-230 ms during play; the game resent one `73` and
-  recovered. A faster interpreter would remove the 1 s.
+  recovered. See "Emulation speed" for the fix (firmware only).
 * JVS bus ownership: only the reader is on the bus. A cabinet with other JVS devices
   is not modelled.
 * The fabric drives the SNAC pins only while a slot is set to SNAC.

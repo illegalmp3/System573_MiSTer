@@ -113,8 +113,10 @@ struct wio {
 
     int      sense_last;
     uint32_t fw_crc;
+    int      slow;          /* wio_set_slow: no program-specific loop shortcuts */
+    uint64_t fast_cycles[4];/* cycles covered by each of them (stats)          */
     int      hook_state;     /* 0 unchecked, 1 ok, -1 not this firmware */
-    struct { int active; uint32_t sp, ra, a0, a1; } hk;
+    struct { int active, virt, vres; uint32_t sp, ra, a0, a1; uint64_t vdone; } hk;
     uint64_t next_ev;
     int      io;             /* the last instruction touched a device */
     int      dma_busy;
@@ -1006,6 +1008,8 @@ wio_t *wio_create(const wio_host_t *host)
     w->cpu.read = cb_read;
     w->cpu.write = cb_write;
     w->cpu.fetch = cb_fetch;
+    w->cpu.ram = w->ram;
+    w->cpu.ram_size = WIO_RAM_SIZE;
     w->sense_last = -1;
     w->f.prev_cclk = 1;
     w->clk_prev = 1;
@@ -1117,19 +1121,88 @@ static int hook_ext_selected(const wio_t *w, uint8_t reg)
     return 0;
 }
 
+/* The same routine for a VIRTUAL port (a card file), done here instead of
+ * interpreting its bit loop (~400 instructions a byte, the cost the cabinet logs
+ * showed while a card file was read). It is the routine's algorithm with the card
+ * model of s573_wio_card.c, step for step as rtl/s573_wio_port.v does it at the
+ * SNAC pins: latch already set -> -2; eight bits out, the card's byte in; timeout
+ * 0 -> the byte; /ACK within the timeout -> wait 7 us, the byte; else -1, and a
+ * late /ACK still sets the latch when it comes. The durations are the routine's
+ * own as the interpreter runs it (tests/test_s573_wio.c, -slow, measured
+ * 2026-10-29): 2354 cycles to the end of the last bit with timeout 0; +/ACK delay
+ * +481 (the 7 us wait and the latch clear); +timeout +11 with no /ACK. */
+#define VX_BITS   2354u
+#define VX_ACKED  481u
+#define VX_NOACK  11u
+#define VX_LATCH  20u
+static void virt_xfer(wio_t *w, uint8_t reg, uint8_t cmd, unsigned tmo, int *res, uint64_t *done)
+{
+    uint64_t t = now(w);
+    wio_card_t *c = NULL;
+    wio_card_ack_t a = { 0, 0 };
+    uint8_t out = 0xff;                      /* DAT pull-up: no card driving it */
+    int p = -1, q;
+    ack_sync(w);
+    w->st.card_xfers_virt++;
+    if (w->f.latch) { *res = WIO_XFER_ERROR; *done = t + VX_LATCH; return; }
+    for (q = 0; q < 2; q++)
+        if (!((reg >> (2 + q)) & 1) && w->pmode[q] == WIO_PORT_VIRTUAL) { p = q; break; }
+    if (p >= 0) {
+        c = &w->card[p];
+        out = wio_card_out(c);
+        a = wio_card_byte(c, cmd);
+        w->bitn[p] = 0;
+    }
+    w->clk_prev = 1;
+    if (tmo == 0) {                          /* last byte of a command */
+        *res = out; *done = t + VX_BITS;
+    } else if (a.ack && a.ack_delay_ns <= (uint32_t)tmo * 1000u) {
+        uint64_t ad = (uint64_t)a.ack_delay_ns * WIO_CYC_PER_US / 1000u;
+        *res = out; *done = t + VX_BITS + ad + VX_ACKED;
+        return;                              /* /ACK seen, latch cleared */
+    } else {
+        *res = WIO_XFER_NOACK; *done = t + VX_BITS + (uint64_t)tmo * WIO_CYC_PER_US + VX_NOACK;
+    }
+    if (a.ack && p >= 0) {                   /* an /ACK nobody waited for: it still comes */
+        w->ack_start[p] = t + VX_BITS + (uint64_t)a.ack_delay_ns * WIO_CYC_PER_US / 1000u;
+        w->ack_end[p] = w->ack_start[p] + (uint64_t)WIO_CARD_ACK_WIDTH_NS * WIO_CYC_PER_US / 1000u;
+        w->ack_pending[p] = 1;
+        w->next_ev = next_event(w);
+    }
+}
+
+static int hook_virt_selected(const wio_t *w, uint8_t reg)
+{
+    int q;
+    if (w->slow || w->fw_crc != FW_CRC_KNOWN) return 0;
+    for (q = 0; q < 2; q++)
+        if (!((reg >> (2 + q)) & 1) && w->pmode[q] == WIO_PORT_VIRTUAL) return 1;
+    return 0;
+}
+
 /* returns 1 if the CPU must not execute the instruction at pc this time round */
 static int hook(wio_t *w, uint64_t until, uint64_t *wake)
 {
     int r;
     uint64_t done;
+    (void)until;
     *wake = UINT64_MAX;
     if (!w->hk.active ||
         w->hk.sp != w->cpu.r[29] || w->hk.ra != w->cpu.r[31] ||
         w->hk.a0 != w->cpu.r[4] || w->hk.a1 != w->cpu.r[5]) {
         uint8_t m;
         int q;
+        if (!hook_ext_selected(w, w->f.reg) && hook_virt_selected(w, w->f.reg)) {
+            if (!hook_check(w)) return 0;
+            w->hk.active = 1; w->hk.virt = 1;
+            w->hk.sp = w->cpu.r[29]; w->hk.ra = w->cpu.r[31];
+            w->hk.a0 = w->cpu.r[4];  w->hk.a1 = w->cpu.r[5];
+            virt_xfer(w, w->f.reg, (uint8_t)w->cpu.r[4], w->cpu.r[5], &w->hk.vres, &w->hk.vdone);
+            goto check;
+        }
         if (!hook_ext_selected(w, w->f.reg) || !w->h.card_xfer_start || !w->h.card_xfer_done) return 0;
         if (!hook_check(w)) return 0;
+        w->hk.virt = 0;
         m = w->f.reg;
         for (q = 0; q < 2; q++) if (w->pmode[q] != WIO_PORT_EXTERNAL) m |= (uint8_t)(4u << q);
         w->hk.active = 1;
@@ -1138,11 +1211,12 @@ static int hook(wio_t *w, uint64_t until, uint64_t *wake)
         w->st.card_xfers_ext++;
         w->h.card_xfer_start(w->h.user, m, (uint8_t)w->cpu.r[4], w->cpu.r[5], now(w));
     }
+check:
     if (wio_cpu_irq_pending(&w->cpu)) return 0;      /* let the interrupt in (EPC = here) */
     done = UINT64_MAX;
-    if (w->h.card_xfer_done(w->h.user, &r, &done)) {
+    if (w->hk.virt ? (r = w->hk.vres, done = w->hk.vdone, 1) : w->h.card_xfer_done(w->h.user, &r, &done)) {
         uint32_t reg = w->f.reg;
-        if (done > now(w) && done < until) { *wake = done; return 1; }   /* finishes later */
+        if (done > now(w)) { *wake = done; return 1; }                   /* finishes later */
         w->hk.active = 0;
         w->cpu.r[2] = (uint32_t)(int32_t)r;
         /* the routine leaves CLK high and CMD = bit 7 of the byte */
@@ -1157,12 +1231,145 @@ static int hook(wio_t *w, uint64_t until, uint64_t *wake)
     return 1;
 }
 
-/* idle: the firmware's idle task is `j .` (fw 0x80000d78, task created at 0x80000650) */
-static int at_idle(wio_t *w)
+/* ---- shortcuts for four loops of the reader program (CRC 08844237 only) ----
+ * Each is a loop whose outcome is fixed by time alone (or, for the FPGA one, by
+ * data), so it is jumped over instead of interpreted. Measured on the cabinet
+ * (2026-10-28 logs): without them the ARM fell up to ~1 s behind the board's
+ * clock while the program configured the FPGA and while it read 16-20 frames from
+ * a card file -- the two places these loops dominate (WIO_PROFILE: the counter
+ * read 0x800003b4 x218k, the FPGA bit routines x191k, the /ACK wait 0x80005714).
+ * Never across the next device event or the run deadline (lim), and only with no
+ * interrupt pending, exactly like the other shortcuts. */
+#define FAST_DELAY 0
+#define FAST_ACK   1
+#define FAST_FPGA  2
+#define FAST_GAP   3
+
+/* delay(us), fw 0x800003f0: t0 = counter(); do t = counter(); while
+ * (us*33/2 - ((t - t0) & 0xffffff) > 0). At the loop head 0x80000410: r6 = t0,
+ * r7 = us*33/2, r5 = 0xffffff. Jump to a little before the counter reaches
+ * t0 + r7, then let the loop's own last iteration read it and leave. */
+static int fast_delay(wio_t *w, uint64_t lim)
 {
-    uint32_t pc = w->cpu.pc, insn, ds;
+    uint32_t diff = (fpga_counter(w) - w->cpu.r[6]) & 0xffffffu, need = w->cpu.r[7];
+    uint64_t s;
+    if (w->cpu.r[5] != 0xffffffu || need > 0x800000u || diff >= need) return 0;
+    s = (uint64_t)(need - diff) * 4u;
+    if (s <= 48) return 0;
+    s -= 48;                                         /* one iteration's worth short */
+    if (now(w) + s > lim) s = lim > now(w) ? lim - now(w) : 0;
+    if (s < 8) return 0;
+    w->cpu.cycles += s;
+    w->st.idle_skipped += s;
+    w->fast_cycles[FAST_DELAY] += s;
+    return 1;
+}
+
+/* the card byte routine's /ACK wait, fw 0x80005714..0x8000573c: loop until the
+ * /ACK latch (FPGA +03 bit 1) is set or sext24(counter - r19) > r18 (unsigned).
+ * The latch is set only at a device event (a card's /ACK, in next_event()), so
+ * nothing can end the loop early inside [now, lim). */
+static int fast_ackwait(wio_t *w, uint64_t lim)
+{
+    int32_t diff;
+    uint64_t s;
+    if (w->cpu.r[16] != 0xb0000003u) return 0;
+    ack_sync(w);
+    if (w->f.latch) return 0;
+    diff = (int32_t)(((fpga_counter(w) - w->cpu.r[19]) & 0xffffffu) << 8) >> 8;
+    if (diff < 0 || (uint32_t)diff > w->cpu.r[18] || w->cpu.r[18] > 0x800000u) return 0;
+    s = (uint64_t)(w->cpu.r[18] + 1u - (uint32_t)diff) * 4u;
+    if (s <= 48) return 0;
+    s -= 48;
+    if (now(w) + s > lim) s = lim > now(w) ? lim - now(w) : 0;
+    if (s < 8) return 0;
+    w->cpu.cycles += s;
+    w->st.idle_skipped += s;
+    w->fast_cycles[FAST_ACK] += s;
+    return 1;
+}
+
+/* the FPGA bitstream loop, fw 0x800050ec..0x8000512c: for each byte r17 < r20 of
+ * the image at r19, for each bit LSB first: DIN = bit (0x80004fb8), CCLK = 1,
+ * CCLK = 0 (0x80004f98), each a read-modify-write of the PIO0 data byte. Done
+ * here with the same bus accesses and the same 270 cycles per byte the
+ * interpreter takes (measured: 0x800050ec is reached every 270 cycles); the
+ * registers are left as the loop leaves them at its head. The last byte is left
+ * to the interpreter, so the loop exits through its own instructions. The test
+ * (tests/test_s573_wio.c -slow) checks cycles and registers match exactly. */
+static int fast_fpga(wio_t *w, uint64_t lim)
+{
+    wio_cpu_t *c = &w->cpu;
+    int done = 0;
+    if (c->r[16] != 0) return 0;
+    while (c->r[17] + 1u < c->r[20] && now(w) + 270u <= lim) {
+        uint32_t pa = wio_vtop(c->r[19] + c->r[17]), b, cur;
+        int i;
+        if (pa >= WIO_RAM_SIZE) break;
+        b = w->ram[pa];
+        for (i = 0; i < 8; i++) {
+            bus_read(w, 0xfffff504u, 1, &cur);
+            bus_write(w, 0xfffff504u, 1, (cur & 0xfeu) | ((b >> i) & 1u));
+            bus_read(w, 0xfffff504u, 1, &cur);
+            bus_write(w, 0xfffff504u, 1, (cur & 0xfdu) | 2u);
+            bus_read(w, 0xfffff504u, 1, &cur);
+            cur &= 0xfdu;
+            bus_write(w, 0xfffff504u, 1, cur);
+        }
+        c->r[2] = 1; c->r[3] = cur; c->r[4] = 0; c->r[18] = b; c->r[31] = 0x80005110u;
+        c->r[17]++;
+        c->cycles += 270;
+        w->st.insns += 270;
+        w->fast_cycles[FAST_FPGA] += 270;
+        done = 1;
+    }
+    if (done) w->next_ev = next_event(w);
+    return done;
+}
+
+/* the card command's guard time, fw 0x800057d0..0x800057ec: loop until
+ * sext24(counter - [gp-0x7eac]) > r16 (unsigned; r16 = 0x325a9 = 12.5 ms of fc/4
+ * ticks since the previous command ended) -- the same shape as the /ACK wait,
+ * with the start time in memory and nothing but time to end it. */
+static int fast_gap(wio_t *w, uint64_t lim)
+{
+    uint32_t pa = wio_vtop(w->cpu.r[28] - 0x7eacu), t0;
+    int32_t diff;
+    uint64_t s;
+    if (pa + 4 > WIO_RAM_SIZE || w->cpu.r[16] > 0x800000u) return 0;
+    t0 = (uint32_t)w->ram[pa] << 24 | (uint32_t)w->ram[pa + 1] << 16 | (uint32_t)w->ram[pa + 2] << 8 | w->ram[pa + 3];
+    diff = (int32_t)(((fpga_counter(w) - t0) & 0xffffffu) << 8) >> 8;
+    if (diff < 0 || (uint32_t)diff > w->cpu.r[16]) return 0;
+    s = (uint64_t)(w->cpu.r[16] + 1u - (uint32_t)diff) * 4u;
+    if (s <= 48) return 0;
+    s -= 48;
+    if (now(w) + s > lim) s = lim > now(w) ? lim - now(w) : 0;
+    if (s < 8) return 0;
+    w->cpu.cycles += s;
+    w->st.idle_skipped += s;
+    w->fast_cycles[FAST_GAP] += s;
+    return 1;
+}
+
+static int fast_loops(wio_t *w, uint64_t until)
+{
+    uint64_t lim = w->next_ev < until ? w->next_ev : until;
+    if (w->slow || w->fw_crc != FW_CRC_KNOWN || w->cpu.in_delay || wio_cpu_irq_pending(&w->cpu)) return 0;
+    switch (w->cpu.pc) {
+    case 0x80000410u: return fast_delay(w, lim);
+    case 0x80005714u: return fast_ackwait(w, lim);
+    case 0x800050ecu: return fast_fpga(w, lim);
+    case 0x800057d0u: return fast_gap(w, lim);
+    default: return 0;
+    }
+}
+
+/* idle: the firmware's idle task is `j .` (fw 0x80000d78, task created at 0x80000650) */
+static int at_idle(wio_t *w, uint32_t insn)
+{
+    uint32_t pc = w->cpu.pc, ds;
     if (w->cpu.in_delay) return 0;
-    if (cb_fetch(w, wio_vtop(pc), &insn) || cb_fetch(w, wio_vtop(pc + 4), &ds)) return 0;
+    if (cb_fetch(w, wio_vtop(pc + 4), &ds)) return 0;
     if (ds != 0) return 0;
     if ((insn >> 26) == 0x02 && ((insn & 0x03ffffffu) << 2) == (pc & 0x0ffffffcu)) return 1; /* j . */
     if (insn == 0x1000ffffu) return 1;                                                       /* b . */
@@ -1174,12 +1381,11 @@ static int at_idle(wio_t *w)
  *     (fw 0x8000566c/0x80005694 card bit timing, boot 0x800704fc etc.): runs
  *     2*(rX+1) cycles and leaves rX = -1.  Never crosses the next device event.
  *  2. a polling loop seen to come round with nothing changed (see wio_t). */
-static int accelerate(wio_t *w, uint64_t until)
+static int accelerate(wio_t *w, uint64_t until, uint32_t insn)
 {
-    uint32_t pc = w->cpu.pc, insn, ds;
+    uint32_t pc = w->cpu.pc, ds;
     uint64_t lim = w->next_ev < until ? w->next_ev : until;
     if (w->cpu.in_delay || wio_cpu_irq_pending(&w->cpu)) return 0;
-    if (cb_fetch(w, wio_vtop(pc), &insn)) return 0;
     if ((insn & 0xfc1f8000u) == 0x14008000u) {          /* bne rX, $zero, <back> */
         int rx = (int)((insn >> 21) & 31);
         uint32_t target = pc + 4 + (uint32_t)((int32_t)(int16_t)(insn & 0xffff) << 2);
@@ -1228,7 +1434,7 @@ static int accelerate(wio_t *w, uint64_t until)
 #ifdef SPINDBG
         if (pc == 0x80070870u) { static int n; if (n++ < 6) fprintf(stderr, "spin pc %08x valid %d spc %08x st %d dev %d tr %d regs %d lim>now %d\n", pc, w->spin_valid, w->spin_pc, w->spin_stores == w->stores, w->spin_dev == w->devver, w->timeread, !memcmp(w->spin_r, w->cpu.r, sizeof w->cpu.r), lim > now(w)); }
 #endif
-        if (w->spin_valid && w->spin_pc == pc && w->spin_stores == w->stores && w->spin_dev == w->devver &&
+        if (w->spin_valid && w->spin_pc == pc && w->spin_stores == w->stores + w->cpu.ram_stores && w->spin_dev == w->devver &&
             !w->timeread && !memcmp(w->spin_r, w->cpu.r, sizeof w->cpu.r) &&
             w->spin_r[32] == w->cpu.hi && w->spin_r[33] == w->cpu.lo && lim > now(w)) {
             w->idle = 1;
@@ -1241,7 +1447,7 @@ static int accelerate(wio_t *w, uint64_t until)
         memcpy(w->spin_r, w->cpu.r, sizeof w->cpu.r);
         w->spin_r[32] = w->cpu.hi;
         w->spin_r[33] = w->cpu.lo;
-        w->spin_stores = w->stores;
+        w->spin_stores = w->stores + w->cpu.ram_stores;
         w->spin_dev = w->devver;
         w->timeread = 0;
     }
@@ -1255,11 +1461,13 @@ static int has_ext(const wio_t *w)
 
 uint64_t wio_run(wio_t *w, uint64_t until)
 {
+    uint32_t insn;
+    int is_br;
     if (!w->rom_ok) { w->cpu.cycles = until; return until; }
     devices(w);
     while (now(w) < until) {
         if (now(w) >= w->next_ev) devices(w);
-        if (w->cpu.pc == HOOK_PC && has_ext(w)) {
+        if (w->cpu.pc == HOOK_PC && (has_ext(w) || (!w->slow && w->fw_crc == FW_CRC_KNOWN))) {
             uint64_t wake;
             if (hook(w, until, &wake)) {
                 if (w->cpu.pc == HOOK_PC) {
@@ -1272,7 +1480,18 @@ uint64_t wio_run(wio_t *w, uint64_t until)
                 continue;
             }
         }
-        if (!wio_cpu_irq_pending(&w->cpu) && at_idle(w)) {
+        /* the instruction about to run: the loop shortcuts below look only at
+         * jumps and branches (J/JAL/branch opcodes 01, 02, 04-07, 14-17) */
+        {
+            uint32_t pa = wio_vtop(w->cpu.pc), op;
+            if (pa < WIO_RAM_SIZE) {
+                const uint8_t *p = &w->ram[pa];
+                insn = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+            } else if (cb_fetch(w, pa, &insn)) insn = 0;
+            op = insn >> 26;
+            is_br = op == 0x01 || op == 0x02 || (op >= 0x04 && op <= 0x07) || (op >= 0x14 && op <= 0x17);
+        }
+        if (is_br && !wio_cpu_irq_pending(&w->cpu) && at_idle(w, insn)) {
             /* nothing changes until the next device event or the deadline */
             uint64_t stop = w->next_ev < until ? w->next_ev : until;
             w->idle = 1;
@@ -1288,7 +1507,8 @@ uint64_t wio_run(wio_t *w, uint64_t until)
             logf_(w, "uploaded program running: CRC-32 %08x%s", w->fw_crc,
                   w->fw_crc == FW_CRC_KNOWN ? " (the DDR card reader program)" : " (not the known program)");
         }
-        if (accelerate(w, until)) continue;
+        if (is_br && accelerate(w, until, insn)) continue;
+        if (fast_loops(w, until)) continue;
 #ifdef WIO_PROFILE
         { extern void wio_prof(uint32_t pc); wio_prof(w->cpu.pc); }
 #endif
@@ -1303,6 +1523,8 @@ uint64_t wio_run(wio_t *w, uint64_t until)
 
 int wio_idle(const wio_t *w) { return w->idle; }
 void wio_trace(wio_t *w, int on) { w->trace = on; }
+void wio_set_slow(wio_t *w, int on) { w->slow = on; }
+uint64_t wio_fast_cycles(const wio_t *w, int which) { return (which >= 0 && which < 4) ? w->fast_cycles[which] : 0; }
 
 void wio_port_mode(wio_t *w, int port, int mode)
 {
