@@ -1,7 +1,7 @@
 # System 573 MiSTer core -- working notes for a session
 
 A MiSTer FPGA core for the Konami **System 573** arcade board (a PlayStation
-derivative), built on the vendored MiSTer PSX core. One developer, one cabinet.
+derivative), built on the vendored MiSTer PSX core. One developer, one test console (a SuperStation One).
 Read `docs/STATUS.md` first: what runs, what is open, how things are built.
 
 ## The setup (there is no build host and no ssh)

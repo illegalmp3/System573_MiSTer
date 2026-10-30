@@ -15,7 +15,7 @@ after its re-install the song unlock was gone.
 
 * **The saves were not overwritten by bad data.** Every `.sav` the MiSTer wrote carries its
   clockless 1980-01-01 stamp. Today's re-installed `ddrextrm.sav` is byte-identical to the
-  09-28 cabinet-verified backup (`out/sav-backup/ddrextrm.sav.20260928-tknv-good`) in the whole
+  09-28 backup verified on the SuperStation One (`out/sav-backup/ddrextrm.sav.20260928-tknv-good`) in the whole
   flash, card and cassette regions; only four timekeeper blocks differ (the settings the
   re-install reset, including the unlock). `ddr4mp.sav` / `ddr4mps.sav` still hold the blank
   flash they were staged with — only their cassette/timekeeper blocks were ever written.
@@ -103,7 +103,7 @@ Caveat, from the same source: MAME marks ddr4mp and ddr4mps `MACHINE_NOT_WORKING
 game-cassette dumps are `BAD_DUMP` 0x8c-byte images, not ZS01 images; the staged `.u1` is the
 stager's 4116-byte pad. Getting past ERROR 191 does not guarantee the security check passes.
 
-## What to test on the cabinet
+## What to test on the SuperStation One
 
 1. ddr3mj (the bookmark is ddrextrm.sav — a title switch): boots from flash, no failures.
 2. ddrextrm: boots, no NOTE 605, the unlocked songs are there.

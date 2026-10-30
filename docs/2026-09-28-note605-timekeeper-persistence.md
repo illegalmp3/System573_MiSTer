@@ -99,7 +99,7 @@ fails a build on any 10030 whose file is under `rtl/` (the same scan also turned
 wired). Nothing on the T7 was touched: the LOAD never finished, so nothing was written back.
 Rebuilt as job 137.
 
-## Expected on the cabinet
+## Expected on the SuperStation One
 
 NOTE 605 once more on the first boot with this core (the blank state, then whatever the
 operator sets, is saved 3 s after the last write — no toast); never again after that. The
@@ -107,7 +107,7 @@ clock in the test menu shows the real date and time. Bookkeeping survives power 
 
 ## Afterwards
 
-On the cabinet the persistence held (two clean boots), but a manual "Save Flash" in the
+On the SuperStation One the persistence held (two clean boots), but a manual "Save Flash" in the
 attract loop produced PCCARD2 — an older saver bug the new feature happened to expose
 (`2026-09-28-save-captures-foreign-sd-slot.md`), fixed with the clock and toast items
 below in the next build.

@@ -1,7 +1,7 @@
 /*
  * wio_test.c -- host test for the White I/O emulation.  Plays the 573's side of
  * the JVS bus (the sequence DDR uses, from its reader driver and the 2026-10-24
- * cabinet log) against the real boot ROM and the firmware DDR uploads.
+ * SuperStation One log) against the real boot ROM and the firmware DDR uploads.
  *
  * usage: wio_test 885a01.bin GAME.DAT [container_offset]
  */

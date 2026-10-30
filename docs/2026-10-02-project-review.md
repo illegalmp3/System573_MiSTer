@@ -129,5 +129,5 @@ Roughly 1,600-2,000 ALMs are recoverable without touching behaviour, cdtoc first
    and ddram_arb guards with benches, plus a frame-interval histogram (vblanks
    between flips) so a single late frame becomes countable.
 4. Its own piece of work: A, the sample-counter start, against MAME's
-   mas3507d/k573fpga, in simulation, then on the cabinet with the chart offset.
+   mas3507d/k573fpga, in simulation, then on the SuperStation One with the chart offset.
 5. Repo cleanup, in one commit series with no functional change.

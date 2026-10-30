@@ -57,7 +57,7 @@ multiplexers** across cpu, spu, dma, memctrl, gpu, timer, sio, savestates.
 | 573 developer OSD diagnostics (Flash Debug overlay, Dbg Field, MDEC Timing test) behind `S573_DEVTOOLS` (off) | Developer tools; 18de8ea had already taken them off the release OSD | small |
 
 Kept: every 573 option, aspect/scale/crop/deinterlace/480i sync, stereo mix, pause when
-OSD open, YC/composite (the cabinet CRT), the profilers and STATUS counters behind the
+OSD open, YC/composite (the test setup's CRT), the profilers and STATUS counters behind the
 s573mp3 log (observability for hardware reports).
 
 Not taken (documented for later): the s573 profilers (~250 ALM, prof + prof_gpu +

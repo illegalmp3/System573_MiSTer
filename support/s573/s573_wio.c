@@ -1122,7 +1122,7 @@ static int hook_ext_selected(const wio_t *w, uint8_t reg)
 }
 
 /* The same routine for a VIRTUAL port (a card file), done here instead of
- * interpreting its bit loop (~400 instructions a byte, the cost the cabinet logs
+ * interpreting its bit loop (~400 instructions a byte, the cost the SuperStation One logs
  * showed while a card file was read). It is the routine's algorithm with the card
  * model of s573_wio_card.c, step for step as rtl/s573_wio_port.v does it at the
  * SNAC pins: latch already set -> -2; eight bits out, the card's byte in; timeout
@@ -1233,7 +1233,7 @@ check:
 
 /* ---- shortcuts for four loops of the reader program (CRC 08844237 only) ----
  * Each is a loop whose outcome is fixed by time alone (or, for the FPGA one, by
- * data), so it is jumped over instead of interpreted. Measured on the cabinet
+ * data), so it is jumped over instead of interpreted. Measured on the SuperStation One
  * (2026-10-28 logs): without them the ARM fell up to ~1 s behind the board's
  * clock while the program configured the FPGA and while it read 16-20 frames from
  * a card file -- the two places these loops dominate (WIO_PROFILE: the counter

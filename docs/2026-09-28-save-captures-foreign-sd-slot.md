@@ -73,7 +73,7 @@ default.
   pure read, and a ZS01 title's legacy 48 MiB save without the cassette block now grows
   contiguously.
 
-## Closed on the cabinet (job 148)
+## Closed on the SuperStation One (job 148)
 
 Boot with the restored save: clean. Test-mode edit → manual OSD "Save Flash" in the
 attract loop → power cycle → clean boot, edit kept (the exact case that failed on 137).

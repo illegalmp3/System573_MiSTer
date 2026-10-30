@@ -10,7 +10,7 @@ against the in-repo stager and the files proven on hardware.
   2. tools/s573_stage.py stages everything from dumps/mame573 into WORK/new
   3. every reference file must be byte-identical in WORK/new; every copied CHD must
      equal its source; the BIOS, Hyper Bishi Bashi flash/NVRAM images and blanks
-     must equal local/sd-stage (the files used on the cabinet)
+     must equal local/sd-stage (the files used on the SuperStation One)
   4. a second run must write nothing; an existing .sav is kept; an old-size .sav is
      extended with the install kept
   5. lookup by CRC: one title from a zip with every member renamed and its CHD

@@ -212,7 +212,7 @@ if (Test-Path $sta) {
 # UNDRIVEN NETS in our own RTL. Quartus ties a net with no driver to 0 and
 # carries on with a WARNING (10030) buried among ~20,000 others. 2026-09-28 job
 # 130: emu.sv never assigned the flash saver's xtra_wr_ack, the boot LOAD stalled
-# on the cassette block, the CPU stayed in reset and the cabinet showed a black
+# on the cassette block, the CPU stayed in reset and the SuperStation One showed a black
 # screen with a working OSD. The top level is not simulated, so this is the only
 # place that mistake can be caught before the card. Any 10030 whose file is under
 # rtl/ fails the build; psx/ and sys/ carry a few known ones of their own.

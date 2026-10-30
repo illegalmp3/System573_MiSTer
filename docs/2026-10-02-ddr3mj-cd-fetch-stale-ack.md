@@ -91,7 +91,7 @@ anywhere a title reads the disc during play (3rd Mix songs and previews; the ddr
 attract-demo loader that went silent on 2026-09-12 is the same path and worth a
 second look with this build -- not established as the same cause).
 
-## What to test on the cabinet
+## What to test on the SuperStation One
 
 ddr3mj: several full credits; previews on Select Music after each. In the log the
 song seconds should keep `cd: 24 reads` / `sectors=24`, `cd_fetch` around 1 %, and

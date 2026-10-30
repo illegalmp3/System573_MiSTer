@@ -55,7 +55,7 @@ adopted as nothing, with the descrambler still parked at the end: silence.
 Host tests: two new groups (T21 same-window re-arm vs enable edge; T22 tail credit), 22/22
 PASS, 4 mutations RED. Deployed to `E:\MiSTer`, previous kept as `MiSTer.prev-20260928c`.
 
-## To verify on the cabinet
+## To verify on the SuperStation One
 
 Select Music, stay on one song past the end of its preview: it should restart and keep
 looping until the stage screen. In the log, expect `song end … EXHAUSTION` followed within a

@@ -7,7 +7,7 @@
 #   RTL_DIR=local/psx_rtl_no0004 sim/system573/run_cpubench.sh   # alternative cpu.vhd etc.
 #   TAG=no0004 ...                                # build dir suffix (keeps both runs)
 #
-# Why (2026-09-27): ddrextrm's DecDCTvlc runs at CPI ~3.3 on the cabinet; the suspect
+# Why (2026-09-27): ddrextrm's DecDCTvlc runs at CPI ~3.3 on the SuperStation One; the suspect
 # is psx_patches/0004 (forced i-cache miss on every 16-byte line crossing). The probe
 # runs three loops that differ only in line crossings (see the ROM generator) and the
 # tb's CPUBENCH tap stamps every taken branch with the clk1x cycle count. TURBO=0:

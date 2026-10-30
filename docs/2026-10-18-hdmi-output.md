@@ -37,7 +37,7 @@ so one .rbf drives a TV over HDMI and a CRT from the analog port at the same tim
 ## Kept
 
 Aspect ratio, scaling, crops, deinterlacing, "Sync 480i for HDMI", dithering, stereo mix,
-"Pause when OSD open", all 573 options. The YC/composite encoder stays (the cabinet CRT is
+"Pause when OSD open", all 573 options. The YC/composite encoder stays (the test setup's CRT is
 on S-Video). Bicubic scaling stays off (psx_patches/0028).
 
 ## Build PC
@@ -46,7 +46,7 @@ The i9-14900KF crashed Quartus repeatedly and blue-screened once (0x3B, 12:19 20
 with corrected machine checks around it. BIOS updated 1812 -> 1837 (ASUS Z790 GAMING WIFI7);
 M5 and M6 ran clean afterwards, and M5 reproduced M3's rbf byte for byte.
 
-## Hardware test (2026-10-18, cabinet)
+## Hardware test (2026-10-18, SuperStation One)
 
 HDMI TV and CRT over composite driven at the same time from this build: both show the
 game. The log of that session (s573mp3.log, two sessions, ~6 + ~4 min):

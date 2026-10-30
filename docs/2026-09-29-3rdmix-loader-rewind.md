@@ -96,7 +96,7 @@ one-shot descramble; T27 no frame at the spent window is the truncated tail. Two
 mutations restore the defects -- `S573_MUT_HOLD_SKIP` (1) and `S573_MUT_KEEP_TAIL`
 (2) -- and the suite goes RED under each. 27 groups, 7 mutations red.
 
-## What to test on the cabinet
+## What to test on the SuperStation One
 
 ddr3mj from `ddr3mj.mgl`, Boot Device = Flash ROM: song previews play in full and
 loop; a selected song starts at READY and plays through. Then the same for a preload

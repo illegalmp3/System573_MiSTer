@@ -1,6 +1,6 @@
 # MP3 gain, per-title controls and PCMCIA slot 1 (2026-10-20)
 
-Driven by the first DrumMania / Guitar Freaks run on the cabinet (DM 2nd and 3rd Mix
+Driven by the first DrumMania / Guitar Freaks run on the SuperStation One (DM 2nd and 3rd Mix
 played a full credit; DM 4th-9th and GF 5th Mix stopped at errors).
 
 ## 1. The MAS3507D gain was captured and never applied

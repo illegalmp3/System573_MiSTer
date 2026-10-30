@@ -161,7 +161,7 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > 30 fps (DecDCTvlc at CPI 3.3). The BIOS-mirror crash is 0005's (the mirror got tags
 > without data); the boot regression without 0004 is in
 > `docs/2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md`.
-> **Confirmed on the cabinet the same day: ddrextrm at 60 fps with full-speed video.**
+> **Confirmed on the SuperStation One the same day: ddrextrm at 60 fps with full-speed video.**
 > **2026-09-28:** ddrextrm's other reports closed the same weekend — song-select preview
 > residue/pops (firmware: re-arm stops the fabric reader first, `2026-09-27-song-select-preview-residue.md`)
 > and the occasional dropped arrows (our own unbuffered SD-card log was stalling Main's loop
@@ -175,7 +175,7 @@ cached KSEG0 BIOS mirror (`0x9FC00000`) — decoded as a `jal` to an unmapped ad
 > Its first hardware run exposed a saver bug older than it: the staging buffer captured
 > hps_io's SD stream for EVERY slot, so a save while the game read the CD wrote CD sectors
 > into the .sav (PCCARD2). Gated on our slot's ack; bench injects a foreign sector before
-> every service (`2026-09-28-save-captures-foreign-sd-slot.md`). Closed on the cabinet.
+> every service (`2026-09-28-save-captures-foreign-sd-slot.md`). Closed on the SuperStation One.
 > Audio-underrun watch item CLOSED without a change: across the ten 09-27/28 session logs
 > (~300 stream epochs) the `underrun=` counter moves only at stream starts (the DAC ticks
 > before the first PCM lands) and at song ends after "window exhausted -- ring drained";

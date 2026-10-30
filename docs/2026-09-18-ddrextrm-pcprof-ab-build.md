@@ -135,7 +135,7 @@ confirmed as the video's problem regardless of what the game's frame rate does.
 
 ## Outcome (2026-09-27)
 
-The cabinet log came back: row 1 of the table above — `DecDCTvlc` dominant (25.5 %),
+The SuperStation One log came back: row 1 of the table above — `DecDCTvlc` dominant (25.5 %),
 VSync 44 %, FR = 30 in both runs, MDEC 21–25 % busy and unchanged by the switch. The
 follow-up (instruction count of the game's VLC on the game's frames, the `RamMLAB` re-read,
 the NVC probe-ROM benchmark) is in `2026-09-27-ddrextrm-profile-verdict-and-icache-patch-0004.md`:

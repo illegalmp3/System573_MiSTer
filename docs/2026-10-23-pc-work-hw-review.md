@@ -30,7 +30,7 @@ options used status bits 111-114, which the WIP now uses for "573 Controls"
 (`[113:111]`) and "573 PCMCIA Card" (`[115:114]`). They move to `[117:116]`, `[118]`,
 `[119]` when the patch is applied (emu.sv, s573wio.cpp, tests glue stub, README).
 
-## Test on the cabinet: DrumMania / Guitar Freaks input maps (item 3)
+## Test on the SuperStation One: DrumMania / Guitar Freaks input maps (item 3)
 
 The game's own TEST MODE input check is the judge: it shows what the game reads on
 each line, which is what a real cabinet's wiring delivers.

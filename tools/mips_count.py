@@ -4,7 +4,7 @@ extracted ddrextrm executable on real movie data and COUNT what it executes.
 
     mips_count.py out/re/ddrextrm_game.bin local/re/JBAACF.SBS [--frames N] [--slices]
 
-Purpose: DecDCTvlc's cost per frame measured on the cabinet (PC-sampling profile) has
+Purpose: DecDCTvlc's cost per frame measured on the SuperStation One (PC-sampling profile) has
 to be compared against SOMETHING that is not a guess. The instruction count of the
 game's own routine on the game's own bitstream is the floor: an R3000 issues at most
 one instruction per cycle, so cycles >= instructions, and every cycle above that is a

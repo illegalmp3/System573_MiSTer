@@ -3,7 +3,7 @@
 
     tools/cpubench_rom.py out.bin [--iters N]
 
-Why. ddrextrm's DecDCTvlc runs at CPI ~3.3 on the cabinet (2026-09-27 profile vs. the
+Why. ddrextrm's DecDCTvlc runs at CPI ~3.3 on the SuperStation One (2026-09-27 profile vs. the
 instruction count of the same routine on the same bitstream, tools/mips_count.py).
 The suspect is psx_patches/0004, which forces an i-cache MISS on every 16-byte line
 crossing. This ROM makes that cost directly measurable in the NVC full-system harness

@@ -150,7 +150,7 @@ address, bytec)`) so the sim tells the truth.
   bitstream (an 8-byte index-5 file = no install cassette) and can be deleted once the
   single launchers are confirmed.
 
-## What to test on the cabinet
+## What to test on the SuperStation One
 
 1. A single-cassette title (ddrextrm) still boots from flash on the new bitstream --
    the index-5 path changed width (AW 3 -> 10) and decode (`[5:0]`).

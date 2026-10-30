@@ -4,7 +4,7 @@
 **Branch:** `hw-audit-573in1` (on top of `5bcd741`, the public v0.1.1 tree)
 **Status:** 8 RTL fixes + 1 portability fix, simulated: 71/71 suite benches green
 **with the real game-dump fixtures** (pnchmn2, gtrfrk5m, ddrusa, ddr4m, ddr3ma) and
-573in1's own Digital I/O bitstream. **Not yet built or cabinet-tested.**
+573in1's own Digital I/O bitstream. **Not yet built or tested on the SuperStation One.**
 
 Update 4 (same day, MAS3507D data sheet, S6): F9 applies the MP3 decoder's output
 volume matrix as the data sheet defines it; ddr4m's own dB table matches the data
@@ -366,7 +366,7 @@ disables it.** Same conclusion as O7.
    `make gate5_replay 573in1_cart`. `tb_k573dio_cpld` uses 573in1's real `data/fpga.bit`
    when a 573in1 checkout sits next to this repo (or `S573IN1=<path>`); without it the
    synthetic-stream cases still run.
-2. Cabinet regression set for F1/F2/F5-F8: hyperbbc or ddrs2k (X76F100 + BIOS identify),
+2. SuperStation One regression set for F1/F2/F5-F8: hyperbbc or ddrs2k (X76F100 + BIOS identify),
    dsem (X76F041), ddrusa (ZS01), ddr4m and ddr3ma (dual cassette), plus one flash-boot
    and one CD-install boot (drive check, F2). F5: any DIO title boots to attract
    with MP3 (ddr3ma/ddr4m/ddrextrm), and 573in1's cartridge screen shows the Digital

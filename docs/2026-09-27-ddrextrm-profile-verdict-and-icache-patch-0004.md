@@ -1,6 +1,6 @@
 # ddrextrm 30 fps: the PC profile's verdict, and the i-cache patch that caused it
 
-**2026-09-27.** Follows `2026-09-18-ddrextrm-pcprof-ab-build.md`. The cabinet ran the
+**2026-09-27.** Follows `2026-09-18-ddrextrm-pcprof-ab-build.md`. The SuperStation One ran the
 PC-profiler bitstream (`out/deploy-20260918`, rbf md5 `2713e2fb…`) on ddrextrm: one song
 with a busy background video, played with **MDEC Timing = Accurate** and again with
 **Fast (test)**. The log (`local/sdlog/s573mp3.log`, 518 profiled seconds) is read here;
@@ -26,7 +26,7 @@ Reading, in order:
   work per 16.7 ms frame → 60 fps. With video: 55 % busy = **18.4 ms per 33.3 ms frame**:
   every frame overruns one vblank and lands on the next → a hard 30. The seconds that
   reach 38–40 fps are the ones where DecDCTvlc got cheaper (simpler frames) — the
-  cabinet observation "static background → smoother arrows" is exactly this.
+  SuperStation One observation "static background → smoother arrows" is exactly this.
 * **The MDEC is not the limiter.** 21–25 % busy in both runs, and the Fast switch (the
   2,171-cycle wait removed) moved the MDEC's own numbers only; the CPU profile and FR
   did not move. The 09-18 note's suspicion of the MDEC wait is closed: it costs the
@@ -167,7 +167,7 @@ s573_hps_ext` PASS with the toggle change. NVC: `psx_mister` elaborates clean.
 Deployed to the card by job 066b (`E:\_Console\Konami_System_573.rbf`, byte-compared;
 previous kept as `Konami_System_573.prev-20260918.rbf`; old log → `s573mp3.20260918.log`). The profiler,
 the `MDEC Timing` OSD item and the firmware stay as deployed on 09-18, so the same log
-lines answer the question on the cabinet: expect `FRAMES=60/s` during the song's video
+lines answer the question on the SuperStation One: expect `FRAMES=60/s` during the song's video
 and the `80073800` (DecDCTvlc) share to drop from 25 % to ~10 %; `mdec_mb` should now read
 ~3100/s (15 fps × 209) with the toggle fix.
 
@@ -182,7 +182,7 @@ and the `80073800` (DecDCTvlc) share to drop from 25 % to ~10 %; `mdec_mb` shoul
   ≈4 % — the digital-board/flash helper code) is modelled by the PSX core's `ext_waitcnt`
   from the game's own delay-register writes; unverified against a real board, small.
 
-## 7. Cabinet result (2026-09-27, 17:17 PT)
+## 7. SuperStation One result (2026-09-27, 17:17 PT)
 
 Ricky, with the deployed rbf: **"DDR Extreme now displays 60 fps arrows and full speed video."**
 Tier-3 issues #1–#3 (arrow frame rate, video speed) closed by this change. The

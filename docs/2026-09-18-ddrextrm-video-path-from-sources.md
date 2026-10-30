@@ -2,7 +2,7 @@
 
 **2026-09-18.** Baseline `ed00df8` (the four 09-17 instrumentation commits dropped and
 bookmarked on `instr-mdec-a182001`). Symptoms under study, all reported from the
-cabinet on ddrextrm: arrow scrolling drops below 60 fps whenever the background
+SuperStation One on ddrextrm: arrow scrolling drops below 60 fps whenever the background
 video is "busy", recovers to 60 on near-static backgrounds, and the background
 videos themselves play at roughly half speed.
 

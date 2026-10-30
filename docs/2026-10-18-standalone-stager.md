@@ -63,7 +63,7 @@ their raw SHA1; ECC regeneration matches 20 stored sectors of 908a02.
   `dsfdct.bin` + cues, `.sav`); every copied CHD equals its source.
 - `573bios.bin`, `573bios_gchgchmp.bin`, `hbbflash.bin`, `hbbnvram.bin`, the two
   blanks and `ddrsbm.u1/.u6` are byte-identical to `local/sd-stage/` (the files used
-  on the cabinet).
+  on the SuperStation One).
 - A second run writes nothing; an existing `.sav` is kept untouched; a 16 MiB
   pre-timekeeper `.sav` is extended to 16,786,432 B with its contents kept.
 - An SD-root destination stages into `games/System573/`; `--dry-run` writes nothing.
