@@ -16,6 +16,9 @@ against the in-repo stager and the files proven on hardware.
   5. lookup by CRC: one title from a zip with every member renamed and its CHD
      under another name in a sub-folder
   6. an SD-root OUT goes to OUT/games/System573; --dry-run writes nothing
+  7. the card reader: READER_SETS is exactly the sets whose MAME machine adds
+     KONAMI_573_MEMORY_CARD_READER (ksys573.cpp); 885a01.bin is staged with them
+     (MAME's SHA1) and not for a title without the reader
 """
 import filecmp, hashlib, importlib.util, os, re, shutil, subprocess, sys, zipfile
 
@@ -129,6 +132,11 @@ def main():
                 db = db[:len(da)]
             check(da == db, f"{f} identical to local/sd-stage (used on hardware; settings trailer aside)")
     check(not [f for f in os.listdir(new) if f.endswith(".part")], "no .part files left behind")
+    if set(staged) & set(M.READER_SETS):
+        p = os.path.join(new, "885a01.bin")
+        with open(p, "rb") as fh:
+            ok = hashlib.sha1(fh.read()).hexdigest() == M.READER_ROM["sha1"]
+        check(os.path.exists(p) and ok, "885a01.bin staged, MAME's SHA1")
 
     # --- 4. idempotency and saves
     print("== second run / saves", flush=True)
@@ -177,10 +185,38 @@ def main():
     rc, out = run([DUMPS, root, "--only", "gchgchmp"])
     check(rc == 0 and os.path.exists(os.path.join(root, "games", "System573", "573bios_gchgchmp.bin")),
           "an SD-root OUT stages into OUT/games/System573")
+    check(not os.path.exists(os.path.join(root, "games", "System573", "885a01.bin")),
+          "no 885a01.bin for a title without the card reader")
     dry = os.path.join(work, "dry")
     os.makedirs(dry)
     rc, out = run([DUMPS, dry, "--dry-run", "--only", "ddrusa,dsem"])
     check(rc == 0 and not os.listdir(dry), "--dry-run writes nothing")
+
+    # --- 7. which sets have the reader, from MAME's driver
+    print("== card reader sets", flush=True)
+    with open(os.path.join(DUMPS, "ksys573.cpp"), encoding="latin-1") as fh:
+        drv = fh.read()
+    body, cur = {}, None
+    for line in drv.split("\n"):
+        m = re.match(r"^void \w+::(\w+)\(machine_config &config\)", line)
+        if m:
+            cur = m.group(1)
+            body[cur] = []
+        elif cur:
+            body[cur].append(line)
+    cfgs = {f for f, b in body.items() if any("KONAMI_573_MEMORY_CARD_READER" in l for l in b)}
+    grew = True
+    while grew:                    # configs that call one of those
+        grew = False
+        for f, b in body.items():
+            if f not in cfgs and any(re.search(r"\b%s\(config\)" % g, l) for g in cfgs for l in b):
+                cfgs.add(f)
+                grew = True
+    machine = {m.group(1): m.group(3) for m in
+               re.finditer(r"^GAME\(\s*\d+,\s*(\w+),\s*(\w+),\s*(\w+),", drv, re.M)}
+    want = {t["set"] for t in M.TABLE["titles"] if machine.get(t["set"]) in cfgs}
+    check(want == set(M.READER_SETS), "READER_SETS == the sets with KONAMI_573_MEMORY_CARD_READER"
+          + ("" if want == set(M.READER_SETS) else f": driver {sorted(want)}"))
 
     if len(sys.argv) > 2:          # md5 manifest of the staged files, for comparing runs
         with open(sys.argv[2], "w") as fh:

@@ -75,7 +75,8 @@ OSD (CONF_STR):
   player 2 (reader port 0 is the cabinet's player 1 slot).
 * **573 P1 Card File** / **573 P2 Card File** (slots S2/S3, remembered per core):
   browse `saves/System573/` for a .mcd/.mcr/.sav. No file = no card in that slot.
-  `saves/System573/memcard1.mcd` and `memcard2.mcd` are blank formatted cards.
+  The service creates no card files; any raw 128 KB PS1 card image works (a
+  PSX_MiSTer save of a home DDR is one).
 
 **Card In/Out** (2026-10-28): after saving, DDR tells the player to pull the card
 out and waits for it. A card file has no hand to pull it, so each player has a
@@ -96,7 +97,9 @@ card stays in (`tools/build-hps-mp3.sh` step 5).
 
 The boot ROM: `885a01.bin` next to the CD image, or in the core's games folder
 (`games/System573/885a01.bin`), as MAME stores it (CRC32 e22d093f). Without it the
-service logs that and the reader stays absent.
+service logs that and the reader stays absent. `tools/s573_stage.py` stages it with
+the titles whose MAME machine has the reader (`READER_SETS`, re-derived from
+ksys573.cpp's KONAMI_573_MEMORY_CARD_READER by `tools/test_s573_stage.py`).
 
 ## CMD_573_WIO (0x6F)
 

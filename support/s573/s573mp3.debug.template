@@ -1,8 +1,9 @@
 # Drop this file at /media/fat/s573mp3.debug to turn on the 573 MP3 service's
 # diagnostics. Its presence is the switch -- delete it to turn them off.
 #
-# Output goes to /media/fat/s573mp3.log, unbuffered, on the SD card, so it can
-# be read by plugging the card into a computer. No SSH and no MiSTer.ini
+# Output goes to logs/System573/ on the SD card, one session-NNNNN.log per
+# session (logs/System573/sessions.txt lists them), so it can be read by
+# plugging the card into a computer. No SSH and no MiSTer.ini
 # `debug=` setting are needed: Main's own debug=2 writes /tmp/debug.txt, which
 # is tmpfs and unreachable without a shell.
 

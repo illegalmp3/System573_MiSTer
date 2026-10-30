@@ -29,6 +29,8 @@ What it writes, per title (each launcher in _Arcade names its files):
                          2352-byte sectors the core can serve
   <set>.sav              the save file (flash + NVRAM), written as real zero bytes.
                          An existing .sav is NEVER replaced: it holds your install.
+  885a01.bin             the memory card reader's boot ROM, for the DDR titles whose
+                         cabinets have the reader (only needed for memory cards)
 
 Re-running is safe: files already correct are left alone.
 
@@ -2651,7 +2653,7 @@ class Sources:
         self.chds = {}       # sha1 -> path
         self.other_chds = []
         self.sevenz = []
-        sizes = {r["size"] for r in TABLE["roms"].values()}
+        sizes = {r["size"] for r in TABLE["roms"].values()} | {READER_ROM["size"]}
         for dp, dns, fns in os.walk(root):
             dns[:] = [d for d in dns if not d.startswith(".")]
             for fn in fns:
@@ -2684,8 +2686,9 @@ class Sources:
                         self.loose.setdefault(size, []).append(p)
 
     def rom(self, key):
-        """The bytes of a ROM from the table, verified against MAME's CRC32 + SHA1."""
-        r = TABLE["roms"][key]
+        """The bytes of a ROM from the table (or READER_ROM), verified against MAME's
+        CRC32 + SHA1."""
+        r = key if isinstance(key, dict) else TABLE["roms"][key]
         crc, size = int(r["crc"], 16), r["size"]
         cands = sorted(self.zips.get((crc, size), []),
                        key=lambda c: os.path.splitext(os.path.basename(c[0]))[0].lower() != r["set"])
@@ -3009,6 +3012,34 @@ def stage(src, t, out, dry, force, log):
             raise Fail(f"{name}: unknown recipe {m}")
 
 
+# ---- the memory card reader's boot ROM ----
+# The DDR cabinets with a memory card reader (Konami GE885-PWB(A), on JVS) are the
+# MAME machines that add KONAMI_573_MEMORY_CARD_READER: in ksys573.cpp the ddr3m,
+# ddr3mp, ddr4ms and ddr5m configs and the sets built on them (tools/test_s573_stage.py
+# re-derives READER_SETS from ksys573.cpp). The reader's boot ROM, k573mcr.cpp:
+#     ROM_LOAD( "885a01.bin", 0x000000, 0x080000, CRC(e22d093f) SHA1(927f62f6...) )
+# Non-merged sets carry it in each of those zips; split and merged sets keep it in
+# k573mcr.zip. MiSTer_System573 loads it from games/System573/885a01.bin.
+READER_ROM = {"name": "885a01.bin", "crc": "e22d093f", "size": 0x80000,
+              "sha1": "927f62f63b5caa7899392decacd12fea0e6fdbea", "set": "k573mcr"}
+READER_SETS = ("ddr3ma", "ddr3mj", "ddr3mk", "ddr3mka", "ddr3mp", "ddr4m", "ddr4mj",
+               "ddr4mp", "ddr4mps", "ddr4ms", "ddr4msj", "ddr5m", "ddrextrm", "ddrmax",
+               "ddrmax2")
+
+
+def stage_reader_rom(src, out, dry, log):
+    """885a01.bin for the titles with a card reader. Not finding it is not an error:
+    the games run without it, just with no memory cards."""
+    try:
+        data = src.rom(READER_ROM)
+    except Fail:
+        log.append("885a01.bin: not found (only needed for memory cards; it is in MAME's "
+                   "ddr3m*/ddr4m*/ddr5m/ddrmax* zips, or k573mcr.zip)")
+        return False
+    put(out, READER_ROM["name"], data, dry, log)
+    return True
+
+
 # ---- the MP3 decoder: a second Main binary, chosen per core by MiSTer.ini ----
 # Main_MiSTer user_io.cpp (user_io_init): after the core is loaded and the INI parsed,
 #     const char *main = getFullPath(cfg.main);
@@ -3172,6 +3203,10 @@ def main():
             say(f"            needs: {', '.join(m)}")
         if src.sevenz:
             say("  (some .7z files were found: this tool reads .zip only -- re-pack them as .zip)")
+    reader = [t for t, _ in ready if t["set"] in READER_SETS]
+    if reader:
+        say("Memory card reader boot ROM (885a01.bin): "
+            + ("found" if src.has_rom(READER_ROM) else "not found -- only needed for memory cards"))
     if a.list or not a.out:
         if not a.out and not a.list:
             say("\n(no output folder given -- nothing written)")
@@ -3200,6 +3235,12 @@ def main():
         except Fail as e:
             log.append(f"FAILED: {e}")
             failed.append(t["set"])
+        for line in log:
+            say("    " + line)
+    if reader:
+        log = []
+        say("\nMemory card reader (DDR titles with a card reader)")
+        stage_reader_rom(src, out, a.dry_run, log)
         for line in log:
             say("    " + line)
     say("")

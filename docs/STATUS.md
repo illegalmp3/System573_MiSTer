@@ -51,7 +51,7 @@ and for real cards on SNAC: the board's CPU runs its own boot ROM and the progra
 game uploads, emulated on the HPS; the 573's JVS MCU and the SNAC byte exchange are in
 the fabric. OSD "573 Card Reader" (Auto = DDR profiles), "573 P1/P2 Card" (File /
 SNAC), "573 P1/P2 Card File" (S2/S3). Needs `885a01.bin` (MAME ddr3m*/ddr4m* zips)
-in `games/System573`. Cabinet 2026-10-28: SNAC cards and a home-version .sav both
+in `games/System573`; `s573_stage.py` stages it with the reader titles. Cabinet 2026-10-28: SNAC cards and a home-version .sav both
 read and save in ddrextrm. Each player's "Card In/Out" button (map it in Define
 System573 buttons) pulls the card file out when the game asks and pushes it back in.
 docs/2026-10-26-white-io-reader.md.

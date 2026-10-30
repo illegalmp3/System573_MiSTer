@@ -14,8 +14,8 @@
 > cassette), the GN845 stage-multiplexor handshake, the 32 MB PCMCIA linear-flash
 > card (3rd Mix through Extreme), CD-to-flash installs that persist across title
 > switches, 60 fps gameplay with full-speed background video, MP3 streaming fixes
-> (song previews, mid-song CD streaming, pause with the OSD), and single
-> launchers per title. Current state, by title:
+> (song previews, mid-song CD streaming, pause with the OSD), single launchers per
+> title, and DDR's memory card reader (card files and real cards on SNAC). Current state, by title:
 > [`docs/STATUS.md`](docs/STATUS.md).
 >
 > Like the original, this is GPL v2. No game, BIOS or security-cassette dumps are
@@ -60,7 +60,9 @@ three downloads:
        python3 s573_stage.py <folder with your MAME roms> <SD card or USB drive>
 
    It writes everything a launcher loads -- BIOS, cassette image(s), disc, and an
-   empty save file of the right size -- for every title it finds. ROMs are found by
+   empty save file of the right size -- for every title it finds, plus
+   `885a01.bin`, the memory card reader's boot ROM, for the DDR titles that have
+   the reader ([Memory cards](#memory-cards-ddr)). ROMs are found by
    CRC32 and checked against MAME's SHA1 and discs by the SHA1 in the CHD header, so
    non-merged, split and merged sets all work and file names do not matter. An
    existing `.sav` is never replaced (it holds the game's install), and running it
@@ -129,6 +131,49 @@ three downloads:
 Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-Video /
 composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
 music together.
+
+## Memory cards (DDR)
+
+The Japanese and Asian DDR cabinets from 3rd Mix on have a memory card reader: a
+separate board, Konami GE885-PWB(A) (the "White I/O"), on the JVS port, with two
+PlayStation memory card slots. The core runs it the way the cabinet does, built
+from the documentation of that hardware rather than from the game's behaviour:
+
+* the 573's JVS MCU is in the fabric, register for register as psx-spx documents it;
+* the reader board's own CPU and its on-chip peripherals (a Toshiba TMPR3904F,
+  from Toshiba's user's manual) run Konami's boot ROM and the reader program the
+  game uploads to it, interpreted on the ARM in `MiSTer_System573`. None of the
+  reader's card commands is re-implemented: what the game asks for is answered by
+  Konami's own program;
+* real cards on SNAC are clocked at the pins with the timing of that program's own
+  card routine.
+
+[`docs/2026-10-26-white-io-reader.md`](docs/2026-10-26-white-io-reader.md) has the
+details and the sources.
+
+Titles: the sets whose MAME machine has the reader -- 3rd Mix (Japan, Asia, Korea,
+Plus), 4th Mix (Japan, Asia, Plus, Solo, Plus Solo), 5th Mix, DDRMAX, DDRMAX2 and
+Extreme. Tested on a cabinet with DDR Extreme: real cards on SNAC, and a card file
+made by the home version on PSX_MiSTer, both read and saved.
+
+What it needs:
+
+* `885a01.bin` (the reader's boot ROM, in MAME's ddr3m*/ddr4m*/ddr5m/ddrmax* zips or
+  `k573mcr.zip`) in `games/System573/`. The staging tool puts it there.
+* `MiSTer_System573` and its `MiSTer.ini` line (step 4): the reader board runs there.
+
+OSD:
+
+* **573 Card Reader**: Auto (fitted for the DDR control profiles), On, Off.
+* **573 P1 Card** / **573 P2 Card**: File or SNAC (SNAC port 1 = player 1, port 2 =
+  player 2).
+* **573 P1 Card File** / **573 P2 Card File**: a raw 128 KB card image (`.mcd`,
+  `.mcr` or `.sav`) from `saves/System573/`, for example a PSX_MiSTer save of a home
+  DDR game with its arcade link data. Every frame the game writes goes straight back
+  into the file.
+* **Card In/Out** (a button; map it in *Define System573 buttons*): after saving,
+  the game asks the player to pull the card out and waits. One press pulls that
+  player's card file out, the next puts it back in; a popup confirms each press.
 
 ## Diagnostic logs
 
