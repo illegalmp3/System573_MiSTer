@@ -7,7 +7,7 @@ says which ones still describe the current tree.
 
 ## What runs
 
-Reported from the cabinet (DE10-Nano, 128 MB SDRAM, CRT over composite/S-Video,
+Reported from the test machine, a SuperStation One (DE10-Nano, 128 MB SDRAM, CRT over composite/S-Video,
 games on a USB SSD). "Credit" = a full credit of songs played with music.
 
 | title | set | state | notes |
@@ -33,12 +33,12 @@ Staged on the drive, not yet reported: ddr3mk, ddr3mka, ddr3mp, ddr4mps, ddr4ms,
 ddr4msj, dsem2, dsfdct.
 
 Opening the MiSTer OSD pauses the game AND its MP3 music, and play resumes in
-sync (confirmed on the cabinet 2026-10-17, and in the 2026-10-18 log: two mid-song
+sync (confirmed on the SuperStation One 2026-10-17, and in the 2026-10-18 log: two mid-song
 pauses, the MP3 read pointer frozen for exactly the paused seconds, no underrun;
 docs/2026-10-02-osd-pause-music.md).
 
 HDMI is back (2026-10-18): one bitstream drives an HDMI TV and the S-Video/composite
-CRT at the same time, confirmed on the cabinet (docs/2026-10-18-hdmi-output.md).
+CRT at the same time, confirmed on the SuperStation One (docs/2026-10-18-hdmi-output.md).
 
 Out of scope for this core as it stands:
 the analog-board titles (2nd Mix family, dsfdcta, dsftkd) -- they play songs as
@@ -51,7 +51,7 @@ and for real cards on SNAC: the board's CPU runs its own boot ROM and the progra
 game uploads, emulated on the HPS; the 573's JVS MCU and the SNAC byte exchange are in
 the fabric. OSD "573 Card Reader" (Auto = DDR profiles), "573 P1/P2 Card" (File /
 SNAC), "573 P1/P2 Card File" (S2/S3). Needs `885a01.bin` (MAME ddr3m*/ddr4m* zips)
-in `games/System573`; `s573_stage.py` stages it with the reader titles. Cabinet 2026-10-28: SNAC cards and a home-version .sav both
+in `games/System573`; `s573_stage.py` stages it with the reader titles. SuperStation One 2026-10-28: SNAC cards and a home-version .sav both
 read and save in ddrextrm. Each player's "Card In/Out" button (map it in Define
 System573 buttons) pulls the card file out when the game asks and pushes it back in.
 docs/2026-10-26-white-io-reader.md.

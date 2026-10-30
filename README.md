@@ -155,8 +155,9 @@ details and the sources.
 
 Titles: the sets whose MAME machine has the reader -- 3rd Mix (Japan, Asia, Korea,
 Plus), 4th Mix (Japan, Asia, Plus, Solo, Plus Solo), 5th Mix, DDRMAX, DDRMAX2 and
-Extreme. Tested on a cabinet with DDR Extreme: real cards on SNAC, and a card file
-made by the home version on PSX_MiSTer, both read and saved.
+Extreme. Tested on a SuperStation One with DDR Extreme: real cards on SNAC, and a
+.sav card file containing Arcade Link data from the home version of Dance Dance
+Revolution 5th Mix, created using PSX_MiSTer, both read and saved.
 
 What it needs:
 
