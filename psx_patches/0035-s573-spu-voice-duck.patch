@@ -1,0 +1,136 @@
+System 573: per-voice SPU attenuation + SPU register-write snoop ("573 Announcer/Crowd").
+
+2026-10-30. An OSD convenience, not hardware behaviour: during a DDR song the SPU
+plays only the announcer and the crowd (MAME reference runs of ddrextrm, ddr5m and
+ddrmax2, docs/2026-10-30-music-level-and-announcer.md), and some players want them
+quieter or gone while the arrows scroll. rtl/s573_voice_duck.v watches the SPU's
+register writes (KEYON at 0x188/0x18A) and the Digital I/O MP3 state and marks the
+voices keyed on inside the song window; this patch only applies that mask.
+
+spu.vhd   : new inputs s573_duck(23:0) / s573_duck_mode(1:0). At VOICE_END a voice
+            whose s573_duck bit is set is added to the dry mix AND the reverb send
+            shifted right 1 (-6 dB) or 2 (-12 dB), or not at all (mode 11). Mode 00
+            (the default, and the port default) takes the original path unchanged.
+psx_top / psx_mister : pass-through of the two inputs, and the SPU's own bus port
+            (bus_spu_write / bus_spu_addr / bus_spu_dataWrite) brought out as
+            observation-only outputs. Stacks on 0031.
+
+--- a/rtl/spu.vhd
++++ b/rtl/spu.vhd
+@@ -82,7 +82,12 @@
+       SS_RAM_request       : in  std_logic;
+       SS_RAM_rnw           : in  std_logic;
+       SS_RAM_dataRead      : out std_logic_vector(15 downto 0);
+-      SS_RAM_done          : out std_logic
++      SS_RAM_done          : out std_logic;
++      -- System 573 (psx_patches 0035): per-voice attenuation for the OSD option
++      -- "573 Announcer/Crowd" (rtl/s573_voice_duck.v decides which voices).
++      -- duck_mode 00 = off (bit-exact upstream), 01 = -6 dB, 10 = -12 dB, 11 = mute.
++      s573_duck            : in  std_logic_vector(23 downto 0) := (others => '0');
++      s573_duck_mode       : in  std_logic_vector(1 downto 0) := "00"
+    );
+ end entity;
+ 
+@@ -1835,6 +1840,28 @@
+                   --end if;
+                   
+                when VOICE_END =>
++                  -- System 573 (psx_patches 0035): a ducked voice is added shifted
++                  -- (-6/-12 dB) or not at all, to the dry mix and the reverb send alike.
++                  if (s573_duck(index) = '1' and s573_duck_mode /= "00") then
++                     if (cnt(14) = '1') then -- mute voices
++                        case (s573_duck_mode) is
++                           when "01"   => soundleft  <= soundleft  + resize(shift_right(chanLeft , 1), 24);
++                                          soundright <= soundright + resize(shift_right(chanRight, 1), 24);
++                           when "10"   => soundleft  <= soundleft  + resize(shift_right(chanLeft , 2), 24);
++                                          soundright <= soundright + resize(shift_right(chanRight, 2), 24);
++                           when others => null;
++                        end case;
++                     end if;
++                     if (REVERBON(index) = '1') then
++                        case (s573_duck_mode) is
++                           when "01"   => reverbsumleft  <= reverbsumleft  + resize(shift_right(chanLeft , 1), 24);
++                                          reverbsumright <= reverbsumright + resize(shift_right(chanRight, 1), 24);
++                           when "10"   => reverbsumleft  <= reverbsumleft  + resize(shift_right(chanLeft , 2), 24);
++                                          reverbsumright <= reverbsumright + resize(shift_right(chanRight, 2), 24);
++                           when others => null;
++                        end case;
++                     end if;
++                  else
+                   if (cnt(14) = '1') then -- mute voices
+                      soundleft  <= soundleft  + resize(chanLeft , 24);
+                      soundright <= soundright + resize(chanRight, 24);
+@@ -1843,6 +1870,7 @@
+                      reverbsumleft  <= reverbsumleft  + resize(chanLeft , 24);
+                      reverbsumright <= reverbsumright + resize(chanRight, 24);
+                   end if;
++                  end if;
+                   
+                   if (index = 1) then voice_lastVolume1 <= voice_lastVolume; end if;
+                   if (index = 3) then voice_lastVolume3 <= voice_lastVolume; end if;
+--- a/rtl/psx_top.vhd
++++ b/rtl/psx_top.vhd
+@@ -264,7 +264,13 @@
+       dbg573_mdecbusy       : out    std_logic := '0';
+       dbg573_mdecmb         : out    std_logic := '0';   -- toggles once per decoded macroblock
+       mdec15Fast            : in     std_logic := '0';   -- see mdec.vhd (psx_patches 0030)
+-      dbg573_pc             : out    std_logic_vector(31 downto 0) := (others => '0')  -- fetch PC (psx_patches 0031)
++      dbg573_pc             : out    std_logic_vector(31 downto 0) := (others => '0');  -- fetch PC (psx_patches 0031)
++      -- psx_patches 0035: SPU register writes out (observation), per-voice duck in
++      s573_spu_we           : out    std_logic := '0';
++      s573_spu_addr         : out    std_logic_vector(9 downto 0) := (others => '0');
++      s573_spu_din          : out    std_logic_vector(15 downto 0) := (others => '0');
++      s573_duck             : in     std_logic_vector(23 downto 0) := (others => '0');
++      s573_duck_mode        : in     std_logic_vector(1 downto 0) := "00"
+    );
+ end entity;
+ 
+@@ -1795,9 +1801,16 @@
+       SS_RAM_request       => SS_SPURAM_request,  
+       SS_RAM_rnw           => SS_SPURAM_rnw,      
+       SS_RAM_dataRead      => SS_SPURAM_dataRead, 
+-      SS_RAM_done          => SS_SPURAM_done     
++      SS_RAM_done          => SS_SPURAM_done,
++      s573_duck            => s573_duck,
++      s573_duck_mode       => s573_duck_mode
+    );
+    
++   -- psx_patches 0035: the SPU's register-write port, observed (nothing reads back).
++   s573_spu_we   <= bus_spu_write;
++   s573_spu_addr <= std_logic_vector(bus_spu_addr);
++   s573_spu_din  <= bus_spu_dataWrite;
++   
+    iexp2 : entity work.exp2
+    port map
+    (
+--- a/rtl/psx_mister.vhd
++++ b/rtl/psx_mister.vhd
+@@ -305,7 +305,13 @@
+       dbg573_mdecbusy       : out    std_logic := '0';
+       dbg573_mdecmb         : out    std_logic := '0';
+       mdec15Fast            : in     std_logic := '0';
+-      dbg573_pc             : out    std_logic_vector(31 downto 0) := (others => '0')
++      dbg573_pc             : out    std_logic_vector(31 downto 0) := (others => '0');
++      -- psx_patches 0035: SPU write snoop out, per-voice duck in (rtl/s573_voice_duck.v)
++      s573_spu_we           : out    std_logic := '0';
++      s573_spu_addr         : out    std_logic_vector(9 downto 0) := (others => '0');
++      s573_spu_din          : out    std_logic_vector(15 downto 0) := (others => '0');
++      s573_duck             : in     std_logic_vector(23 downto 0) := (others => '0');
++      s573_duck_mode        : in     std_logic_vector(1 downto 0) := "00"
+    );
+ end entity;
+ 
+@@ -711,7 +717,12 @@
+       dbg573_mdecbusy       => dbg573_mdecbusy,
+       dbg573_mdecmb         => dbg573_mdecmb,
+       mdec15Fast            => mdec15Fast,
+-      dbg573_pc             => dbg573_pc
++      dbg573_pc             => dbg573_pc,
++      s573_spu_we           => s573_spu_we,
++      s573_spu_addr         => s573_spu_addr,
++      s573_spu_din          => s573_spu_din,
++      s573_duck             => s573_duck,
++      s573_duck_mode        => s573_duck_mode
+    );                          
+ 
+ end architecture;

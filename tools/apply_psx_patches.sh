@@ -159,7 +159,11 @@ PATCHES=( "$ROOT/psx_patches/0001-s573-exp1-widening.patch" \
           # load_state to 0), so the bus never carried data; the constant lets synthesis drop
           # every module's ss_out read mux (~2,900 LEs, 2026-10-23 map report). The reset
           # sequencer (reset_out, ss_reset, the resetMode zeroing walk) is untouched.
-          "$ROOT/psx_patches/0034-s573-savestate-readback-off.patch" )
+          "$ROOT/psx_patches/0034-s573-savestate-readback-off.patch" \
+          # 0035 = per-voice SPU attenuation (s573_duck / s573_duck_mode, default off) and the
+          # SPU register-write port brought out, for the "573 Announcer/Crowd" OSD option
+          # (rtl/s573_voice_duck.v, docs/2026-10-30-music-level-and-announcer.md).
+          "$ROOT/psx_patches/0035-s573-spu-voice-duck.patch" )
 
 if [ ! -e "$PSX/.git" ]; then
   echo "error: psx submodule not initialised. Run: git submodule update --init psx" >&2

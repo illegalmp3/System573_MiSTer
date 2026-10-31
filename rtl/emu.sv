@@ -481,6 +481,14 @@ parameter CONF_STR = {
 	// setup), -N ms earlier (e.g. HDMI/scaler video latency). The fabric itself is
 	// exact to one sample; this is a calibration knob, not a correction of the RTL.
 	"O[106:102],573 Chart Offset,0ms,+1ms,+2ms,+3ms,+4ms,+5ms,+6ms,+7ms,+8ms,+9ms,+10ms,+11ms,+12ms,+13ms,+14ms,+15ms,-16ms,-15ms,-14ms,-13ms,-12ms,-11ms,-10ms,-9ms,-8ms,-7ms,-6ms,-5ms,-4ms,-3ms,-2ms,-1ms;",
+	// 2026-10-30 listener options (docs/2026-10-30-music-level-and-announcer.md). Both
+	// default to the core as before. Music Level trims MP3 vs SPU (rtl/s573_audio_trim.v):
+	// the boards' analog mix ratio is not in any source, so 0 dB = the 1:1 sum. Above
+	// +6 dB the SPU comes down instead of the music going up (headroom). Announcer/Crowd
+	// turns down the SPU voices keyed during a DDR stage song, after its READY / HERE WE
+	// GO and before its end cheer (rtl/s573_voice_duck.v + psx_patches 0035).
+	"O[122:120],573 Music Level,0dB,+3dB,+6dB,+6dB SFX-3dB,+6dB SFX-6dB;",
+	"O[124:123],573 Announcer/Crowd,Normal,-6dB,-12dB,Off;",
 	"-;",
 	// 573 SAVESTATES: REMOVED FROM THE OSD (see SS_ENABLE below). No 573 module has
 	// savestate hooks, and part of the machine state (MP3 cfg epoch, descrambler
@@ -804,6 +812,11 @@ s573_prof_gpu u_prof_gpu (
 // The occupancy levels above cannot tell a spin-wait from work; this says WHERE
 // the CPU's time goes, in 2 KB bins over the game executable, once a second.
 wire [31:0] psx_dbg_pc;
+// psx_patches 0035 / s573_voice_duck ("573 Announcer/Crowd")
+wire        psx_spu_we;
+wire [9:0]  psx_spu_addr;
+wire [15:0] psx_spu_din;
+wire [23:0] spu_duck;
 wire  [8:0] pcprof_addr;
 wire [15:0] pcprof_data, pcprof_samples, pcprof_ram_hi, pcprof_bios, pcprof_other;
 s573_prof_pc u_prof_pc (
@@ -1729,7 +1742,13 @@ psx
    .dbg573_mdecbusy(psx_dbg_mdecbusy),
    .dbg573_mdecmb(psx_dbg_mdecmb),
    .mdec15Fast(mdec15_fast),
-   .dbg573_pc(psx_dbg_pc)             // psx_patches 0031 -> s573_prof_pc
+   .dbg573_pc(psx_dbg_pc),            // psx_patches 0031 -> s573_prof_pc
+   // psx_patches 0035: SPU register writes out, per-voice duck in (s573_voice_duck)
+   .s573_spu_we(psx_spu_we),
+   .s573_spu_addr(psx_spu_addr),
+   .s573_spu_din(psx_spu_din),
+   .s573_duck(spu_duck),
+   .s573_duck_mode(status[124:123])
 );
 
 ////////////////////////////  SYSTEM 573 (EXP1 SLAVE)  ///////////////////
@@ -3334,11 +3353,44 @@ s573_mas_gain u_mas_gain (
    .out_r    (mp3_vol_r)
 );
 
+// "573 Music Level" (status[122:120]): listener trim of MP3 vs SPU, 0 = passthrough.
+wire [15:0] mp3_trim_l, mp3_trim_r, spu_trim_l, spu_trim_r;
+s573_audio_trim u_audio_trim (
+   .clk    (clk_1x),
+   .rst    (reset),
+   .sel    (status[122:120]),
+   .mp3_l  (mp3_vol_l),
+   .mp3_r  (mp3_vol_r),
+   .spu_l  (spu_l),
+   .spu_r  (spu_r),
+   .mp3_ol (mp3_trim_l),
+   .mp3_or (mp3_trim_r),
+   .spu_ol (spu_trim_l),
+   .spu_or (spu_trim_r)
+);
+
+// "573 Announcer/Crowd" (status[124:123]): which SPU voices to turn down; the SPU
+// applies status[124:123] to them (psx_patches 0035). Watches only.
+s573_voice_duck u_voice_duck (
+   .clk       (clk_1x),
+   .rst       (reset),
+   .spu_we    (psx_spu_we),
+   .spu_addr  (psx_spu_addr),
+   .spu_din   (psx_spu_din),
+   .fpga_ctrl (dio_fpga_ctrl),
+   .mp3_start (dio_mp3_start),
+   .mp3_end   (dio_mp3_end),
+   .cur_pos   (dio_mp3_cur_pos),
+   .duck      (spu_duck),
+   .in_song   (),
+   .window    ()
+);
+
 s573_audio_mix u_audio_mix (
-   .spu_l (spu_l),
-   .spu_r (spu_r),
-   .mp3_l (mp3_vol_l),
-   .mp3_r (mp3_vol_r),
+   .spu_l (spu_trim_l),
+   .spu_r (spu_trim_r),
+   .mp3_l (mp3_trim_l),
+   .mp3_r (mp3_trim_r),
    .spu_en(s573_spu_dac_en),
    .mp3_en(s573_dio_dac_en),
    .out_l (AUDIO_L),
