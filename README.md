@@ -134,6 +134,14 @@ Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-V
 composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
 music together.
 
+Music level: each game sets its own music volume on the MP3 decoder chip (DDR 4th Mix
+-8 dB, 3rd Mix -10 dB, Extreme -12 dB), and the core applies it as the chip's data
+sheet defines it. How loud the music then is next to the announcer and effects on a
+real cabinet depends on the boards' analog mixing, which no available source documents,
+and it has not been compared with a real cabinet. OSD **573 Music Level** (0 dB to
++6 dB in 1 dB steps, music only; default 0 dB = no change) raises the music to taste.
+At +5/+6 dB loud passages can clip. Background: `docs/2026-10-30-music-level-and-announcer.md`.
+
 ## Memory cards (DDR)
 
 The Japanese and Asian DDR cabinets from 3rd Mix on have a memory card reader: a
