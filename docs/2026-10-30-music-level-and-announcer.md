@@ -1,6 +1,14 @@
 # Music level and the announcer/crowd during songs (2026-10-30)
 
-Two OSD options, both defaulting to the core as it was:
+**Update 2026-11-01.** After testing on the SuperStation One: Music Level now steps 0..+6 dB
+in 1 dB steps on the music only (the SPU-reduction positions are gone), and the
+**Announcer/Crowd option is withdrawn** -- it worked most of the time, but a stray crowd
+cheer could still be heard near the end of some songs (the fixed 8 s tail does not hold
+for every song). Its module, benches and SPU patch are kept for a different approach later:
+`tools/attic/voice_duck/`, `psx_patches/retired/0035-s573-spu-voice-duck.patch`. The
+study below stands as data.
+
+Originally two OSD options, both defaulting to the core as it was:
 
 * **573 Music Level** (`status[122:120]`, `rtl/s573_audio_trim.v`): 0 dB, +3 dB, +6 dB,
   +6 dB with the SPU -3 dB, +6 dB with the SPU -6 dB.
