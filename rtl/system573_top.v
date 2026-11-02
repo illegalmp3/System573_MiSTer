@@ -2,17 +2,21 @@
 // system573_top.v - System 573 core fabric
 //
 // Wires the EXP1 address decoder and the 573 peripherals together. The EXP1
-// master bus is brought out as ports here, representing the PlayStation core's
-// CPU window (driven by ps1_stub in a real build, or by a testbench for the
-// integration smoke test). This module is plain Verilog so it elaborates and
-// simulates without the MiSTer sys/ framework.
+// master bus is brought out as ports here: in the build it is the PlayStation
+// core's EXP1 port (psx_patches/0001, wired in rtl/emu.sv), in sim/ a testbench.
+// This module is plain Verilog so it elaborates and simulates without the MiSTer
+// sys/ framework.
 //
 // Verilog-2005. Released under the GNU GPL v2.
 // -----------------------------------------------------------------------------
 module system573_top #(
     parameter integer CLK_FREQ_HZ      = 33_868_800,
     parameter [47:0]  CART_SERIAL      = 48'h0000_0000_0001,
-    parameter integer WDOG_TIMEOUT     = 32'd1_000_000,
+    // Watchdog bite time in clk cycles. psx-spx registers.md "0x1f5c0000": the
+    // Konami 058232's watchdog resets the board if it is not cleared for 350-400 ms
+    // (reset held ~50 ms); 350 ms at 33.8688 MHz = 11,854,080. The bite output is
+    // NOT connected to the core reset in rtl/emu.sv (see the note there).
+    parameter integer WDOG_TIMEOUT     = 32'd11_854_080,
     // SIM_BACKING=1 (default, iverilog): inline flash_nor BRAM (flash_wait=0).
     // 0 (Quartus/HW, set from emu.sv): 16 MB SDRAM-backed flash line buffer.
     parameter integer FLASH_SIM_BACKING = 1,

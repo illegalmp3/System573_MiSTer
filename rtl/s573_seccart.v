@@ -1,32 +1,37 @@
 // -----------------------------------------------------------------------------
 // s573_seccart.v - System 573 security-cartridge interface glue
 //
-// Connects the security devices (modeled in x76f100.v / x76f041.v / zs01.v and
-// ds2401.v) to the ASIC register lines. The BIOS bit-bangs the cartridge through
-// the D0-D7 output latch at 0x1f6a0000 and reads the result back through the
-// 0x1f400004/06 status words. Per MAME's k573cass.cpp the cassette wires the
-// latch bits to the device pins as:
+// Connects the security devices (modelled in x76f100.v / x76f041.v / zs01.v and
+// ds2401.v) to the cartridge slot's signals. The BIOS and games bit-bang the
+// cartridge through the D0-D7 output latch at 0x1f6a0000 and the IO0 direction
+// bit (0x1f500000 bit 6), and read it back through 0x1f400004 (I0-I7) and
+// 0x1f400006 (IO0, IRDY, DRDY). Pin usage, from psx-spx security-cartridges.md
+// ("X76F041 cartridge variants", "ZS01 cartridge variants") and the GX700-PWB
+// schematic (NaokiS28 Konami-System-573-Documentation):
 //
-//   D0 -> EEPROM SDA      D1 -> EEPROM SCL
-//   D2 -> EEPROM CS       D3 -> EEPROM RST
-//   D4 -> DS2401 (driven low when D4 = 1)
-//   read-back: IO0 = EEPROM SDA (device-driven), I0 = DS2401 line
+//   D0 -> SDA drive (through the 74LS125 that bit 6 enables -- see host_sda)
+//   D1 -> SCL         D2 -> /CS (X76F041/X76F100 only; the ZS01 has none)
+//   D3 -> RST         D4 -> pulls the DS2401 1-wire bus low (X76 cassettes)
+//   IO0 (0x1f400006 bit 2) = the SDA line;  I6 (0x1f400004 bit 14) = 1-wire bus
+//   ZS01 cassettes: the DS2401 hangs off the ZS01 and is read through its
+//   command set, not on D4/I6.
 //
-// SDA and the 1-Wire line are open-drain: the board drives a level and the device
-// pulls low, so the read-back is the device-driven level wired-AND the latch.
+// SDA and the 1-wire line are open-drain: the board drives a level and the device
+// pulls low, so the read-back is the device-driven level wired-AND the host's.
+// Writing the data latch sets DRDY.
 //
 // The EEPROM variant is chosen by CART_TYPE: 0 = X76F100 (112 B, e.g. hyperbbc-class
 // carts), 1 = X76F041 (512 B + separate read/write/config passwords, e.g. pnchmn2),
 // 2 = ZS01 (Konami NS2K001 PIC, packet/CRC protocol, e.g. gtrfrk5m).
+// The type follows MAME's romset (cassette dump size): psx-spx notes that Konami
+// "seems to have never manufactured X76F100 cartridges", while MAME declares
+// X76F100 cassettes for some titles and holds 112-byte dumps for them; the core
+// follows the dumps, which is all the games can see.
 //
-// SDA WIRING DIFFERS by cart type (per MAME konami/k573cass.cpp):
-//   * X76F100 / X76F041 cassettes (Y/X) wire EEPROM SDA-out on D0 of the data latch.
-//   * the ZS01 cassette (ZI) leaves D0 UNCONNECTED and drives ZS01 SDA from the
-//     CONTROL register bit 6 (write_line_zs01_sda, ACTIVE-LOW) -- a SEPARATE path.
-//     SCL/CS/RST stay on D1/D2/D3, the DS2401 stays on D4, and the read-back uses the
-//     same secflash_sda line (sec_io0). So for type 2 we drive ZS01 sda_i from the
-//     (active-low) control bit 6 -- exposed here as io0_dir -- not from D0.
-// Writing the data latch sets DRDY.
+// (Until 2026-10-23 the SDA wiring followed MAME k573cass.cpp -- X76 SDA on D0
+// alone, ZS01 SDA on control bit 6 alone, active low, and D2 as the ZS01's CS. The
+// schematic and 573in1 replaced that with the single model below;
+// docs/2026-10-23-hw-audit-573in1-sources.md F1, F6.)
 //
 // A SECOND cassette (the "install" cassette of MAME's cassxzi / cassyyi configs) can
 // be held alongside the game cassette and put in the slot with inst_sel -- see the
@@ -59,8 +64,7 @@ module s573_seccart #(
     // 0x1f6a0000 D0-D7 output latch (write strobe sets DRDY)
     input  wire        latch_we,
     input  wire [7:0]  d_latch,
-    input  wire        io0_dir,     // control reg bit 6: X76 = informational;
-                                    // ZS01 = the SDA-out line (active-low)
+    input  wire        io0_dir,     // 0x1f500000 bit 6: IO0 output enable (1 = D0 drives SDA)
 
     // ---- boot-time security-cart image load ----
     // EEPROM image (.u1): byte address into the image (x76f041 548 B / x76f100 112 B /
@@ -110,7 +114,7 @@ module s573_seccart #(
     output wire        sec_in_rtr,    // ZS01 is shifting its response-to-reset right now
     output wire [31:0] sec_rtr_emit,  // the 32 bits it drove on those edges
     output wire        sec_io0,     // IO0  = EEPROM SDA (device-driven)
-    output wire [7:0]  sec_in,      // I0-I7 ; I0 = DS2401 line
+    output wire [7:0]  sec_in,      // cartridge I7..I0 (-> 0x1f400004 bits 15..8); I6 = DS2401
     output reg         sec_drdy,
     output wire        sec_irdy,
     // ZS01 NVRAM persistence (see zs01.v): .u1-layout dump port (2-clock latency) and
@@ -307,8 +311,23 @@ module s573_seccart #(
     );
 
     assign sec_io0  = eeprom_sda_o & host_sda;   // pin 28 = host drive wired-AND device
-    assign sec_in   = {7'b0, ds_line};
-    assign sec_irdy = 1'b1;                   // bit-banged device is always ready
+    // Cartridge input pins I0-I7 -> 0x1f400004 bits 8-15 (psx-spx registers.md /
+    // builtin-io.md "0x1f400004"). I6 = the DS2401 1-wire readout (psx-spx
+    // security-cartridges.md, X76F041 variants with a DS2401: D4 drives the bus
+    // low, I6 reads it). I4 reads 1: that is MAME's IN1 "Network?" = Off
+    // (ksys573.cpp PORT_CONFNAME 0x00001000) -- no hardware source says what the
+    // pin carries on the cassettes modelled here. I0/I1 are the PunchMania
+    // cartridge's ADC0838 DO/SARS (not modelled: no such cassette is supported),
+    // the other pins are not connected on these cassettes and read 0 as in MAME.
+    // Before 2026-11-02 this bus carried the DS2401 on bit 0 and s573_io placed
+    // that bit at 0x1f400004 bit 14; the register value is unchanged.
+    assign sec_in   = {1'b0, ds_line, 1'b0, 1'b1, 4'b0000};
+    // IRDY (0x1f400006 bit 6): psx-spx security-cartridges.md "Handshaking lines" --
+    // set when a cartridge pulses /IREQ, cleared when the 573 reads I0-I7; no known
+    // cartridge uses it. This model has always returned 1 (MAME's value is not a
+    // pin model either); no title in hand is known to read it, so it is left as is
+    // and listed in docs/2026-11-02-source-review.md.
+    assign sec_irdy = 1'b1;
 
     // writing the latch raises DRDY (cleared on reset)
     always @(posedge clk) begin

@@ -1,9 +1,14 @@
 // -----------------------------------------------------------------------------
 // adc0838.v - National Semiconductor ADC0838 8-channel serial ADC (slave model)
 //
-// The System 573 analog I/O board (and the XI security cassette) reads analog
-// inputs through an ADC0838, the 8-channel sibling of the ADC0834. Same serial
-// link, but the MUX address word is 5 bits and selects one of eight channels.
+// The PunchMania security cartridge (GX700-PWB(J)) carries an ADC0838, the
+// 8-channel sibling of the ADC0834 (psx-spx security-cartridges.md "PunchMania
+// cartridge": /CS on D0, CLK on D1, DI on D5, DO on I0, SARS on I1; MAME models
+// it in its "XI" cassette, k573cass.cpp). Same serial link as the ADC0834, but
+// the MUX address word is 5 bits and selects one of eight channels. (An earlier
+// note here put it on the analog I/O board: psx-spx's GX700-PWB(F) has only lamp
+// outputs.) NOT USED by the build -- no PunchMania cassette is wired up yet; the
+// model and its bench are kept for that.
 //
 // Protocol (ADC0838, single-ended MUX mode):
 //   * Activate with /CS low.

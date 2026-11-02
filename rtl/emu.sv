@@ -1740,11 +1740,13 @@ psx
 ////////////////////////////  SYSTEM 573 (EXP1 SLAVE)  ///////////////////
 // The Konami 573 peripheral fabric hangs off the PlayStation EXP1 bus that
 // psx_mister exposes via psx_patches/0001. It runs on clk_1x to satisfy the
-// registered exp1_rdata contract (docs/PHASE1_PSX.md). For the first BIOS-boot
-// bring-up the 573 inputs are safe defaults and most outputs are observed-only;
-// notably wdog_reset is NOT wired into the core reset, so a mistimed watchdog
-// can't reset the boot before we've seen it. (Refine inputs/outputs + JAMMA bit
-// mapping once the boot screen is confirmed -- see docs/PHASE4_HARDWARE.md.)
+// registered exp1_rdata contract (docs/PHASE1_PSX.md). wdog_reset is NOT wired
+// into the core reset: the board's watchdog (Konami 058232, 350-400 ms, psx-spx)
+// is modelled in rtl/watchdog.v but left open, as on a board with jumper S86
+// fitted, because core-side stalls a real board never has (OSD pause, HPS-side
+// flash/.sav traffic) could trip it. Lamp and coin-counter outputs are latched
+// and observed only, and EXT-OUT (0x1f600000) writes are ignored -- nothing on a
+// MiSTer to drive.
 wire [23:0] exp1_addr;
 wire [1:0]  exp1_reqsize;       // 573 CPU load width (00=lb/lbu,01=lh/lhu,10=lw) -> EXP1 slave byte-align
 wire [15:0] exp1_dataWrite;

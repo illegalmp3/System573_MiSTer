@@ -1,13 +1,13 @@
 // -----------------------------------------------------------------------------
 // s573_audio_mix.v - 2-channel saturating audio mixer (SPU + HPS MP3 PCM)
 //
-// P4b(b), fabric slice 3. The PSX SPU output (sound_out_left/right) currently
-// drives AUDIO_L/R directly at emu.sv:1520-1521. The Digital I/O MP3 path adds a
-// second stereo source (s573_mp3_pcm's drained PCM). This module sums them with
+// The PSX SPU output (sound_out_left/right) and the Digital I/O MP3 path (the
+// HPS-decoded PCM drained by s573_mp3_pcm, after s573_mas_gain and
+// s573_audio_trim) are the two stereo sources. This module sums them with
 // SIGNED SATURATION so a loud SPU + loud MP3 clip cleanly at the 16-bit rails
 // instead of wrapping (a wrap would be an audible full-scale glitch).
 //
-// Enables (2026-10-23, sources in docs/2026-10-23-hw-audit-573in1-sources.md F7):
+// Enables (2026-10-23, sources in docs/2026-10-23-hw-audit-573in1-sources.md F8):
 //   spu_en = 0x1f400000 bit 7, "SPU DAC output enable (0 = muted)" (psx-spx);
 //            573in1 main.cpp sets it, ddr4m's game sets bits 7:5 = 111 at init.
 //   mp3_en = Digital I/O 0x1f6400f4 bit 15, DAC reset (0 = reset) (psx-spx);

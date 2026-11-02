@@ -3,13 +3,17 @@
 //
 // The System 573 ZS01 (NS2K001) security cartridge attaches a 16-bit CRC to
 // every 12-byte command/response packet: the CRC is computed over the first ten
-// bytes (poly 0x1021) and stored big-endian in the last two. The same CRC-16
-// also shows up around the ATAPI / Digital-I/O data paths, so it lives here as a
-// small reusable streaming engine rather than being buried in one peripheral.
+// bytes (poly 0x1021) and stored big-endian in the last two.
+//
+// NOT USED by the build: zs01.v computes its packet CRC itself (psx-spx
+// security-cartridges.md "ZS01 protocol": init 0xffff, MSB first, result
+// inverted). This engine is kept with its bench; nothing instantiates it, so
+// Quartus drops it. (An earlier note here said the CRC also appears on the ATAPI
+// and Digital I/O paths; no source says so.)
 //
 // Parameterized by polynomial and initial value so the same module covers both
 // the common CRC-CCITT variants (XMODEM: init 0x0000; CCITT-FALSE: init 0xFFFF)
-// and, once its exact seed is confirmed against hardware, the ZS01 packet CRC.
+// and the ZS01 packet CRC's polynomial and seed (psx-spx gives both).
 // Bytes are fed in MSB-first; assert `load` to (re)seed, then pulse `stb` once
 // per byte. `crc` holds the running remainder.
 //

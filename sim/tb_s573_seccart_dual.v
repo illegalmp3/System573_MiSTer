@@ -175,7 +175,7 @@ module tb_s573_seccart_dual;
         tk;
     end endtask
     function io0(input integer w); io0 = (w==1) ? io0_out_a : (w==2) ? io0_out_b : io0_out_c; endfunction
-    function ds_in(input integer w); ds_in = (w==1) ? in_a[0] : (w==2) ? in_b[0] : in_c[0]; endfunction
+    function ds_in(input integer w); ds_in = (w==1) ? in_a[6] : (w==2) ? in_b[6] : in_c[6]; endfunction
     // The seccart registers the latch only on latch_we; hold it high for the whole
     // bit-bang like the other cassette benches (Part 1/2/3 of tb_s573_seccart.v).
     task latch_on(input integer w); begin case (w) 1: latch_we_a=1; 2: latch_we_b=1; default: latch_we_c=1; endcase end endtask

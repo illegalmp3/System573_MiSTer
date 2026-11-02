@@ -20,9 +20,9 @@ git clone --recurse-submodules <repo-url>
 git submodule update --init --recursive    # pulls psx/ at its pinned SHA
 ```
 
-The PlayStation core lives in `psx/` as a pinned git submodule; the MiSTer `sys/`
-framework is a committed snapshot. See [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md)
-for the exact pins and toolchain.
+The PlayStation core lives in `psx/` as a pinned git submodule, and the build uses
+that core's own MiSTer framework (`psx/sys/`, see `Konami_System_573.qsf`). See
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) for background on the pins.
 
 ## Running the unit tests
 
@@ -67,28 +67,30 @@ rather than committing into the submodule.
 
 ## Building the FPGA bitstream
 
-The `.rbf` needs x86-64 **Quartus Prime Lite 17.0.x** (Cyclone V `5CSEBA6U23I7`):
+The `.rbf` needs x86-64 **Quartus Prime Lite 17.0.x** (Cyclone V `5CSEBA6U23I7`).
+On Windows, `tools/build-573.ps1` applies the patches, builds, and fails on negative
+slack or undriven nets; elsewhere:
 
 ```sh
 tools/apply_psx_patches.sh
 quartus_sh --flow compile Konami_System_573   # -> output_files/Konami_System_573.rbf
 ```
 
-If Quartus isn't installed natively, the `raetro/quartus:17.0` Docker image works.
-See [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) and
-[`docs/PHASE4_HARDWARE.md`](docs/PHASE4_HARDWARE.md) for full build details and the
-build-host RAM requirement.
+The design is close to full (about 98 % of the LABs), so check the fit summary for
+any change that adds logic. The MP3 / card-reader firmware, `MiSTer_System573`, is
+built by `tools/build-hps-mp3.sh` (Main_MiSTer + `support/s573/`).
 
 ## Hardware testing
 
-Testing on real hardware needs a MiSTer board (DE10-Nano-class, Cyclone V) plus the
-copyrighted BIOS, CD, security-cart, and flash dumps, **which are not distributed
-with this repository**. See [`dumps/README.md`](dumps/README.md) for the expected
-layout and where each dump is sourced; the binaries are git-ignored.
+Testing on real hardware needs a MiSTer (DE10-Nano with a 128 MB SDRAM board) plus
+your own MAME romsets and CHDs, **which are not distributed with this repository**.
+`tools/s573_stage.py` builds the game files from them (see the README). The
+developer flow keeps MAME sets in `dumps/mame573/` (git-ignored), where the
+dump-fed benches and `tools/stage_573.py` look for them.
 
-To deploy to a board, copy `local/mister.env.example` to `local/mister.env`
-(git-ignored) and fill in the connection details; the `tools/mister_*.sh` scripts use
-it.
+Hardware changes are argued from the sources first (see
+[`docs/EMULATION.md`](docs/EMULATION.md) for their order), simulated, and only then
+built; a bench for a fix should fail on the unfixed code.
 
 ## Submitting changes
 

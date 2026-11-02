@@ -13,8 +13,15 @@
 //    0x8000/0xc000/0xf000 sequence, then requires /INIT = 1, DONE = 0 before the
 //    upload and /INIT = DONE = 1 after it (3 attempts, then "upload failed").
 //  * Board ID bits: bit 15 = 1, bit 14 = 0. This is what MAME (constant 0xb000),
-//    573in1 isDigitalIOPresent() and ddrsbm (`& 0xc000 == 0x8000`) all use; the
-//    psx-spx table lists 14/15 the other way round.
+//    573in1 isDigitalIOPresent() and ddrsbm (`& 0xc000 == 0x8000`) all use. (The
+//    psx-spx table listed 14/15 the other way round until psx-spx commit d74dfe5,
+//    2026-10-25, "CPLD status register board ID bits and DONE, from readback",
+//    which corrected it to bit 14 = 0, bit 15 = 1.)
+//  * Unused bits 0-11 read 1 (same psx-spx commit, from a real board): the status
+//    reads 0x9fff with the FPGA cleared and 0xbfff once a bitstream is loaded.
+//    MAME's constant has them 0 (0xb000). Every driver in hand masks the bits it
+//    tests (Konami: & 0xc000, & 0x1000, & 0x3000; 573in1: & 0x3000), and the real
+//    board answers 0xbfff to all of them, so the readback value is the one used.
 //  * XC4000/Spartan-XL serial stream (checked on 573in1 data/fpga.bit): >= 4 dummy
 //    1s, preamble 0010, 24-bit length count MSB first. DONE rises once that many
 //    bits have been clocked in; 330,696 bits (psx-spx: "always 330696 bits") is
@@ -25,7 +32,7 @@
 //
 // Before this module the status was MAME's constant 0xb000 (DONE always high), so
 // 573in1 saw DONE before it had sent a single bit and gave up. After a complete
-// upload the status is 0xb000 again, which is all Konami's driver checks.
+// upload the status is 0xbfff (0xb000 with the unused bits that read 1 on a board).
 //
 // The FPGA-side registers (0x80-0xef) stay modelled as Konami's bitstream in
 // k573dio.v whether or not an upload happened; only this status port changes.
@@ -67,7 +74,7 @@ module k573dio_cpld #(
     wire done_pin = (cst == C_DONE) & ctl[1];
     wire bit_in   = din[15];
 
-    assign status    = {1'b1, 1'b0, done_pin, init_n, 12'h000};
+    assign status    = {1'b1, 1'b0, done_pin, init_n, 12'hfff};   // bits 0-11 read 1 (psx-spx)
     assign fpga_done = (cst == C_DONE);
 
     always @(posedge clk) begin

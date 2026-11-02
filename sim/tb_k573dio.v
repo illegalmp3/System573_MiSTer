@@ -144,8 +144,16 @@ module tb_k573dio;
         wait_us(100);
         // (psx-spx 0x1f6400f6; 573in1 loadDigitalIORawBitstream). The full upload
         // to 0xB000 is covered by tb_k573dio_cpld.
-        bus_read(8'hf6, v); chk(v, 16'h9000, "fpga status (unconfigured)");
-        bus_read(8'hfe, v); chk(v, 16'h9000, "cpld mirror fe");
+        bus_read(8'hf6, v); chk(v, 16'h9fff, "fpga status (unconfigured, psx-spx readback)");
+        bus_read(8'hfe, v); chk(v, 16'h9fff, "cpld mirror fe");
+        // psx-spx 6785683 (readback after configuration): 0xe0-0xee = 0x1100
+        // (0xee: DS2401 bus bit 12 and DS2433 bus bit 8 idle high)
+        bus_read(8'hee, v); chk(v, 16'h1100, "ee idle (both 1-wire buses high)");
+        bus_read(8'he0, v); chk(v, 16'h1100, "e0 reads 0x1100");
+        bus_read(8'he6, v); chk(v, 16'h1100, "e6 reads 0x1100");
+        bus_read(8'hec, v); chk(v, 16'h1100, "ec reads 0x1100");
+        bus_write(8'hee, 16'h0100); bus_read(8'hee, v); chk(v, 16'h1000, "ee bit 8 pulls the DS2433 bus low");
+        bus_write(8'hee, 16'h0000); bus_read(8'hee, v); chk(v, 16'h1100, "ee bit 8 released");
         bus_read(8'h90, v); chk(v, 16'h1234, "magic mirror 90");
         bus_read(8'hd6, v); chk(v, 16'h1234, "magic mirror d6");
         bus_read(8'hc6, v); chk(v, 16'h7654, "c6");

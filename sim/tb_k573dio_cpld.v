@@ -143,34 +143,34 @@ module tb_k573dio_cpld;
         repeat (100) @(posedge clk);
 
         // ---- power-on: unconfigured FPGA, board ID bits ----
-        rd(8'hf6, v); chk(v, 16'h9000, "power-on status (ID, /INIT=1, DONE=0)");
+        rd(8'hf6, v); chk(v, 16'h9fff, "power-on status (ID, /INIT=1, DONE=0)");
         if ((v & 16'hc000) !== 16'h8000) begin $display("FAIL: isDigitalIOPresent"); errors = errors + 1; end
         for (k = 8'hf0; k <= 8'hfe; k = k + 2) begin
             rd(k[7:0], v);
-            if (v !== 16'h9000) begin $display("FAIL: mirror %02h = %04h", k, v); errors = errors + 1; end
+            if (v !== 16'h9fff) begin $display("FAIL: mirror %02h = %04h", k, v); errors = errors + 1; end
         end
         $display("  ok  0xf0-0xfe all mirror 0xf6");
 
         // ---- control steps (psx-spx: 0x8000, 0xc000, 0xf000) ----
-        wr(8'hf6, 16'h8000); rd(8'hf6, v); chk(v, 16'h8000, "after 0x8000 (/PROGRAM low)");
+        wr(8'hf6, 16'h8000); rd(8'hf6, v); chk(v, 16'h8fff, "after 0x8000 (/PROGRAM low)");
         wr(8'hf6, 16'hc000); repeat (200) @(posedge clk);
-        rd(8'hf6, v); chk(v, 16'h8000, "after 0xc000 (CPLD holds /INIT low)");
+        rd(8'hf6, v); chk(v, 16'h8fff, "after 0xc000 (CPLD holds /INIT low)");
         wr(8'hf6, 16'hf000); rd(8'hf6, v);
-        chk(v, 16'h9000, "after 0xf000 (clear already elapsed)");
+        chk(v, 16'h9fff, "after 0xf000 (clear already elapsed)");
 
         // ---- case 1: 573in1, real file, MSB-first ----
         if (have_file) begin
             reset_seq_573in1;
             rd(8'hf6, v); chk(v & 16'h3000, 16'h1000, "573in1 pre-upload (/INIT=1, DONE=0)");
             stream(0, 1, "573in1 fpga.bit MSB");
-            rd(8'hf6, v); chk(v, 16'hB000, "573in1 post-upload");
+            rd(8'hf6, v); chk(v, 16'hBfff, "573in1 post-upload");
         end
 
         // ---- case 2: Konami-style LSB-first image of the same stream ----
         reset_seq_573in1;
-        rd(8'hf6, v); chk(v, 16'h9000, "re-program clears DONE");
+        rd(8'hf6, v); chk(v, 16'h9fff, "re-program clears DONE");
         stream(have_file ? 0 : 1, 0, "LSB-first image");
-        rd(8'hf6, v); chk(v, 16'hB000, "LSB-first post-upload (MAME's 0xB000)");
+        rd(8'hf6, v); chk(v, 16'hBfff, "LSB-first post-upload (MAME's 0xB000 + unused bits = 1)");
 
         // ---- case 2b: Konami's REAL 3rdMIX image, Konami's own driver ----
         // ddr4m PSX.EXE 0x80321d18: 0xf4 = 0 (0x80321f30), then 0xf6 = 0x8000,
@@ -191,7 +191,7 @@ module tb_k573dio_cpld;
         // ---- case 3: synthetic header, MSB-first ----
         reset_seq_573in1;
         stream(1, 1, "synthetic MSB");
-        rd(8'hf6, v); chk(v, 16'hB000, "synthetic post-upload");
+        rd(8'hf6, v); chk(v, 16'hBfff, "synthetic post-upload");
 
         // ---- case 4: no preamble -> DONE at 330,696 bits (psx-spx length) ----
         reset_seq_573in1;
@@ -202,8 +202,8 @@ module tb_k573dio_cpld;
         rd(8'hf6, v); chk(v & 16'h3000, 16'h3000, "no-preamble: DONE at 330696");
 
         // ---- case 5: CPLD holding DONE low after configuration ----
-        wr(8'hf6, 16'hd000); rd(8'hf6, v); chk(v, 16'h9000, "0xd000: DONE line held low");
-        wr(8'hf6, 16'hf000); rd(8'hf6, v); chk(v, 16'hB000, "0xf000: DONE released");
+        wr(8'hf6, 16'hd000); rd(8'hf6, v); chk(v, 16'h9fff, "0xd000: DONE line held low");
+        wr(8'hf6, 16'hf000); rd(8'hf6, v); chk(v, 16'hBfff, "0xf000: DONE released");
 
         // ---- case 6: back-to-back control writes, poll /INIT (Konami timing unknown) ----
         wr(8'hf6, 16'h8000); wr(8'hf6, 16'hc000); wr(8'hf6, 16'hf000);

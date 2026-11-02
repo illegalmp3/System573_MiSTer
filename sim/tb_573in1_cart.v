@@ -189,7 +189,7 @@ module tb_573in1_cart;
 
     // ---- DS2401 (OneWireDriver + CartDS2401Driver, real 1-Wire timing) ----
     task ow_set(input v); begin setCartOutput(4, ~v); end endtask
-    function ow_get(input dummy); ow_get = sec_in[0]; endfunction   // -> 0x1f400004 bit14 (I6)
+    function ow_get(input dummy); ow_get = sec_in[6]; endfunction   // I6 -> 0x1f400004 bit14
     task ow_reset(output present); reg b; begin
         ow_set(0); delay_us(480);
         ow_set(1); delay_us(70);

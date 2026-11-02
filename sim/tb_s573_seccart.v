@@ -189,7 +189,7 @@ module tb_s573_seccart;
         low = b ? 6 : 50; dl[4]=1; wait_us(low); dl[4]=0; wait_us(75-low); end
     endtask
     task ow_read_bit(output b); begin
-        dl[4]=1; wait_us(4); dl[4]=0; wait_us(8); b=sec_in[0]; wait_us(63); end
+        dl[4]=1; wait_us(4); dl[4]=0; wait_us(8); b=sec_in[6]; wait_us(63); end
     endtask
     function [7:0] crc8(input [55:0] data);
         integer i; reg [7:0] c; reg bt; begin
@@ -223,7 +223,7 @@ module tb_s573_seccart;
         low = b ? 6 : 50; dl2[4]=1; wait_us(low); dl2[4]=0; wait_us(75-low); end
     endtask
     task ow2_read_bit(output b); begin
-        dl2[4]=1; wait_us(4); dl2[4]=0; wait_us(8); b=sec_in_2[0]; wait_us(63); end
+        dl2[4]=1; wait_us(4); dl2[4]=0; wait_us(8); b=sec_in_2[6]; wait_us(63); end
     endtask
 
     // ---- real pnchmn2 dump images, loaded at boot ----

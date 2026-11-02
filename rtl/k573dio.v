@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // k573dio.v - Konami System 573 BEMANI "Digital I/O" board register block
-//             (GX894, mapped at 0x1f640000)
+//             (GX894-PWB(B)A, mapped at 0x1f640000)
 //
 // The Digital I/O board adds, around a XILINX XCS40XL Spartan-XL FPGA (208-pin
 // PQFP; NOT an Altera part -- corrected 2026-07-29 against a board photo and
@@ -12,45 +12,62 @@
 // link.
 //
 // The FPGA has NO configuration PROM: it boots in Xilinx slave-serial mode and the
-// GAME uploads a 41337-byte bitstream at runtime, one bit per write to 0xf8, with
+// GAME uploads a 41,337-byte bitstream at runtime, one bit per write to 0xf8, with
 // /PROGRAM, /INIT, DONE and CCLK handled by a separate XILINX XC9536 CPLD behind
-// 0xf0-0xff (which is why that range is live with no bitstream loaded). Seven
-// distinct Konami bitstreams are known, and they differ CHIEFLY IN THE MP3
-// DESCRAMBLING ALGORITHM -- i.e. the crypto is per-title reconfigurable logic, not
-// fixed silicon. That is the hardware reason two schemes exist in k573_mp3dec.v
-// (decrypt_default vs the DDR Solo Bass Mix variant), and the reason more could.
-// Refs: psx-spx "Konami System 573" (Digital I/O register map + CPLD pin mapping),
-// MAME src/mame/konami/k573dio.cpp + k573fpga.cpp.
+// 0xf0-0xff (which is why that range is live with no bitstream loaded). psx-spx
+// (expansion-io.md, 2026-10-25) lists six Konami bitstreams (DDR Solo Bass Mix,
+// DDR 3rdMIX, Mambo a Go-Go, three Martial Beat files): the DDR and Mambo ones
+// implement the same registers and differ in the MP3 descrambling, which is why
+// k573_mp3dec.v / support/s573/s573_descramble.c carry two schemes (the default
+// and the Solo Bass Mix one); the Martial Beat ones behave differently. (Earlier
+// text here said seven; psx-spx b0c10cd moved the GuitarFreaks 2ndMIX file to the
+// White I/O board -- it is not a digital I/O bitstream.)
 //
-// This module implements the *deterministic register glue* of that board
-// and instantiates the board DS2401 and the MAS3507D I2C control port (the
-// boot-check gate; see rtl/mas3507d_i2c.v); the FPGA-internal MP3 audio
-// decode and the network engine are left as clearly-marked stubs for now.
+// The core does NOT run the uploaded bitstream: the XCS40XL's configuration is
+// accepted bit by bit by the CPLD model (k573dio_cpld.v) and the FPGA registers
+// below are a re-implementation of what Konami's DDR/Mambo bitstream does.
+// Refs: psx-spx arcade/konami/573/expansion-io.md (hardware-tested register map),
+// MAME src/mame/konami/k573dio.cpp + k573fpga.cpp (where psx-spx is silent).
 //
-// Register map (16-bit, byte offsets within the 0x1f640000 window), from MAME's
-// src/mame/konami/k573dio.cpp:
+// What is modelled here and what is not (docs/2026-11-02-source-review.md has the
+// list of differences from psx-spx):
+//   * register glue, lamps, the board DS2401 (0xee bit 12), the DRAM port, the
+//     MAS3507D I2C port (rtl/mas3507d_i2c.v), the CPLD (rtl/k573dio_cpld.v);
+//   * the MP3 feeder (rtl/k573_mp3stream.v) advances on the HPS decoder's
+//     consumption credit; the MP3 itself is descrambled and decoded on the HPS
+//     (support/s573/), not by a MAS3507D model;
+//   * the 0xa8 frame counter and 0xca-0xce sample counter follow the HPS decode /
+//     PCM drain (MAME's semantics), not the MAS3507D's PI4 / LRCK pins;
+//   * the network controller (0x90/0x92, 0xc0-0xc8) is not implemented.
 //
-//   0x00 r =0x0000  0x02 r =0x0001  0x04/06/0a r =0x0000   0x80 r =0x1234 (id)
-//   0xa0..a7 r/w  MP3 start/end address (32-bit, hi/lo)
-//   0xa8 w  crypto key1     r = decoded MP3 frame counter (get_mp3_frame_count)
-//   0xaa r  mpeg_status (bit12 DEMAND, 13 IDLE, 14 PLAYING; 15 ENABLED unused)
+// Register map (16-bit, byte offsets within the 0x1f640000 window):
+//
+//   0x00 r =0x0000  0x02 r =0x0001  0x04/06/0a r =0x0000 (MAME; psx-spx is silent
+//            below 0x80)
+//   0x80-0x9f, 0xd0-0xdf r =0x1234 (magic, mirrored -- psx-spx)
+//   0xa0..a7 w MP3 start/end address hi/lo; r = the written value (MAME; psx-spx:
+//            a0/a2 read the live fetch address, a4/a6 read 0xae -- not modelled)
+//   0xa8 w key1   r = decoded MP3 frame counter
+//   0xaa r  mpeg_status (bit12 DEMAND, 13 IDLE, 14 PLAYING) -- MAME's meanings;
+//            psx-spx: 12 PI19, 13 PI8 (error), 14 PI4, 15 WRDY
 //   0xac r/w MAS3507D I2C: w bit13=SCL bit12=SDA (open-drain, reset high),
 //            r bit13 = SCL host latch (slave never stretches), bit12 =
-//            SDA host latch AND slave pull (wired-AND) -- MAME k573fpga.cpp
-//   0xae r/w FPGA control latch
+//            SDA host latch AND slave pull (wired-AND)
+//   0xae r/w MP3 feeder control; r bit 12 = streaming
 //   0xb0/b2 w  DRAM write address hi/lo     0xb4 r/w DRAM data (auto-increment)
-//   0xb6/b8 w  DRAM read  address hi/lo
-//   0xc0..c5 network (stub)   0xca/cc r MP3 sample counter (hi/lo latch)  0xcc w reset  0xce r diff
+//   0xb6/b8 w  DRAM read  address hi/lo (two pointers, as MAME; psx-spx: one)
+//   0xc6/0xc8 r =0x7654 (psx-spx: unimplemented / FIFO reset)
+//   0xca/cc r MP3 sample counter (hi/lo latch)  0xcc w reset  0xce r diff
 //   0xe0/e2/e4/e6/fa/fc/fe w  lamp outputs (registers 1,0,3,7,4,5,2)
-//   0xea w crypto key2   0xec w crypto key3
-//   0xee r/w  board DS2401 (1-wire on bit 12)
+//   0xe0-0xec r = 0x1100 (psx-spx readback; modelled as the 0xee value)
+//   0xea w key2   0xec w key3
+//   0xee r/w  bit 12 board DS2401 1-wire, bit 8 DS2433 1-wire (unfitted)
 //   0xf0-0xfe  XC9536 CPLD (k573dio_cpld.v): 0xf4 w DAC reset (bit 15, 0 =
 //            reset), 0xf6 w FPGA /INIT,DONE,/PROGRAM control, 0xf8 w bitstream
-//            bit; ALL even offsets 0xf0-0xfe read the 0xf6 status (psx-spx).
-//            Status is 0xB000 once a bitstream has been clocked in (MAME's
-//            constant), 0x9000 while the FPGA is waiting for one.
-//   0x80-0x9f, 0xd0-0xdf r =0x1234 (magic mirror)   0xc6/0xc8 r =0x7654 (psx-spx)
-//   0x90 w network id    0x10 w unknown
+//            bit; ALL even offsets 0xf0-0xfe read the 0xf6 status (psx-spx):
+//            0xbfff once a bitstream has been clocked in, 0x9fff while the FPGA
+//            waits for one (psx-spx readback, 2026-10-25).
+//   0x90 w network node id (stored, unused)   0x10 w unknown (MAME)
 //
 // Each lamp register takes bits [15:12] as a 4-bit value and fans it out to four
 // lamp lines with the fixed bit remap {0,2,3,1} (see output() in MAME).
@@ -252,6 +269,11 @@ module k573dio #(
 
     // ----- board DS2401 (1-wire), driven through register 0xee bit 12 -----
     reg         ow_master_low;
+    // 0xee bit 8: the DS2433 1-wire bus. psx-spx (expansion-io.md "0x1f6400ee"): the
+    // board has an unpopulated DS2433 footprint on its own FPGA pin; write bit 8 = 1
+    // pulls that bus low, read bit 8 is its level. Nothing is fitted, so it reads
+    // the pull-up (1) unless the host pulls it low.
+    reg         ow2_master_low;
     wire        ow_pd;
     wire        ow_line = ~(ow_master_low | ow_pd);  // wired-AND, pulled up
     ds2401 #(.SERIAL(DS_SERIAL), .CLK_FREQ_HZ(DS_CLK_HZ)) board_id (
@@ -713,6 +735,7 @@ module k573dio #(
             crypto_key3 <= 16'd0; mp3_start <= 32'd0; mp3_end <= 32'd0;
             fpga_ctrl <= 16'd0; network_id <= 16'd0;
             ram_adr <= 25'd0; ram_read_adr <= 25'd0; ow_master_low <= 1'b0;
+            ow2_master_low <= 1'b0;
             mas_scl <= 1'b1; mas_sda <= 1'b1;
             dac_en <= 1'b1;
         end else begin
@@ -738,7 +761,7 @@ module k573dio #(
                     8'he6: set_lamp(3'd7, din);
                     8'hea: crypto_key2      <= din;
                     8'hec: crypto_key3      <= din;
-                    8'hee: ow_master_low    <= din[12];
+                    8'hee: begin ow_master_low <= din[12]; ow2_master_low <= din[8]; end
                     8'hfa: set_lamp(3'd4, din);
                     8'hfc: set_lamp(3'd5, din);
                     8'hfe: set_lamp(3'd2, din);
@@ -793,7 +816,14 @@ module k573dio #(
             8'hcc:   dout = mp3_pos_rep[15:0];          // mp3_counter_low_r (latches on read)
             8'hce:   dout = mp3_pos_rep[15:0] - mp3_diff_ref[15:0]; // mp3_counter_diff_r
 `endif
-            8'hee:   dout = {3'b000, ow_line, 12'b0};
+            // 0xee: bit 12 = DS2401 bus, bit 8 = DS2433 bus (unfitted, pulled up).
+            // 0xe0-0xec (the lamp registers, write-only) read the same 0x1100 that
+            // 0xee returns with both buses idle: psx-spx 6785683 (2026-10-25,
+            // readback from a configured board). Whether they mirror 0xee or hold a
+            // constant is not stated; they are modelled as the mirror, which gives
+            // 0x1100 in every state Konami's code can observe (it never reads them).
+            8'he0, 8'he2, 8'he4, 8'he6, 8'he8, 8'hea, 8'hec, 8'hee:
+                     dout = {3'b000, ow_line, 3'b000, ~ow2_master_low, 8'h00};
             // CPLD: incomplete decode, every register reads the 0xf6 status
             8'hf0, 8'hf2, 8'hf4, 8'hf6, 8'hf8, 8'hfa, 8'hfc, 8'hfe:
                      dout = cpld_status;

@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// mas3507d_i2c.v - minimal MAS3507D MP3-decoder I2C slave (control port only)
+// mas3507d_i2c.v - MAS3507D MP3-decoder I2C control port (the subset games use)
 //
 // The BEMANI Digital I/O board bit-bangs the MAS3507D's I2C control port
 // through k573dio register 0xac (bit13 = SCL, bit12 = SDA, open-drain, idle
@@ -22,10 +22,12 @@
 //     the next START/STOP.
 //   - Write path: every byte to a validated address is ACKed. Subcommand 0x69
 //     ("data read") arms the read-back value = the 32-bit decoded-frame count
-//     in MAME's byte order [15:8],[7:0],[31:24],[23:16]. All other bytes
-//     (0x68 pipes, 0x6a control, register/memory writes) are accepted and
-//     DROPPED - there is no decoder behind this port yet; the drop is loud in
-//     sim ($display, DBG-gated, ships OFF) so nothing fails silently.
+//     in MAME's byte order [15:8],[7:0],[31:24],[23:16]. A 0x68 memory write
+//     to bank 1 at $7f8 (the baseband volume matrix, MAS3507D data sheet
+//     3.7.3) is parsed and its L->L / R->R words surfaced on gain_ll/gain_rr
+//     (applied by s573_mas_gain.v). Every other byte (0x6a control, other
+//     register/memory writes, tone control) is ACKed and dropped: the MP3
+//     decoder itself runs on the HPS (support/s573/), not behind this port.
 //   - Read path (address 0x3b): streams the armed value MSB-first per byte,
 //     data changing only while SCL is low; unarmed reads stream zeros (MAME
 //     zeroes sdao_data on every write byte). Honors the master NACK; serves
@@ -33,8 +35,7 @@
 //   - The slave NEVER stretches SCL - SCL readback is the host latch, always
 //     (MAME i2c_sclo is set at reset and never cleared). The k573dio read mux
 //     owns that; this module never touches SCL.
-//   - frame_count is the REAL decoded-frame count (0 until the MP3 decode
-//     lane exists - a truthful zero, not a stub lie).
+//   - frame_count is the decoded-frame count from the HPS decoder (k573dio).
 //
 // Verilog-2005. Released under the GNU GPL v2.
 // -----------------------------------------------------------------------------

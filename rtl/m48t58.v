@@ -21,8 +21,18 @@
 //     clock registers; clearing the bit resumes ticking from those values.
 //
 // A 1 Hz tick is derived from CLK_FREQ_HZ (kept low in simulation for speed).
-// Month-length / leap rules are intentionally simplified (date wraps at 31) and
-// documented as such.
+// Month lengths follow the M48T58Y datasheet (NaokiS28 Konami-System-573-
+// Documentation, DataSheets/m48t58y.pdf, "Clock operations"): "Corrections for
+// 28, 29 (leap year - valid until 2100), 30, and 31 day months are made
+// automatically" -- i.e. every year whose two BCD digits are divisible by 4 is a
+// leap year (2000 included, 2100 excluded but outside the 00-99 counter anyway).
+// Before 2026-11-02 the date wrapped at 31 in every month.
+//
+// The control bits that share clock registers (datasheet Table 5 / psx-spx
+// "RTC registers"): 0x1ff8 bit 5 sign, bits 0-4 calibration, 6 READ, 7 WRITE;
+// 0x1ff9 bit 7 ST (stop); 0x1ffc bit 6 FT, bit 5 CEB, bit 4 CB; 0x1ffd bit 7 BLE,
+// bit 6 BL (read-only, reads 0 = battery good). Calibration and FT are stored
+// but have no effect (no 512 Hz pin, the tick is exact).
 //
 // Verilog-2005. Released under the GNU GPL v2.
 // -----------------------------------------------------------------------------
@@ -101,6 +111,23 @@ module m48t58 #(
 
     wire       addr_is_rtc = (addr >= RTC_BASE);
     wire [2:0] rtc_idx     = addr[2:0]; // 0..7 within RTC bytes
+
+    // Last day of the month (BCD), M48T58Y datasheet "Clock operations": 28/29/30/31
+    // day months, leap year = two-digit BCD year divisible by 4. 10*t+u is divisible
+    // by 4 iff 2*t+u is: t even -> u in {0,4,8}; t odd -> u in {2,6}.
+    function [7:0] dom_max(input [7:0] month_bcd, input [7:0] year_bcd);
+        reg leap;
+        begin
+            leap = year_bcd[4] ? (year_bcd[3:0] == 4'd2 || year_bcd[3:0] == 4'd6)
+                               : (year_bcd[3:0] == 4'd0 || year_bcd[3:0] == 4'd4 ||
+                                  year_bcd[3:0] == 4'd8);
+            case (month_bcd[4:0])
+                5'h02:                         dom_max = leap ? 8'h29 : 8'h28;
+                5'h04, 5'h06, 5'h09, 5'h11:    dom_max = 8'h30;
+                default:                       dom_max = 8'h31;
+            endcase
+        end
+    endfunction
 
     // BCD increment within [minv..maxv]; returns {carry, next}.
     function [8:0] inc_field(input [7:0] v, input [7:0] minv, input [7:0] maxv);
@@ -243,7 +270,7 @@ module m48t58 #(
                             // datasheet Table 5: date[7]=BLE, date[6]=BL;
                             // day[6]=FT, day[5]=CEB, day[4]=CB).
                             c_dow = inc_field(tdow & 8'h07, 8'h01, 8'h07);
-                            c_dom = inc_field(tdom & 8'h3f, 8'h01, 8'h31);
+                            c_dom = inc_field(tdom & 8'h3f, 8'h01, dom_max(tmonth, tyear));
                             tdow <= {tdow[7:3], c_dow[2:0]};
                             tdom <= {tdom[7:6], c_dom[5:0]};
                             if (c_dom[8]) begin
@@ -301,7 +328,7 @@ module m48t58 #(
                             // datasheet Table 5: date[7]=BLE, date[6]=BL;
                             // day[6]=FT, day[5]=CEB, day[4]=CB).
                             c_dow = inc_field(tdow & 8'h07, 8'h01, 8'h07);
-                            c_dom = inc_field(tdom & 8'h3f, 8'h01, 8'h31);
+                            c_dom = inc_field(tdom & 8'h3f, 8'h01, dom_max(tmonth, tyear));
                             tdow <= {tdow[7:3], c_dow[2:0]};
                             tdom <= {tdom[7:6], c_dom[5:0]};
                             if (c_dom[8]) begin

@@ -1,6 +1,6 @@
 # System 573 core -- status
 
-The one live status page. Last updated 2026-10-26. The page this replaced (the
+The one live status page. Last updated 2026-11-02. The page this replaced (the
 2026-09-09 evidence ledger and dump hashes) is `docs/archive/STATUS-2026-09-09.md`.
 Dated notes in `docs/` are the record of how each thing was found; `docs/README.md`
 says which ones still describe the current tree.
@@ -42,7 +42,8 @@ CRT at the same time, confirmed on the SuperStation One (docs/2026-10-18-hdmi-ou
 
 Out of scope for this core as it stands:
 the analog-board titles (2nd Mix family, dsfdcta, dsftkd) -- they play songs as
-CD-DA tracks and use PCMCIA slot 1; neither exists in the RTL.
+CD-DA tracks, which the core does not have (PCMCIA slot 1, the other thing they
+need, is in since 2026-10-20: OSD "573 PCMCIA Card").
 
 ## Memory cards (2026-10-26)
 
@@ -55,6 +56,14 @@ in `games/System573`; `s573_stage.py` stages it with the reader titles. SuperSta
 read and save in ddrextrm. Each player's "Card In/Out" button (map it in Define
 System573 buttons) pulls the card file out when the game asks and pushes it back in.
 docs/2026-10-26-white-io-reader.md.
+
+## How the hardware is emulated
+
+`docs/EMULATION.md`: part by part, whether the core models the real chip, re-creates
+its firmware's behaviour, does it on the HPS, or leaves it out -- with the sources and
+the plan for replacing the behavioural parts. The latest check of the whole core
+against the sources is `docs/2026-11-02-source-review.md` (M48T58 month lengths,
+Digital I/O readback values, comment and page corrections; simulated, not yet built).
 
 ## Open
 
@@ -70,6 +79,9 @@ docs/2026-10-26-white-io-reader.md.
 * By inspection only, never observed: s573_ddram_arb's read count across a reset,
   s573_cdimg S_STREAM on a short transfer, an auto-save armed by a cassette write
   during play (same review, finding F).
+* Digital I/O MP3 registers follow MAME, not psx-spx's board measurements (feeder
+  start/end word, 0xa0-0xa6 readback, key reload rules, 0xaa bit meanings, the LRCK
+  sample counter): docs/2026-11-02-source-review.md D1, plan in EMULATION.md.
 * `sim`: s573_flash_erase aborts inside vvp in some runs and passes in others.
 * The build PC has killed Quartus with access violations in quartus_fit and
   quartus_sta (docs/2026-10-02-review-steps-2-3.md). Re-run a dead build before

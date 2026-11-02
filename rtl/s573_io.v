@@ -34,7 +34,7 @@ module s573_io (
     input  wire        btn5_p2,        // extra-button header, P2 button 5 (active-low)
     input  wire [1:0]  pcmcia_present,
     // security cartridge read-back
-    input  wire [7:0]  sec_in,         // I0-I7
+    input  wire [7:0]  sec_in,         // cartridge I7..I0 -> 0x1f400004 [15:8]
     input  wire        sec_io0,        // IO0 tristate state
     input  wire        sec_irdy,
     input  wire        sec_drdy,
@@ -108,27 +108,16 @@ module s573_io (
     // (An earlier comment here read the bits as an H8 "response ROM" stepped by
     // control bit 8; psx-spx documents bit 8 as the MCU reset and these bits as
     // its status, and sim/tb_s573_jvs_mcu.v replays both BIOS sequences.)
-    // [15:8] high byte = the MAME IN1 (0x1f400004) bit map, konami/ksys573.cpp
-    // PORT_START("IN1"): [8]=cassette ADC0834 DO, [9]=cassette ADC0834 SARS (NO cassette
-    // ADC on a DIGITAL cart -> 0), [12]="Network?"=1 (Off; no network board present),
-    // [14]=cassette DS2401 serial (read_line_ds2401) = sec_in[0] = the .u6 1-wire line.
-    // The DS2401 was previously placed on [8] (the whole sec_in byte) -- a REAL bug: per
-    // MAME these bits ARE the cassette DS2401 / network / cassette-ADC lines, and the old
-    // mapping returned 0 on all of them. hyperbbc was unaffected (no cassette DS2401; it
-    // reads X76 SDA on bit18 = 0x1f400006[2] = sec_io0, unchanged). Keep as a correctness fix.
-    // CORRECTION (supersedes commit bcaf9a4's message, which billed this as "the ddrsbm
-    // BOOT CHECK gate" -- it is NOT): disassembling the installer (tools/trace/dump_code.lua
-    // + capstone) showed its input routine reads 0x1f400004 but uses only `& 0xf` (the DIP
-    // nibble) -- never this high byte. The real ddrsbm BOOT CHECK gate is the DRIVE CHECK /
-    // CD-ATAPI path (bracketed via the DBG_FORCE_BARS bands: atapi_seen+idecmd_seen=1,
-    // bankctl_wr=0 -> issues a CD command then spins, never reaching flash).
+    // [15:8] = the security cartridge's I0-I7 pins (psx-spx builtin-io.md
+    // "0x1f400004": bits 8-15 = I0-I7), driven by s573_seccart: I6 (bit 14) is the
+    // cassette DS2401's 1-wire bus, I4 (bit 12) reads 1 (MAME IN1 "Network?" = Off),
+    // the rest 0. MAME's IN1 names the same bits: 8/9 cassette ADC DO/SARS (the
+    // PunchMania cartridge's I0/I1), 12 "Network?", 14 cassette DS2401.
+    // History: the DS2401 once sat on bit 8 (fixed upstream in bcaf9a4; that
+    // commit's message calls it the ddrsbm BOOT CHECK gate, which it was not --
+    // the gate was the CD-ROM drive check, see docs/2026-06-30-*).
     wire [15:0] r_status =
-        { 1'b0,                   // [15]
-          sec_in[0],              // [14] cassette DS2401 1-wire serial line (read_line_ds2401)
-          1'b0,                   // [13]
-          1'b1,                   // [12] "Network?" = Off (no network board present)
-          2'b00,                  // [11:10]
-          2'b00,                  // [9:8]  cassette ADC SARS/DO (absent on a digital cart)
+        { sec_in,                 // [15:8] cartridge I7..I0 (I6 = DS2401, I4 = 1)
           jvs_error, jvs_status,  // [7:4]  H8/18E: JVS error/status code (psx-spx; 0xC idle,
                                   //        which is also all of h8a01.bin)
           dip_sw };               // [3:0]  DIP switches

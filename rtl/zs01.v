@@ -1,12 +1,15 @@
 // -----------------------------------------------------------------------------
 // zs01.v - Konami ZS01 (NS2K001) security-cartridge PIC, high-level model
 //
-// The ZS01 is a PIC microcontroller used on later System 573 security carts. It
-// speaks the same CS/RST/SCL/SDA serial lines as the X76 EEPROMs but wraps every
-// access in a fixed-size, obfuscated, CRC-checked packet rather than a bit-banged
-// command/password handshake:
+// The ZS01 is a PIC16CE625 microcontroller used on later System 573 security
+// carts (psx-spx security-cartridges.md "ZS01 protocol"). It uses the RST/SCL/SDA
+// lines of the X76 EEPROMs -- but no chip select (psx-spx "ZS01 cartridge
+// variants"; s573_seccart.v ties `cs` active while a ZS01 is in the slot) -- and
+// wraps every access in a fixed-size, obfuscated, CRC-checked packet rather than a
+// bit-banged command/password handshake. The PIC's firmware is not dumped, so this
+// is a model of its behaviour, not of the chip:
 //
-//   * RST 0->1 (CS low) streams a 4-byte response-to-reset (0x5A,0x53,0x00,0x01)
+//   * RST 0->1 streams a 4-byte response-to-reset (0x5A,0x53,0x00,0x01)
 //     MSB-first on FALLING SCL edges, then PARKS idle-high in STOP, as MAME does.
 //   * A start condition moves STOP -> LOAD_COMMAND; the host clocks in a 12-byte
 //     packet MSB-first (device ACKs each byte on the 9th clock).
@@ -15,8 +18,10 @@
 //     key. A CRC-16/CCITT (poly 0x1021, init 0xFFFF, inverted) over bytes 0..9 is
 //     checked against bytes 10..11.
 //   * Packet = [command][address][8 data][crc16].  command bit0: 0=write,1=read.
-//     data_offset = address*8 into 112 data bytes; addresses 0xFC/0xFD read the
-//     internal DS2401, 0xFE the config registers, 0xFF sets the data key, 0xFD
+//     data_offset = address*8 into 112 data bytes; addresses 0xFC/0xFD both read
+//     the DS2401 serial (psx-spx: 0xFC is the ZS01's own serial, unused by games,
+//     0xFD the DS2401; no dump of the internal serial exists, so, as in MAME, both
+//     return the DS2401), 0xFE the config registers, 0xFF sets the data key, 0xFD
 //     write erases the data + data key.
 //   * The device builds a 12-byte response [status][..][8 data][crc16], scrambles
 //     it with the *response key* (the 8 data bytes the host sent on a read), and
@@ -24,17 +29,13 @@
 //
 // The scramble is a custom byte cipher (NOT DES): key[0] is an additive term and
 // key[1..7] are (rotate, add) pairs, CBC-chained on the ciphertext byte. This is
-// a faithful transliteration of MAME's src/mame/konami/zs01.cpp. The heavy packet
-// transform is performed in a single behavioral step (the reference is itself an
-// HLE of the PIC); the surrounding serial framing is a clocked FSM.
+// a transliteration of MAME's src/mame/konami/zs01.cpp; psx-spx gives the same
+// algorithm from the host side. The packet engine is a sequential FSM (below).
 //
-// SDA is split into host-driven (sda_i) and device-driven (sda_o) levels, as the
-// 573 ASIC wires IO0. NOTE the real ZS01 cassette wires SDA-out on a SEPARATE line
-// from the X76 carts: per k573cass.cpp the ZI cassette leaves D0 unconnected and
-// drives ZS01 SDA from the CONTROL register bit 6 (write_line_zs01_sda, active-low);
-// SCL/CS/RST stay on the D1/D2/D3 data-latch bits and the read-back uses the same
-// secflash_sda path. The glue (s573_seccart.v) routes sda_i for type 2 accordingly;
-// this module just sees sda_i/sda_o. Data, keys and config registers persist across
+// SDA is split into host-driven (sda_i) and device-driven (sda_o) levels. The host
+// level comes from the one cassette SDA model in s573_seccart.v (D0 through the
+// 74LS125 enabled by 0x1f500000 bit 6 -- the same for every cassette type; MAME's
+// separate "ZS01 SDA = control bit 6, active low" wiring was replaced 2026-10-23). Data, keys and config registers persist across
 // the (volatile) system reset.
 //
 // --- boot-time NVRAM image load (the gtrfrk5m gea26jaa.u1 ZS01 dump) ---

@@ -9,17 +9,18 @@
 //   bit  6   : security-cart IO0 direction (0 = input)
 //   bit  7   : CPLD signal
 //
-// AUTHORITATIVE SOURCE = MAME konami/ksys573.cpp (mame0288, which boots our exact
-// dumps): `m_flashbank->set_bank( m_control & 0x3f );`  (no shift) over a 4 MB-
-// stride flashbank map: bank 0 -> 29f016a.31m, 1 -> 31l, 2 -> 31j, 3 -> 31h (the
-// four onboard 4 MB banks at image offsets 0/4/8/12 MB); banks 16-31 -> pccard1,
-// 32-47 -> pccard2. So the BIOS selects onboard bank N by writing the RAW value N
-// (0/1/2/3): the internal-bank index is `bank[1:0]` with `bank < 4`, NOT `bank[5:4]`.
-// Our own tools/pack_hyperbbc.py lays bank N at image offset N*0x400000, matching.
+// Sources: psx-spx registers.md "0x1f500000" (bank 0 = onboard chips 31M/27M,
+// 1 = 31L/27L, 2 = 31J/27J, 3 = 31H/27H, 16-31 = PCMCIA slot 1, 32-47 = slot 2)
+// and the GX700-PWB schematic (74LS139 29G: bits 1:0 pick the onboard pair, bits
+// 5:4 pick onboard / slot; docs/2026-10-23-hw-audit-573in1-sources.md "Matches");
+// MAME ksys573.cpp `m_flashbank->set_bank(m_control & 0x3f)` agrees. So the BIOS
+// selects onboard bank N by writing the RAW value N (0-3): the internal-bank index
+// is `bank[1:0]` with `bank < 4`. Banks 4-15 return 0xFFFF here; on the board the
+// onboard decode ignores bits 3:2, so they would mirror 0-3 (no software in hand
+// uses them). Our tools/pack_hyperbbc.py lays bank N at image offset N*0x400000.
 // (Commit da83148's `bank[5:4]` decode was a REGRESSION: control values 0x01/0x02/
-// 0x03 fell through to "absent" -> banks 1/2/3 read 0xFFFF, leaving 12 MB of
-// program/gfx/sample data unreadable -> the PROGRAM ROM CHECK self-test stalled.
-// Confirmed by the RTL-witness audit + MAME source, 2026-06-06.)
+// 0x03 fell through to "absent" -> banks 1/2/3 read 0xFFFF -> the PROGRAM ROM CHECK
+// self-test stalled. Fixed 2026-06-06.)
 //
 // ================== PCMCIA SLOT 2: the 32 MB linear flash card ==================
 //
@@ -33,6 +34,9 @@
 //     -> N = 8 CHIP PAIRS, each pair = one low (.nL) + one high (.nU) x8 die,
 //        both FUJITSU_29F016A. intelfsh.cpp:201 -> 0x200000 bytes per die,
 //        maker 0x04, device 0xAD. 8 * (2 MB + 2 MB) = 32 MB.
+//     psx-spx games.md "Known working replacement PCMCIA cards": Konami's stock
+//     Fujitsu 32 MB cards exist with 16x MBM29F016A (ID 0x0404/0xadad) and with
+//     16x MBM29F017A (0x0404/0x3d3d); the core answers as the 29F016A card.
 //   linear_flash_pccard_8bit_device<N>::amap:
 //     map.global_mask((N * 0x00400000) - 1);            // 0x1FFFFFF = 32 MB
 //     map(0x400000*i, ...).rw(m_l[i], ...).umask16(0x00ff);

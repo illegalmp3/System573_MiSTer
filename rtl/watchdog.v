@@ -1,16 +1,21 @@
 // -----------------------------------------------------------------------------
 // watchdog.v - Konami System 573 board watchdog
 //
-// The 573 has a hardware watchdog that resets the board unless the CPU strobes
-// the clear window (0x1f5c0000) regularly. This models it as a free-running
-// counter: every `kick` pulse reloads the counter; if the counter reaches the
-// timeout the `reset_out` pulse is asserted (and the counter reloads, so the
-// board would be held in/through reset by an external reset controller).
+// The 573's watchdog lives in the Konami 058232 power-on-reset / coin-counter chip
+// (psx-spx registers.md "0x1f5c0000"): any write to 0x1f5c0000 clears it; if it is
+// not cleared for 350-400 ms it pulls the reset line low for about 50 ms; jumper
+// S86 disables it. This models the counter: every `kick` pulse reloads it; at the
+// timeout `reset_out` pulses for one clock (the ~50 ms hold is not modelled).
+//
+// In the build the bite is NOT wired to the core reset (rtl/emu.sv leaves
+// wdog_reset open) -- the equivalent of a board with S86 fitted. Core-side stalls
+// that a real board never has (flash/.sav traffic through the HPS, OSD pause)
+// could otherwise trip it. docs/2026-11-02-source-review.md, "HLE inventory".
 //
 // Verilog-2005. Released under the GNU GPL v2.
 // -----------------------------------------------------------------------------
 module watchdog #(
-    parameter integer TIMEOUT_CYCLES = 32'd1_000_000  // clk_sys cycles before bite
+    parameter integer TIMEOUT_CYCLES = 32'd11_854_080 // 350 ms at 33.8688 MHz
 )(
     input  wire clk,
     input  wire rst,        // synchronous reset, active high

@@ -1,422 +1,199 @@
-# Konami System 573 — MiSTer FPGA core
+# Konami System 573 for MiSTer
 
-> **Built on Fabricore's System 573 core.** This repository continues the
-> work-in-progress Konami System 573 MiSTer core by **Fabricore**:
-> **<https://github.com/fabricore-eng/System573_MiSTer>**. Everything up to their
-> `main` at `6b114d6` (2026-08-02) is their work, and their full commit history is
-> kept here unchanged; the commits after it are this fork's. The board research,
-> the 573 RTL, the PSX-core integration over EXP1, the HPS-side MP3 service and
-> the first DDR title with music (*DDR Solo Bass Mix*) all come from that
-> project. The bring-up history further down this README is theirs.
->
-> **What this fork adds**, aimed at the Digital-I/O *Dance Dance Revolution*
-> titles: the X76F041 and ZS01 security cassettes on hardware (single and dual
-> cassette), the GN845 stage-multiplexor handshake, the 32 MB PCMCIA linear-flash
-> card (3rd Mix through Extreme), CD-to-flash installs that persist across title
-> switches, 60 fps gameplay with full-speed background video, MP3 streaming fixes
-> (song previews, mid-song CD streaming, pause with the OSD), single launchers per
-> title, and DDR's memory card reader (card files and real cards on SNAC). Current state, by title:
-> [`docs/STATUS.md`](docs/STATUS.md).
->
-> Like the original, this is GPL v2. No game, BIOS or security-cassette dumps are
-> included; you supply your own.
+A MiSTer FPGA core for the **Konami System 573**, the PlayStation-based arcade board
+behind *Dance Dance Revolution*, *Dancing Stage* and the rest of Konami's early BEMANI
+games. It is aimed at the **Digital I/O DDR titles** (DDR Solo Bass Mix through DDR
+Extreme), and they are what it has been tested with.
 
-A work-in-progress MiSTer FPGA core for the **Konami System 573**, the
-PlayStation-based arcade board behind *Dance Dance Revolution* and the rest of
-Konami's BEMANI line (as well as games like *GunMania* and *Hyper Bishi Bashi
-Champ*).
+**Status: work in progress.** Most Digital I/O DDR titles install, boot and play full
+credits with music. Other 573 games are untested or unsupported (see below). Latest
+download: the [Releases page](https://github.com/illegalmp3/System573_MiSTer/releases).
 
-## Non-AI generated words from me:
+## Where this core comes from
+
+This repository is a fork of **[Fabricore's System 573 core](https://github.com/fabricore-eng/System573_MiSTer)**.
+Everything up to their `main` at `6b114d6` (2026-08-02) is their work and their commit
+history is kept here unchanged: the board research, the 573 RTL, the integration of the
+MiSTer PSX core over the PlayStation's EXP1 bus, the HPS-side MP3 service and the first
+DDR title with music (*DDR Solo Bass Mix*). Their README, with the bring-up history up
+to that point, is
+[here](https://github.com/fabricore-eng/System573_MiSTer/blob/6b114d6/README.md).
+This README replaces it for this fork.
+
+This fork added: the X76F041 and ZS01 security cassettes and two-cassette titles, the
+DDR stage I/O board handshake, the 32 MB PCMCIA flash card (3rd Mix through Extreme),
+CD-to-flash installs that persist, 60 fps gameplay with full-speed background video,
+MP3 streaming fixes, HDMI output, DDR's memory card reader, single launchers per title,
+and a review of the whole core against the hardware documentation
+([`docs/2026-11-02-source-review.md`](docs/2026-11-02-source-review.md)).
+
+## A note from the maintainer
 
 10/29 update: My apologies, this update took longer than I expected to release. I’m happy to say that you no longer need to replace your MiSTer executable to run this core (that was really stupid, thanks Tourniquet) and I can confirm virtual and SNAC memory cards work with DDR Extreme. I’d also like to send a thank you to Naoki Saito for sending me down a useful path of finding additional sources to improve this core, and a shout out to the psx-spx website which contains a fascinating section on System 573 (and which also has a list of contributors and links you should check out). Thank you to every person documenting System 573. There are still things to be fixed and features I’d like to see added to this core. Off the top of my head, Dancing Stage featuring Dreams Come True doesn’t load to gameplay, so I’m gonna look into that. I’d also like to add SNAC support for DDR pads, but I don’t own a PSX pad, so I may need other people who’d be willing to test that for me. Once I feel like DDR games are well-represented on this core, I’ll be ready to move on to Guitar Freaks and drummania.
 
 This would not exist without work done by human beings such as contributors to MAME (respect to 987123879113 in particular) and the contributors to the PSX_MiSTer core, and it must be mentioned that this core was built on what fabricore made publicly available. I am not a developer. I wanted to play DDR on a MiSTer console with a pad on a CRT, and here we are. This is Claude’s work, not mine. As of 10/18/2026, this core has only been tested with Digital System 573 DDR titles, and no testing has been done with other 573 bemani titles. Off the top of my head, features I wish to include are: (i) Memory Card support; (ii) Analog 573 support (DDR 1st Mix and 2nd Mix); (iii) automatic recognition of DDR solo vs standard DDR games; and (iv) support for other 573 bemani games. One last note: I used MAME non-merged ROMs to test this core.
 
-## Installing and playing
+## What runs
 
-What you need: a DE10-Nano with a 128 MB SDRAM board, the MiSTer SD card, and your
-own MAME romsets + CHDs for the titles (`ddr3mj.zip` + its CHD, ...). No game, BIOS
-or cassette data is in this repository or its downloads.
+Tested on one machine, a SuperStation One (DE10-Nano, 128 MB SDRAM), on a CRT and
+over HDMI. "Credit" means a full credit of songs played with music. The up-to-date
+list is [`docs/STATUS.md`](docs/STATUS.md).
 
-Everything below comes ready-made on the
-[**Releases page**](https://github.com/illegalmp3/System573_MiSTer/releases), as
-three downloads:
+| Title | MAME set | State |
+|---|---|---|
+| DDR Solo Bass Mix | `ddrsbm` | credit |
+| DDR Solo 2000 | `ddrs2k` | credit (attract demo cuts off early) |
+| DDR 3rd Mix (Japan) | `ddr3mj` | credit |
+| DDR 3rd Mix (Asia) | `ddr3ma` | installs and boots |
+| DDR 4th Mix | `ddr4m` | credit |
+| DDR 4th Mix (Japan), 4th Mix Plus | `ddr4mj`, `ddr4mp` | boot, songs not yet reported |
+| DDR 5th Mix | `ddr5m` | runs |
+| DDRMAX, DDRMAX2 | `ddrmax`, `ddrmax2` | credit |
+| DDR Extreme | `ddrextrm` | credit; memory cards (files and SNAC) |
+| DDR USA | `ddrusa` | credit |
+| Dancing Stage Euro Mix | `dsem` | credit |
+| Dancing Stage featuring Disney's Rave | `dsfdr` | credit |
+| Dancing Stage featuring Dreams Come True | `dsfdct` | does not reach gameplay |
+| Hyper Bishi Bashi Champ, 2 Player | `hyperbbc`, `hypbbc2p` | boot (no MP3 board) |
+| DDR 3rd Mix Korea / Plus, 4th Mix Solo / Plus Solo, Euro Mix 2 | | staged, not yet reported |
+| DrumMania 2nd-9th Mix, Guitar Freaks 5th Mix | | launchers in [`mgl/`](mgl/) for testing, not in the release |
 
-| download | what it is |
-|---|---|
-| `System573_MiSTer-v<version>.zip` | the core, the launchers and `MiSTer_System573` (the music decoder), laid out like the SD card (steps 1, 2 and 4) |
-| `s573_stage.py` | the staging tool: builds the game files from your MAME romsets (step 3) |
-| `System573_blank_saves.zip` | an empty save file for every title, for staging by hand (step 3) |
+Not supported: the analog-I/O-board titles (DDR 1st/2nd Mix and others) -- they play
+their music as CD audio, which the core does not have yet -- and anything needing
+hardware listed as absent below.
 
-1. **Core:** copy `Konami_System_573.rbf` to `_Console/` on the SD card.
-2. **Launchers:** copy the `.mgl` files from [`mgl/`](mgl/) to `_Arcade/`. Each one
-   is named `<title> (<region>, <year>)` and loads one title;
-   [`mgl/README.md`](mgl/README.md) maps them to MAME romsets. Launch a game from its
-   launcher, not from the bare `.rbf`.
-3. **Game files:** the staging tool, `s573_stage.py` (a release download; the same
-   file as [`tools/s573_stage.py`](tools/s573_stage.py)), builds `games/System573/`
-   from your MAME romsets. It is one file and needs only Python 3.8 or newer (on
-   Windows, install Python from python.org or the Microsoft Store and use `python`
-   or `py` in place of `python3`):
+## Installing
+
+You need a DE10-Nano with a 128 MB SDRAM board, and your own MAME romsets and CHDs
+for the titles. No game, BIOS, cassette or boot ROM data is in this repository or its
+downloads. The [Releases page](https://github.com/illegalmp3/System573_MiSTer/releases)
+has three downloads: the core zip (laid out like the SD card), `s573_stage.py`, and
+`System573_blank_saves.zip`.
+
+1. **Core:** copy `_Console/Konami_System_573.rbf` to `_Console/` on the SD card.
+2. **Launchers:** copy the `.mgl` files to `_Arcade/`. Each is named
+   `<title> (<region>, <year>)` and loads one title ([`mgl/README.md`](mgl/README.md)
+   maps them to MAME sets). Start games from a launcher, not from the bare `.rbf`.
+3. **Game files:** `s573_stage.py` (Python 3.8 or newer, nothing else) builds
+   `games/System573/` from your romsets:
 
        python3 s573_stage.py <folder with your MAME roms> <SD card or USB drive>
 
-   It writes everything a launcher loads -- BIOS, cassette image(s), disc, and an
-   empty save file of the right size -- for every title it finds, plus
-   `885a01.bin`, the memory card reader's boot ROM, for the DDR titles that have
-   the reader ([Memory cards](#memory-cards-ddr)). ROMs are found by
-   CRC32 and checked against MAME's SHA1 and discs by the SHA1 in the CHD header, so
-   non-merged, split and merged sets all work and file names do not matter. An
-   existing `.sav` is never replaced (it holds the game's install), and running it
-   again only fills in what is missing. `--list` shows what it found without writing
-   anything. Its title table is generated from MAME's `ksys573.cpp` and `mgl/` by
-   `tools/gen_s573_titles.py`. (`tools/stage_573.py` is the developer version of
-   the same staging, one romset at a time from `dumps/mame573/`.)
+   It writes the BIOS, cassette image(s), disc and an empty save file for every title
+   it finds, plus `885a01.bin` (the memory card reader's boot ROM) for the DDR titles
+   that use the reader. Files are found by checksum, so non-merged, split and merged
+   sets all work. It never replaces an existing `.sav` (that holds the game's
+   install). `--list` shows what it found without writing. `System573_blank_saves.zip`
+   has the same empty saves for staging by hand -- don't extract it over saves you
+   already have.
+4. **Music (`MiSTer_System573`):** the Digital I/O titles' MP3 music is decoded on the
+   MiSTer's ARM side, by a separate Main binary that sits next to your stock `MiSTer`
+   (which is not replaced). Copy `MiSTer_System573` to the root of the SD card and add
+   to `MiSTer.ini` (and any `MiSTer_*.ini` you use):
 
-   **Blank saves:** every launcher needs its title's `.sav` in `games/System573/`
-   before it starts, at the exact size the core expects. The staging tool creates
-   them, and `python3 s573_stage.py --blank-saves <SD card or USB drive>` writes only
-   them. `System573_blank_saves.zip` holds the same files for anyone staging by
-   hand. **Don't extract it over a card that already has saves:** each `.sav` holds
-   that game's install, and the blank one would replace it. Copy only the ones you
-   are missing.
-4. **Music: `MiSTer_System573` (required for the MP3 soundtracks).** The Digital-I/O
-   DDR and Dancing Stage titles decode their MP3 music on the ARM side, in a service
-   added to MiSTer's Main program (`support/s573/`, built by
-   `tools/build-hps-mp3.sh`). It ships as a **separate** file, `MiSTer_System573`,
-   that sits next to the stock `MiSTer` in the SD card's root -- the stock binary is
-   **not** replaced. Two steps:
+       [System573]
+       main=MiSTer_System573
 
-   * copy `MiSTer_System573` to the root of the SD card (where `MiSTer` and
-     `MiSTer.ini` are);
-   * add this section to `MiSTer.ini` (and to any `MiSTer_*.ini` you switch to):
-
-         [System573]
-         main=MiSTer_System573
-
-   `python3 s573_stage.py --install-mp3 <SD card>` does both (it keeps a one-time
-   `MiSTer.ini.bak573` backup, and running it again changes nothing).
-
-   How it works: when a core starts, stock Main reads `main=` from the INI section
-   that matches the core and, if it names another file that exists, restarts into
-   it (`user_io.cpp`, `user_io_init`); every other core and the menu use the
-   default, `MiSTer`, so Main switches back by itself. The section name has to be
-   **`System573`**: Main matches sections against the core's *name*, which for
-   this core is the launchers' `<setname>System573</setname>` -- not the `.rbf`
-   file name, so `[Konami_System_573]` would never apply. (The `.rbf`'s own
-   built-in name is `PSX`, which Main needs for its disc handling; that is also
-   why a bare `.rbf` gets no music -- launch from a `.mgl`.) The MiSTer updater
-   and `update_all` keep updating the stock `MiSTer` as usual; the Downloader only
-   deletes "old file[s] from previous updates" (its `allow_delete` setting), and
-   `MiSTer_System573` is not one of its files. Hyper Bishi Bashi Champ and Gacha Gachamp have no MP3 board and do not
-   need it.
-
-   **Nothing else on your setup needs updating.** Your own `MiSTer` and Linux
-   stay as they are. The one requirement is that your stock `MiSTer` reads
-   `main=`, which every stable release since **MiSTer_20240505** (May 2024) does
-   (added in Main commit e61b111, 2024-03-25). `MiSTer_System573` is a complete
-   Main of its own, built from a stable release's source (the release notes name
-   which one) with Main's own pinned toolchain, so it needs nothing newer from
-   Linux than stock Main has needed since late 2021 (glibc 2.29, libstdc++
-   GLIBCXX 3.4.21). The launchers use only MGL features from 2022 (`setname`,
-   `reset`). Without the `main=` line, or on a Main older than 20240505, the
-   core still runs, just without music.
-
-   Upgrading from v0.1.x, which replaced `/media/fat/MiSTer`: put the stock binary
-   back (run the updater, or copy your `MiSTer.orig` over `MiSTer`), then do the
-   two steps above.
-5. **First boot of a CD title installs it to flash:** set OSD *573 Boot Device* =
+   `python3 s573_stage.py --install-mp3 <SD card>` does both, with a one-time
+   `MiSTer.ini.bak573` backup. Needs a stock Main from MiSTer_20240505 or later (the
+   first with `main=`). The section must be named `System573`, the launchers' set
+   name. Without it the core runs, silently. Hyper Bishi Bashi Champ and Gacha Gachamp
+   do not need it.
+5. **First boot of a CD title installs it to flash:** set OSD **573 Boot Device** =
    CD-ROM, launch, let the game install, and **wait for the "Flash saved" message**
-   before switching off (the game asks you to power down before the save has run).
-   Then set *573 Boot Device* = Flash ROM and launch again to play.
+   before switching off. Then set **573 Boot Device** = Flash ROM and launch again.
 
-Video: one bitstream drives HDMI (scaled) and the analog port (RGB / YPbPr / S-Video /
-composite, per `MiSTer.ini`) at the same time. Opening the OSD pauses the game and its
-music together.
+Upgrading from v0.1.x (which replaced `/media/fat/MiSTer`): put the stock `MiSTer`
+back (run the updater), then do step 4.
 
-Music level: each game sets its own music volume on the MP3 decoder chip (DDR 4th Mix
--8 dB, 3rd Mix -10 dB, Extreme -12 dB), and the core applies it as the chip's data
-sheet defines it. How loud the music then is next to the announcer and effects on a
-real cabinet depends on the boards' analog mixing, which no available source documents,
-and it has not been compared with a real cabinet. OSD **573 Music Level** (0 dB to
-+6 dB in 1 dB steps, music only; default 0 dB = no change) raises the music to taste.
-At +5/+6 dB loud passages can clip. Background: `docs/2026-10-30-music-level-and-announcer.md`.
+## OSD options
 
-## Memory cards (DDR)
+| Option | What it does |
+|---|---|
+| 573 Boot Device | Flash ROM or CD-ROM (DIP switch 4 on the board) |
+| 573 Cassette | two-cassette titles: Auto (follows Boot Device), Game, Install |
+| 573 Controls | Auto (from the staged title), DDR, DDR Solo, DrumMania, Guitar Freaks |
+| 573 PCMCIA Card | Auto, 32 MB in slot 2, 32 MB in slot 1 |
+| 573 Card Reader, P1/P2 Card, P1/P2 Card File | DDR memory card reader: Auto/On/Off; card file or SNAC per player |
+| 573 MP3 Descramble | Default for every title except DDR Solo Bass Mix, which needs "DDR Solo Bass Mix" (on a board, the game's own FPGA bitstream decides this) |
+| 573 Chart Offset | -16 .. +15 ms: moves the arrows against the music, for display or audio latency outside the FPGA |
+| 573 Music Level | 0 .. +6 dB on the music only; a listening preference, not a hardware setting |
+| Save to SDCard, Save Flash, Erase Flash Save, Auto Save Install | when the flash install is written back to the `.sav` |
+| Card In/Out (a button) | pulls a player's card file out / back in when the game asks |
 
-The Japanese and Asian DDR cabinets from 3rd Mix on have a memory card reader: a
-separate board, Konami GE885-PWB(A) (the "White I/O"), on the JVS port, with two
-PlayStation memory card slots. The core runs it the way the cabinet does, built
-from the documentation of that hardware rather than from the game's behaviour:
+Opening the OSD pauses the game and its music together. HDMI and the analog output
+(RGB, YPbPr, S-Video, composite, per `MiSTer.ini`) run at the same time.
 
-* the 573's JVS MCU is in the fabric, register for register as psx-spx documents it;
-* the reader board's own CPU and its on-chip peripherals (a Toshiba TMPR3904F,
-  from Toshiba's user's manual) run Konami's boot ROM and the reader program the
-  game uploads to it, interpreted on the ARM in `MiSTer_System573`. None of the
-  reader's card commands is re-implemented: what the game asks for is answered by
-  Konami's own program;
-* real cards on SNAC are clocked at the pins with the timing of that program's own
-  card routine.
+### Memory cards (DDR)
 
-[`docs/2026-10-26-white-io-reader.md`](docs/2026-10-26-white-io-reader.md) has the
-details and the sources.
+The Japanese and Asian DDR cabinets from 3rd Mix on have a memory card reader (the
+"White I/O", GE885-PWB(A)) on the JVS port. The core runs it the way the cabinet does:
+the 573's JVS MCU is in the fabric as psx-spx documents it, and the reader board's own
+CPU runs Konami's boot ROM and the program the game uploads to it, on the ARM side.
+Card files are raw 128 KB images (`.mcd`, `.mcr`, `.sav`) in `saves/System573/`; real
+cards work on SNAC (port 1 = player 1). Titles: the sets whose MAME machine has the
+reader -- 3rd Mix (Japan, Asia, Korea, Plus), 4th Mix (Japan, Asia, Plus, Solo, Plus
+Solo), 5th Mix, DDRMAX, DDRMAX2, Extreme. Details:
+[`docs/2026-10-26-white-io-reader.md`](docs/2026-10-26-white-io-reader.md).
 
-Titles: the sets whose MAME machine has the reader -- 3rd Mix (Japan, Asia, Korea,
-Plus), 4th Mix (Japan, Asia, Plus, Solo, Plus Solo), 5th Mix, DDRMAX, DDRMAX2 and
-Extreme. Tested on a SuperStation One with DDR Extreme: real cards on SNAC, and a
-.sav card file containing Arcade Link data from the home version of Dance Dance
-Revolution 5th Mix, created using PSX_MiSTer, both read and saved.
+### Music level
 
-What it needs:
+Each game sets its own music volume on the MP3 decoder chip (DDR 4th Mix -8 dB, 3rd Mix
+-10 dB, Extreme -12 dB) and the core applies it as the chip's data sheet defines it.
+How loud the music then is next to the announcer on a real cabinet depends on analog
+mixing that no available source documents, and it has not been compared with a real
+cabinet; hence the Music Level option.
+[`docs/2026-10-30-music-level-and-announcer.md`](docs/2026-10-30-music-level-and-announcer.md).
 
-* `885a01.bin` (the reader's boot ROM, in MAME's ddr3m*/ddr4m*/ddr5m/ddrmax* zips or
-  `k573mcr.zip`) in `games/System573/`. The staging tool puts it there.
-* `MiSTer_System573` and its `MiSTer.ini` line (step 4): the reader board runs there.
+### Bug reports and logs
 
-OSD:
+Put a file named `s573mp3.debug` in the SD card's root (the release has a template)
+and `MiSTer_System573` keeps one log per session in `logs/System573/`
+(`sessions.txt` lists which game each one was). Send the log with a description.
 
-* **573 Card Reader**: Auto (fitted for the DDR control profiles), On, Off.
-* **573 P1 Card** / **573 P2 Card**: File or SNAC (SNAC port 1 = player 1, port 2 =
-  player 2).
-* **573 P1 Card File** / **573 P2 Card File**: a raw 128 KB card image (`.mcd`,
-  `.mcr` or `.sav`) from `saves/System573/`, for example a PSX_MiSTer save of a home
-  DDR game with its arcade link data. Every frame the game writes goes straight back
-  into the file.
-* **Card In/Out** (a button; map it in *Define System573 buttons*): after saving,
-  the game asks the player to pull the card out and waits. One press pulls that
-  player's card file out, the next puts it back in; a popup confirms each press.
+## What the board is, and what the core emulates
 
-## Diagnostic logs
+The System 573 is a PlayStation (MIPS R3000A CPU, GPU, SPU) with 4 MB of main RAM and
+2 MB of VRAM, plus Konami hardware: an ATAPI CD-ROM drive on IDE, 16 MB of onboard
+flash and two PCMCIA slots for linear flash cards, an M48T58 clock with 8 KB of
+battery-backed RAM, a security cassette slot (X76F041 / X76F100 / ZS01 EEPROMs, a
+DS2401 serial number), a JVS port, a watchdog, and an I/O board on top. The Digital
+I/O board adds an FPGA, 24 MB of DRAM and a MAS3507D MP3 decoder that plays the
+games' encrypted MP3 music.
 
-With a file named `s573mp3.debug` in the root of the SD card, `MiSTer_System573` keeps
-a log of every System 573 session in `logs/System573/` on the SD card:
+The core is the MiSTer PSX core plus the 573 hardware in Verilog. Most of the 573's
+parts are modelled at their pins or registers; a few are re-creations of what an
+undumped chip's firmware does (the JVS MCU, the ZS01, the DDR stage board), and two
+jobs run on the MiSTer's ARM: decoding the MP3 music (the FPGA is too full for an MP3
+decoder) and the memory card reader's CPU. CD audio, the board network and the
+analog I/O board are not there yet. The part-by-part table, its sources and the plan
+for replacing the high-level parts are in [`docs/EMULATION.md`](docs/EMULATION.md);
+the registers are in [`docs/MEMORY_MAP.md`](docs/MEMORY_MAP.md).
 
-* one file per session, `session-00042.log` (with the date and time in the name when
-  the MiSTer has a clock from the network, e.g. `session-00042_2026-10-25_2017.log`);
-* every line starts with the seconds since that session started;
-* `logs/System573/sessions.txt` lists each session with its game CD and `.sav`;
-* old sessions are deleted only when the folder passes 2 GB (oldest first);
-* a log from before this (`s573mp3.log` in the SD card root) is moved in once as
-  `s573mp3-before-sessions.log`.
+Sources, in the order the project trusts them: the
+psx-spx System 573 documentation ([site](https://psx-spx.consoledev.net/konamisystem573/);
+the newest text is in the repository's
+[`docs/arcade/konami/573/`](https://github.com/psx-spx/psx-spx.github.io/tree/master/docs/arcade/konami/573),
+written from tests on real boards), Naoki Saito's
+[schematics and data sheets](https://github.com/NaokiS28/Konami-System-573-Documentation),
+the chips' data sheets, code that runs on real boards (Konami's own drivers,
+[573in1](https://github.com/spicyjpeg/573in1)), then MAME's `ksys573` driver.
 
-## What this board is
+## Building and testing
 
-The System 573 is, at its core, a Sony PlayStation:
+* Bitstream: Quartus Prime Lite 17.0.x. `tools/build-573.ps1` (Windows) applies
+  `psx_patches/` to the pinned `psx/` submodule and builds `Konami_System_573.rbf`.
+  The design fills about 98 % of the FPGA.
+* `MiSTer_System573`: `tools/build-hps-mp3.sh all` (Main_MiSTer + `support/s573/`).
+* Simulation: `make -C sim` (Icarus Verilog, one or more benches per module) and
+  `make -C support/s573/tests test mutate` (the ARM-side service).
 
-| Block        | Part                              | Notes                              |
-|--------------|-----------------------------------|------------------------------------|
-| CPU          | Sony CXD8530CQ (MIPS R3000A)      | 33.8688 MHz, same as retail PS1    |
-| GPU          | Sony CXD8561Q                     | 2 MB VRAM (retail PS1 has 1 MB)    |
-| SPU          | Sony CXD2925Q                     | 512 KB sound RAM                   |
-| Main RAM     | 4 MB                              | retail PS1 has 2 MB                |
-| BIOS         | 512 KB Konami BIOS                | boots from CD-ROM / flash          |
-
-On top of the PS1 it adds 573-specific hardware on the EXP1 bus:
-
-- **Konami ASIC I/O** (`0x1f400000`) — JAMMA inputs, coin counters, ADC & security
-  cartridge bit-bang lines, audio control.
-- **ATAPI CD-ROM** (`0x1f480000`) — game data, booted per title.
-- **Bank-switched flash / PCMCIA** (`0x1f000000`, control at `0x1f500000`).
-- **Security cartridge** (`0x1f6a0000` + status in the ASIC) — per-game DS2401
-  silicon serial number plus an X76F041 / X76F100 / ZS01 secured EEPROM.
-- **M48T58 timekeeper** (`0x1f620000`) — battery-backed NVRAM + RTC.
-- **ADC0834** serial ADC (bit-banged through the ASIC control register).
-- **Watchdog** (`0x1f5c0000`) — resets the board if not kicked.
-- **Digital I/O board** (`0x1f640000`, DDR & later BEMANI) — FPGA + **MAS3507D**
-  MP3 decoder streaming encrypted audio, plus light outputs and its own DS2401.
-
-The full register map (transcribed from psx-spx) lives in
-[`docs/MEMORY_MAP.md`](docs/MEMORY_MAP.md).
-
-## Status — honest accounting
-
-> **Current status lives in [`docs/STATUS.md`](docs/STATUS.md).** The account below was
-> written in mid-2026 and is kept as the history of the bring-up; where the two
-> disagree, STATUS.md is right.
-
-**Latest milestone (2026-08-02): a DDR title boots, plays, and has working
-streamed MP3 music on real hardware.** *Dance Dance Revolution Solo Bass Mix*
-(`ddrsbm`) boots from restored onboard flash into attract, plays through a
-credited stage, and streams its encrypted MP3 soundtrack — the BEMANI Digital
-I/O board path end to end: board DRAM window → descrambler → MP3 decode → PCM
-ring → mixed with the PSX SPU.
-
-The decode itself runs on the **HPS (ARM) side, not in fabric**. An in-fabric
-Huffman/IMDCT/synthesis decoder was costed at ~3,000–8,000 ALM plus DSP against a
-device already at 100% DSP, and rejected on those numbers
-([`docs/audits/2026-06-12-ddr-feasibility.md`](docs/audits/2026-06-12-ddr-feasibility.md)).
-The fabric owns the descrambler, the streaming controller and the PCM ring; the
-ARM owns the decoder.
-
-Two audio defects were found and fixed on 2026-08-02, both firmware-side:
-
-- **Music never stopped.** The service compared a full 16-bit config epoch against
-  a field it filled from an 8-bit echo register, so past epoch 255 the two could
-  never match, the config re-applied on every poll, and the game's stop was
-  overwritten milliseconds later. Measured: 229/229 diverged heartbeats satisfied
-  `adopted == fabric % 256`, divergence starting at the first heartbeat past 255.
-- **~1.5 s of the previous song replayed at each song change.** Two causes: the
-  ring's write pointer was masked to 15 bits while the fabric compares all 16
-  including the wrap bit, and nothing discarded already-decoded PCM when a new
-  window armed. Measured after the fix: 26 flushes across attract, 1.454–1.476 s
-  discarded each, 0/747 epoch divergence, verified out to epoch 1412.
-
-**Known limitation:** the Solo cabinet's song-wheel buttons (*Select L* / *Select
-R* — a different register from the dance panels) are not yet wired, so menus
-advance with START only. The fix is written and simulated but is deliberately not
-in a shipped bitstream: the design sits at **97% ALM and 100% DSP**, and adding it
-pushed an already-marginal MiSTer scaler path to −0.11 ns. It lands once resource
-recovery buys headroom
-([`docs/audits/2026-06-12-resource-recovery-scope.md`](docs/audits/2026-06-12-resource-recovery-scope.md)).
-
-**Previous milestone (2026-06-12): two games boot and run on real hardware.**
-Game #1 **hyperbbc** (flash-only) boots, runs, and has audio. Game #2
-**hypbbc2p** (*Hyper Bishi Bashi Champ 2P*) — the first **CD-install** title —
-now **boots and runs on real hardware** (de10): the authentic `gx908ja.u1`
-security cassette clears the on-screen `-11N` BIOS signature wall, the CD/ATAPI
-installer copies the disc to onboard flash (the **first hardware exercise of the
-CD path**, previously sim-only), the flash programs, the in-game ROM check passes,
-and the attract/demo loop runs. So the **security-cassette + CD-install path is
-validated on hardware**. Note: hypbbc2p requires the real `gx908ja.u1` dump —
-the BIOS reads a boot-time cassette **signature** (cassette block 1) that is
-authentic-dump data, not synthesizable from game plaintext, so the real dump is a
-required user-supplied artifact (treat it like a BIOS). The MAME-`BAD_DUMP`
-`gx908ja.u1` (crc 8900eaff) is functionally complete and works.
-
-The 573-specific hardware is **implemented and unit-tested**, the **PlayStation
-core is integrated over EXP1**, the **Konami BIOS executes in full-system
-simulation**, and — as of 2026-06-02 — **the core boots that BIOS and displays it
-on real MiSTer hardware**: a built `.rbf` brings up the gchgchmp 573 BIOS; the color
-bars (initially a CPU i-cache crash, fixed via `psx_patches/` 0004/0005) are now
-passed and the BIOS reaches the GX700 power-on self-test (parked at CDR), with a
-locked component signal on a CRT (Cyclone V, DE10-Nano-class; verified on a
-SuperStation One). There's plenty
-left — inputs, CD/security/flash, full game compatibility — but it is a real,
-booting core now, not glue around a stub.
-
-**Where it is right now (updated 2026-06-01):**
-
-- **Phases 1 & 2 complete** (merged via reviewed PRs). The MiSTer PSX core
-  (`psx/`, vendored as a pinned submodule) is wired to this fabric over the
-  PlayStation **EXP1** bus, widened to a full 16-bit master with IRQ10. Those core
-  edits live as isolated patches in `psx_patches/`, re-applied by
-  `tools/apply_psx_patches.sh` — the submodule pin never moves.
-- A **full-system simulation harness** (`sim/system573/`) boots the **Konami
-  BIOS** on the integrated core under [**NVC**](https://www.nickg.me.uk/nvc/) (the
-  PSX core is VHDL-2008, which Verilator cannot consume — see
-  [`docs/PHASE1_PSX.md`](docs/PHASE1_PSX.md)). Verified: the CPU runs from the
-  reset vector through the 4 MB RAM test, BSS clear, **main init (`0x1FC05504`)**
-  and **GPU init** (the GPUSTAT poll resolves), kicking the 573 watchdog over EXP1
-  throughout. `tools/check_boot.py` gates these milestones.
-- **Phase 3 — BIOS self-tests on hardware:** the color bars turned out to be a CPU
-  i-cache *crash* (wrong instruction word on the cached KSEG0 BIOS mirror), now fixed
-  by `psx_patches/` 0004 (i-cache redirect) + 0005 (run BIOS fetches uncached). With
-  the 18E (H8/3644) I/O-MCU self-test answered (`rtl/s573_io.v`, PR #16), the BIOS boots
-  past the color bars to the GX700 power-on self-test on real hardware. The self-test
-  is a sequential gate, now parked at CDR (CD-ROM), the next check. Sim speed was the
-  Phase-3 frontier earlier but is no longer the blocker.
-- **Phase 4 (hardware) — boots on real hardware:** `rtl/emu.sv` is the real MiSTer
-  top — a clone of the proven `psx/PSX.sv` with the 573 EXP1 deltas — and the design
-  builds a `.rbf` (Quartus Prime Lite 17.0.x on x86-64 Linux; the `raetro/quartus:17.0`
-  Docker image works — Quartus 17.0 is required for this Cyclone V part) that **boots
-  the Konami BIOS past the color bars (an i-cache crash now fixed) to the GX700
-  power-on self-test, parked at the CDR check**. Getting
-  there fixed the Quartus-hostile RTL (`synthesis translate_off`
-  guards, M10K NVRAM, constant-folded flash) **and** two build-config defects found
-  by an adversarial review — a mis-pinned bitstream (no pin-location files →
-  `sys_pins.tcl`) and unmet timing (unsourced `psx/PSX.sdc`). clk_1x/clk_vid now
-  meet; clk_2x is ~3 ns short at the worst corner (a polish item). See
-  [`docs/PHASE4_HARDWARE.md`](docs/PHASE4_HARDWARE.md).
-
-A complete System 573 core has to sit on top of a full PlayStation 1 (the kind of
-effort that took the MiSTer PSX core years); this repo implements and
-**unit-tests** the 573-specific glue around that PS1 and integrates a mature PS1
-core underneath it.
-
-| Module                         | File                  | State                  |
-|--------------------------------|-----------------------|------------------------|
-| DS2401 1-Wire serial number    | `rtl/ds2401.v`        | ✅ implemented + tested |
-| ADC0834 serial ADC             | `rtl/adc0834.v`       | ✅ implemented + tested |
-| ADC0838 8-channel serial ADC   | `rtl/adc0838.v`       | ✅ implemented + tested |
-| M48T58 RTC + NVRAM             | `rtl/m48t58.v`        | ✅ implemented + tested |
-| Watchdog timer                 | `rtl/watchdog.v`      | ✅ implemented + tested |
-| Konami ASIC I/O register block | `rtl/s573_io.v`       | ✅ implemented + tested |
-| EXP1 address decoder           | `rtl/s573_bus.v`      | ✅ implemented + tested |
-| X76F100 security EEPROM        | `rtl/x76f100.v`       | ✅ implemented + tested |
-| X76F041 security EEPROM        | `rtl/x76f041.v`       | ✅ implemented + tested |
-| CRC-16/CCITT engine (ZS01)     | `rtl/crc16.v`         | ✅ implemented + tested |
-| ZS01 (NS2K001) security PIC    | `rtl/zs01.v`          | ✅ implemented + tested |
-| Digital I/O board registers    | `rtl/k573dio.v`       | ✅ lamps/RAM/keys/DS2401 |
-| MP3 audio descrambler          | `rtl/k573_mp3dec.v`   | ✅ implemented + tested |
-| MP3 streaming controller       | `rtl/k573_mp3stream.v`| ✅ implemented + tested |
-| ATAPI task-file + PACKET + READ | `rtl/atapi.v`        | ✅ subset impl + tested |
-| Bank-switched flash (NOR-backed) | `rtl/s573_flash.v`  | ✅ banking impl + tested |
-| NOR flash command engine       | `rtl/flash_nor.v`     | ✅ implemented + tested |
-| Security-cartridge bus glue    | `rtl/s573_seccart.v`  | ✅ implemented + tested |
-| PS1 CPU/GPU/SPU subsystem      | `psx/` submodule      | ✅ integrated in sim (EXP1) |
-| MiSTer top level               | `rtl/emu.sv`          | ✅ PSX.sv clone + 573 deltas; **boots BIOS on real hardware** |
-| MP3 PCM ring (fabric reader)   | `rtl/s573_pcm_ring.v` | ✅ implemented + tested |
-| MP3 PCM drain + gain           | `rtl/s573_mp3_pcm.v`  | ✅ implemented + tested |
-| MAS3507D I²C + gain matrix     | `rtl/mas3507d_i2c.v`  | ✅ implemented + tested |
-| SPU + MP3 saturating mixer     | `rtl/s573_audio_mix.v`| ✅ implemented + tested |
-| MP3 decode (HPS-side service)  | Main fork `support/s573/` | ✅ **plays on real hardware** |
-| DDR Solo song-wheel inputs     | `rtl/s573_io.v`       | 🏗️ written + simulated, not in a shipped bitstream (no timing headroom) |
-
-✅ = real RTL with a passing testbench (or, for `psx/`, executing the BIOS in the
-full-system NVC sim). 🏗️ = real RTL that synthesizes but isn't hardware-verified
-yet. 📋 = docs only.
-
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the phases and
-[`docs/EXECUTION_PLAN.md`](docs/EXECUTION_PLAN.md) for the detailed plan from here
-to full game compatibility (PSX integration, hardware bring-up on MiSTer, and the
-ordered file/dump manifest in [`dumps/README.md`](dumps/README.md)).
-
-## Building / testing
-
-The 573-specific RTL is plain Verilog-2005 and is verified with
-[Icarus Verilog](https://steveicarus.github.io/iverilog/):
-
-```sh
-cd sim
-make            # run every testbench, report PASS/FAIL
-make ds2401     # run a single module's testbench
-```
-
-On Ubuntu, `iverilog` comes from `apt-get install -y iverilog`. A Claude Code
-`SessionStart` hook (`.claude/hooks/session-start.sh`, wired up in
-`.claude/settings.json`) installs the toolchain and runs the suite automatically
-at the start of each web session.
-
-### Full-system boot simulation (NVC)
-
-The PlayStation core is VHDL-2008 (Verilator can't consume it), so the
-full-system boot runs under [NVC](https://www.nickg.me.uk/nvc/):
-
-```sh
-brew install nvc                          # one-time
-sim/system573/run.sh [STOP_TIME] [RAM8MB] # e.g. sim/system573/run.sh 5ms 1
-REUSE=1 sim/system573/run.sh 20ms         # re-run a built design at a new stop-time
-```
-
-It applies `psx_patches/`, builds the core under NVC, loads the Konami
-game-in-BIOS image, runs, and writes traces + a framebuffer dump to the
-git-ignored `sim/system573/build/`. Convert the framebuffer to PNG with
-`tools/gra2png.py`, and check how far the boot got with:
-
-```sh
-tools/check_boot.py sim/system573/build   # report which boot milestones were reached
-```
-
-See [`sim/system573/README.md`](sim/system573/README.md) for the harness details
-and the current furthest-verified point.
-
-FPGA synthesis targets the standard MiSTer framework: the `sys/` directory is
-where the [MiSTer-devel `Template_MiSTer`](https://github.com/MiSTer-devel/Template_MiSTer)
-`sys` submodule belongs, and `rtl/emu.sv` is the `emu` top level it instantiates.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the patch workflow;
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) shows how the pieces fit.
 
 ## License
 
-RTL in this repository is released under the **GNU GPL v2** to match the MiSTer
-framework it is intended to plug into. Hardware register details are transcribed
-from the community [psx-spx](https://psx-spx.consoledev.net/konamisystem573/)
-documentation and the MAME `ksys573` driver.
+GPL v2 for the core (as the MiSTer framework and the PSX core); `MiSTer_System573` is
+Main_MiSTer, GPL v3. Register details come from the psx-spx documentation and the MAME
+`ksys573` driver; credit to their authors, to Fabricore, and to the PSX_MiSTer
+contributors.

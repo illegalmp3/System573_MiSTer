@@ -1,3 +1,9 @@
+> **Archived 2026-11-02.** A June 2026 ledger of the platform constants MAME encodes,
+> written by the upstream author against a process document and build host that are
+> not part of this repository. Its rows are history and are not kept current. The
+> current reference is [`../EMULATION.md`](../EMULATION.md), which ranks hardware
+> documentation (psx-spx, schematics, data sheets) above MAME.
+
 # PLATFORM.md — Konami System 573 platform constants (the living cited table)
 
 **Process:** `~/Dev/tools/docs/PLATFORM_CONSTANTS_AUDIT.md` (Gate 0: every platform

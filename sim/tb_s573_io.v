@@ -117,14 +117,14 @@ module tb_s573_io;
             errors = errors + 1;
         end
 
-        // 0x04 status -- MAME IN1 (konami/ksys573.cpp) low half: [14] = cassette
-        // DS2401 (read_line_ds2401 = sec_in[0]), [12] = "Network?" = Off(1),
-        // [9:8] = cassette ADC0834 SARS/DO (absent on a digital cart -> 0),
-        // [7:4] = H8/18E response nibble 0xC, [3:0] = DIP. (bcaf9a4 remapped the
-        // RTL to this layout; this check previously expected the pre-fix
-        // {sec_in, 0xC, dip} placement.)
+        // 0x04 status: [15:8] = the cassette's I0-I7 pins as s573_seccart drives
+        // them (psx-spx builtin-io.md: bits 8-15 = I0-I7; I6 = DS2401, I4 = 1 is
+        // MAME's "Network?" = Off -- set by s573_seccart, passed through here),
+        // [7:4] = JVS MCU error/status 0xC (idle), [3:0] = DIP. (2026-11-02: the
+        // I-bus is now passed through whole; before, s573_io built the byte from
+        // MAME's IN1 names around sec_in[0].)
         rd_reg(4'h4, r);
-        chk(r, {1'b0, sec_in[0], 1'b0, 1'b1, 2'b00, 2'b00, 4'b1100, dip_sw}, "status");
+        chk(r, {sec_in, 4'b1100, dip_sw}, "status");
         // explicit 18E gate: bits[7:4] must read the H8 response nibble 0xC (h8a01.bin)
         chk({12'h0, r[7:4]}, 16'h000C, "h8_18E_nibble");
 

@@ -1,14 +1,17 @@
 // -----------------------------------------------------------------------------
 // x76f100.v - Xicor X76F100 secure serial flash EEPROM (security cartridge)
 //
-// System 573 security cartridges carry a Xicor X76F100 (112-byte secured serial
-// flash) alongside the DS2401 serial number. The BIOS bit-bangs an I2C-like
-// protocol through the Konami ASIC I/O control/status register (CS, RST, SCL and
-// a bidirectional SDA) to authenticate with an 8-byte password and then read or
-// write the 112 data bytes.
+// Some System 573 security cassettes, as MAME declares them, carry a Xicor
+// X76F100 (112-byte secured serial EEPROM; psx-spx security-cartridges.md says
+// Konami "seems to have never manufactured X76F100 cartridges" but that games
+// accept it in place of the X76F041). The host bit-bangs it through the
+// cartridge latch at 0x1f6a0000 (D0 SDA drive, D1 SCL, D2 /CS, D3 RST; SDA read
+// back on IO0, 0x1f400006 bit 2) to authenticate with an 8-byte password and then
+// read or write the 112 data bytes.
 //
-// This model reproduces the protocol exactly as documented by MAME's
-// machine/x76f100.cpp (the authoritative reverse-engineered reference):
+// The protocol is MAME's machine/x76f100.cpp (no X76F100 data sheet is in the
+// project's sources; psx-spx confirms the response-to-reset ID 19 00 aa 55, LSB
+// first, and the 112-byte capacity):
 //
 //   * RST 0->1 (while CS low) starts a 4-byte "response to reset" stream
 //     (0x19,0x00,0xAA,0x55) clocked out LSB-first on each FALLING SCL edge,
@@ -27,8 +30,8 @@
 //     (or replaces the read/write password for commands 0xFE / 0xFC).
 //   * Eight consecutive failed password attempts zero the passwords and data.
 //
-// SDA is modeled with two unidirectional signals, exactly as the 573 ASIC wires
-// it: sda_i is the level the host drives, sda_o is the level the device drives
+// SDA is modelled with two unidirectional signals (the 74LS125 drive and the
+// device's open-drain pull, see s573_seccart.v): sda_i is the level the host drives, sda_o is the level the device drives
 // (1 = released/high, 0 = pulled low). Passwords and data are NVRAM and persist
 // across the (volatile) system reset; only the bit-bang state machine is reset.
 //
