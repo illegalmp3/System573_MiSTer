@@ -1,8 +1,12 @@
 # DDR Solo 2000 Start, Dreams Come True's installer, savestates out (2026-11-06)
 
 **Branch:** `source-review`. **State:** the dsfdct cassette change is confirmed on the
-SuperStation One (installer step 1); the core and firmware changes below are not yet
-built.
+SuperStation One (installer step 1). The core and firmware changes below are built from
+`db97ddd` (job 657, seed 7: 35,993 ALMs, 4,112 / 4,191 LABs = 98.1 %, 97 DSP; worst
+setup slack +0.130 ns, hold +0.078 ns, all corners non-negative; seeds 3 and 5 missed
+pll_hdmi setup by 0.044 / 0.188 ns) and deployed to the card on 2026-11-07
+(`.rbf` md5 491def62..., `MiSTer_System573` md5 232e282a..., both read back; previous
+files kept as `*.prev-20261107a`). Not yet tested.
 
 ## DDR Solo 2000: no Start with the card reader fitted
 
