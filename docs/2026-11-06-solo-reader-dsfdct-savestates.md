@@ -57,6 +57,36 @@ replacing the machine record with the core's; no other checksum covers it.
 "conversion information authenticated" and asks for the GC910 JC cassette. Still to
 see: the rest of the install and gameplay.
 
+**Second try (2026-11-07, session 19, one launch, 12 OSD resets, from a blank
+`.sav`).** Photos of every installer screen. The installer is a state machine across
+restarts and tells the operator which cassette to fit at each restart: the GE887 JA /
+GN887 JA cassette (3rd Mix label; core: *573 Cassette = Install*) or the GC910 JC
+cassette (Dreams Come True label; *Game*). Screens seen: conversion-information
+authentication with GE887 ("authenticated -- write 0000-0002 on the GC910 JC
+cassette, fit GC910 JC and restart"), "press Test to start installing GC910 JC",
+"is GC910 JC fitted?", "convert from 3rd MIX?", the flash write, "transfer complete
+-- fit GE887 and restart", and, with GE887 fitted after the conversion, "start the
+uninstall of GC910 JC?" -- which was answered yes once and undid the install. The run
+ended at "transfer complete -- fit GE887" with *Cassette = Game* still selected, so
+the authentication screen that followed failed ("fit the GE887 cassette with
+authentication number 0000-0002"). Every failure seen matches the wrong cassette for
+the step; none points at the core. The `.sav` from this run is kept as
+`_replaced-saves/dsfdct.sav.half-installed-20261107` and a blank one put back.
+
+Sources for reading these screens: psx-spx security-cartridges.md "XID" -- the
+Digital I/O board's DS2401 serial is written to the cartridge during installation, the
+`XXXX-YYYY` number is that serial, and blank labels are for the operator to write it
+on; bios.md "Boot sequence" -- *573 Boot Device* is DIP switch 4: "Flash ROM" boots
+the flash when it holds a valid executable and falls back to the disc otherwise, so
+"Flash ROM" serves the whole procedure, while "CD-ROM" always runs the disc installer.
+
+**Open:** X76F100 writes are kept in the core only for the launch (X76 cassettes reload
+from their dumps; only ZS01 state is in the `.sav`). If dsfdct writes the board's
+serial (XID) into GC910 JC during the install and checks it at every boot, a relaunch
+after the install will fail; the dumped `gc910jc.u1` has XID = 0 (as do ddrs2k's and
+ddr3m*'s, which play across launches). To test: finish the install in one launch, then
+relaunch from the menu.
+
 **Fix in the tools:** `tools/s573_stage.py remarry()` (and `tools/make_cas_pack.py`)
 re-tie any install cassette that carries MAME's board ID.
 
