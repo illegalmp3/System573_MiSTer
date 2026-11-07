@@ -141,9 +141,16 @@ CARD_CODE = {("2", 32): 1, ("1", 32): 2, ("1", 16): 3}
 
 def cfg_trailer(t):
     """The 8 bytes appended to a title's index-5 file (.u6 or .cas):
-    "S573" 'C' profile card xor. Empty when there is nothing to say."""
+    "S573" 'C' profile card xor (card bit 7 = memory card reader fitted).
+    Empty when there is nothing to say."""
     prof = INPUT_PROFILE.get(t["inputs"])
     card = CARD_CODE.get((t["slot"], t["card_mb"]), 0)
+    if t.get("mcr"):
+        # bit 7: the machine has KONAMI_573_MEMORY_CARD_READER, so OSD "573 Card
+        # Reader" = Auto fits it (rtl/emu.sv wio_osd_en). Cores before 2026-11-06
+        # read only == 2 / == 3 / != 0 of this byte, and every reader title has the
+        # slot-2 card (code 1), so they see 0x81 exactly as they saw 0x01.
+        card |= 0x80
     if prof is None and card == 0:
         return b""
     body = b"S573C" + bytes([prof or 0, card])

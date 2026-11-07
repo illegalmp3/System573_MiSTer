@@ -18,14 +18,17 @@ against the in-repo stager and the files proven on hardware.
   6. an SD-root OUT goes to OUT/games/System573; --dry-run writes nothing
   7. the card reader: READER_SETS is exactly the sets whose MAME machine adds
      KONAMI_573_MEMORY_CARD_READER (ksys573.cpp); 885a01.bin is staged with them
-     (MAME's SHA1) and not for a title without the reader
+     (MAME's SHA1) and not for a title without the reader; the trailer's card byte
+     bit 7 is set for exactly those sets; remarry() re-ties MAME's board ID
 """
 import filecmp, hashlib, importlib.util, os, re, shutil, subprocess, sys, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DUMPS = os.path.join(ROOT, "dumps", "mame573")
 TOOL = os.path.join(ROOT, "tools", "s573_stage.py")
-SDSTAGE = os.path.join(ROOT, "local", "sd-stage", "games", "System573")
+# local/ is per checkout; a git worktree under local/wt/ has none, so it can be pointed
+# at the main checkout's copy.
+SDSTAGE = os.environ.get("S573_SDSTAGE") or os.path.join(ROOT, "local", "sd-stage", "games", "System573")
 
 spec = importlib.util.spec_from_file_location("s573_stage", TOOL)
 M = importlib.util.module_from_spec(spec)
@@ -217,6 +220,16 @@ def main():
     want = {t["set"] for t in M.TABLE["titles"] if machine.get(t["set"]) in cfgs}
     check(want == set(M.READER_SETS), "READER_SETS == the sets with KONAMI_573_MEMORY_CARD_READER"
           + ("" if want == set(M.READER_SETS) else f": driver {sorted(want)}"))
+    # the per-title trailer carries the same fact (card byte bit 7, rtl/emu.sv wio_osd_en)
+    trl = {t["set"]: bytes.fromhex(r["trailer"])
+           for t in M.TABLE["titles"] for r in t["files"].values() if r.get("trailer")}
+    bad = [k for k, b in trl.items() if bool(b[6] & 0x80) != (k in want)]
+    check(trl and not bad, "trailer card bit 7 set exactly for the reader sets"
+          + (f": {sorted(bad)}" if bad else ""))
+    # a cassette MAME ships installed on its own board is re-tied to the core's board
+    check(M.remarry(b"x" + M.MAME_DIO_ID + b"y") == b"x" + M.CORE_DIO_ID + b"y"
+          and M.ds2401_crc(M.CORE_DIO_ID[:7]) == M.CORE_DIO_ID[7],
+          "remarry(): MAME's Digital I/O ID -> the core's (CRC-8 valid)")
 
     if len(sys.argv) > 2:          # md5 manifest of the staged files, for comparing runs
         with open(sys.argv[2], "w") as fh:

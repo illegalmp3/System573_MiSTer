@@ -30,7 +30,9 @@ games on a USB SSD). "Credit" = a full credit of songs played with music.
 | DDR Extreme | ddrextrm | credit | 60 fps arrows, full-speed background video |
 
 Staged on the drive, not yet reported: ddr3mk, ddr3mka, ddr3mp, ddr4mps, ddr4ms,
-ddr4msj, dsem2, dsfdct.
+ddr4msj, dsem2. dsfdct: the installer accepts the (re-tied) 3rd Mix cassette and
+asks for its own; the rest of the install is not yet reported
+(docs/2026-11-06-solo-reader-dsfdct-savestates.md).
 
 Opening the MiSTer OSD pauses the game AND its MP3 music, and play resumes in
 sync (confirmed on the SuperStation One 2026-10-17, and in the 2026-10-18 log: two mid-song
@@ -50,7 +52,9 @@ need, is in since 2026-10-20: OSD "573 PCMCIA Card").
 DDR's memory card reader (the White I/O board on the JVS port) is in, for card files
 and for real cards on SNAC: the board's CPU runs its own boot ROM and the program the
 game uploads, emulated on the HPS; the 573's JVS MCU and the SNAC byte exchange are in
-the fabric. OSD "573 Card Reader" (Auto = DDR profiles), "573 P1/P2 Card" (File /
+the fabric. OSD "573 Card Reader" (Auto = the titles whose MAME machine has the reader, from the
+per-title trailer; it was all DDR profiles until 2026-11-06, which stopped DDR Solo 2000's
+Start button), "573 P1/P2 Card" (File /
 SNAC), "573 P1/P2 Card File" (S2/S3). Needs `885a01.bin` (MAME ddr3m*/ddr4m* zips)
 in `games/System573`; `s573_stage.py` stages it with the reader titles. SuperStation One 2026-10-28: SNAC cards and a home-version .sav both
 read and save in ddrextrm. Each player's "Card In/Out" button (map it in Define

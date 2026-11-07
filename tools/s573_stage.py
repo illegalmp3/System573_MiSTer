@@ -863,7 +863,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr3ma/ge887aa.u1",
      "install_u6": "ddr3ma/ge887aa.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr3ma.chd": {
      "disc": "887aaa02",
@@ -901,7 +901,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr3mj/ge887ja.u1",
      "install_u6": "ddr3mj/ge887ja.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr3mj.chd": {
      "disc": "887jaa02",
@@ -939,7 +939,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr3mk/ge887kb.u1",
      "install_u6": "ddr3mk/ge887kb.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr3mk.chd": {
      "disc": "887kba02",
@@ -977,7 +977,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr3mka/ge887ka.u1",
      "install_u6": "ddr3mka/ge887ka.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr3mka.chd": {
      "disc": "887kaa02",
@@ -1015,7 +1015,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr3mp/gea22ja.u1",
      "install_u6": "ddr3mp/gea22ja.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr3mp.chd": {
      "disc": "a22jaa02",
@@ -1054,7 +1054,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr4m/gea33aa.u1",
      "install_u6": "ddr4m/gea33aa.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr4m.chd": {
      "disc": "a33aaa02",
@@ -1093,7 +1093,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr4mj/a33jaa.u1",
      "install_u6": "ddr4mj/a33jaa.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr4mj.chd": {
      "disc": "a33jaa02",
@@ -1132,7 +1132,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr4mp/gea34ja.u1",
      "install_u6": "ddr4mp/gea34ja.u6",
      "make": "cas",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     },
     "ddr4mp.chd": {
      "disc": "a34jaa02",
@@ -1171,7 +1171,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr4mps/gea34jb.u1",
      "install_u6": "ddr4mps/gea34jb.u6",
      "make": "cas",
-     "trailer": "5335373343010121"
+     "trailer": "53353733430181a1"
     },
     "ddr4mps.chd": {
      "disc": "a34jba02",
@@ -1210,7 +1210,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr4ms/gea33ab.u1",
      "install_u6": "ddr4ms/gea33ab.u6",
      "make": "cas",
-     "trailer": "5335373343010121"
+     "trailer": "53353733430181a1"
     },
     "ddr4ms.chd": {
      "disc": "a33aba02",
@@ -1249,7 +1249,7 @@ TABLE = json.loads(r"""
      "install_u1": "ddr4msj/a33jba.u1",
      "install_u6": "ddr4msj/a33jba.u6",
      "make": "cas",
-     "trailer": "5335373343010121"
+     "trailer": "53353733430181a1"
     },
     "ddr4msj.chd": {
      "disc": "a33jba02",
@@ -1303,7 +1303,7 @@ TABLE = json.loads(r"""
     "ddr5m.u6": {
      "make": "rom",
      "rom": "ddr5m/gca27ja.u6",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     }
    },
    "launchers": [
@@ -1339,7 +1339,7 @@ TABLE = json.loads(r"""
     "ddrextrm.u6": {
      "make": "rom",
      "rom": "ddrextrm/gcc36ja.u6",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     }
    },
    "launchers": [
@@ -1375,7 +1375,7 @@ TABLE = json.loads(r"""
     "ddrmax.u6": {
      "make": "rom",
      "rom": "ddrmax/gcb19ja.u6",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     }
    },
    "launchers": [
@@ -1411,7 +1411,7 @@ TABLE = json.loads(r"""
     "ddrmax2.u6": {
      "make": "rom",
      "rom": "ddrmax2/gcb20ja.u6",
-     "trailer": "5335373343000120"
+     "trailer": "53353733430081a0"
     }
    },
    "launchers": [
@@ -2776,12 +2776,47 @@ def make_zs01(src, r):
     return u1 + bytes(ZS01_PAD - ZS01_RAW)
 
 
+# A cassette that has been through an install holds the ID of the machine it was
+# installed on: the Digital I/O board's DS2401, as an 8-byte record in the order the
+# chip sends it (family 0x01, serial LSB first, CRC-8). MAME's own board ID is its
+# k573dio "digital-id.bin" (CRC32 2b977f4d: 3d bc 9a 78 56 34 12 01, i.e. serial
+# 0x123456789abc), and MAME's dsfdct set ships a 3rd Mix cassette already installed
+# on THAT board. The core's board is serial 0x000000000002 (rtl/system573_top.v:
+# k573dio DS_SERIAL = CART_SERIAL + 1), so dsfdct's installer rejected the cassette
+# ("insert the cassette with authentication number 0000-0002"). The record is
+# self-checking (its own CRC-8) and no other checksum covers it, so the cassette is
+# re-tied to the core's board: confirmed on the SuperStation One 2026-11-06, the
+# installer then reported the conversion information authenticated.
+MAME_DIO_ID = bytes.fromhex("01123456789abc3d")
+CORE_DIO_ID = bytes.fromhex("0102000000000053")
+
+
+def ds2401_crc(b):
+    c = 0
+    for x in b:
+        for _ in range(8):
+            mix = (c ^ x) & 1
+            c >>= 1
+            if mix:
+                c ^= 0x8C
+            x >>= 1
+    return c
+
+
+assert ds2401_crc(MAME_DIO_ID[:7]) == MAME_DIO_ID[7] and ds2401_crc(CORE_DIO_ID[:7]) == CORE_DIO_ID[7]
+
+
+def remarry(eeprom):
+    """An X76 cassette image installed on MAME's board, re-tied to the core's."""
+    return eeprom.replace(MAME_DIO_ID, CORE_DIO_ID)
+
+
 def make_cas(src, r):
-    """Two-cassette titles: [game .u6 8][install .u6 8][install .u1 as dumped]."""
+    """Two-cassette titles: [game .u6 8][install .u6 8][install .u1, re-tied (remarry)]."""
     g6, i6, i1 = src.rom(r["game_u6"]), src.rom(r["install_u6"]), src.rom(r["install_u1"])
     if len(g6) != 8 or len(i6) != 8 or len(i1) != CHIP_LEN[r["install_chip"]]:
         raise Fail("cassette dump sizes do not match the driver")
-    return g6 + i6 + i1
+    return g6 + i6 + remarry(i1)
 
 
 def make_flash(src, r):

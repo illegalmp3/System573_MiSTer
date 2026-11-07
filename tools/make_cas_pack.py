@@ -45,7 +45,10 @@ def build_pack(game_u6: bytes, install_u6: bytes, install_u1: bytes) -> bytes:
     if len(install_u1) not in (X76F041_LEN, X76F100_LEN):
         die(f"install .u1 is {len(install_u1)} B; the driver's install cassettes are "
             f"{X76F041_LEN} B (X76F041) or {X76F100_LEN} B (X76F100)")
-    return game_u6 + install_u6 + install_u1
+    # re-tie an install cassette that MAME's dsfdct set ships already installed on
+    # MAME's Digital I/O board to the core's board (s573_stage.py remarry())
+    mame_id, core_id = bytes.fromhex("01123456789abc3d"), bytes.fromhex("0102000000000053")
+    return game_u6 + install_u6 + install_u1.replace(mame_id, core_id)
 
 
 def describe(pack: bytes) -> str:

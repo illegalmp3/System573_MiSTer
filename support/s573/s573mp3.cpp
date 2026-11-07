@@ -376,7 +376,13 @@ static void log_note_game(void)
             cd_done = 1;
         }
     }
-    if (!sav_done) {
+    /* The save is noted only once the CD is: Main keeps the index-4 path of the
+       PREVIOUS core load until the launcher mounts the new .sav, so at session
+       start it named the last game's save (2026-11-05 logs). Launchers mount the
+       .sav before the CD (docs/2026-09-29-sav-mount-order.md), so by the time the
+       CD is mounted index 4 is this game's. A title with no CD (flash only)
+       gets it after 10 s. */
+    if (!sav_done && (cd_done || now_us() - log_t0_us > 10000000)) {   /* flash-only titles: no CD */
         const char *sv = GetIdx_S(4);
         if (sv && *sv) {
             s573_log("s573mp3: game: save %s\n", sv);

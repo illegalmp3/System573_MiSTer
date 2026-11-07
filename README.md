@@ -53,7 +53,7 @@ list is [`docs/STATUS.md`](docs/STATUS.md).
 | DDR USA | `ddrusa` | credit |
 | Dancing Stage Euro Mix | `dsem` | credit |
 | Dancing Stage featuring Disney's Rave | `dsfdr` | credit |
-| Dancing Stage featuring Dreams Come True | `dsfdct` | does not reach gameplay |
+| Dancing Stage featuring Dreams Come True | `dsfdct` | installer gets past the 3rd Mix cassette check (2026-11-06); gameplay not yet reached |
 | Hyper Bishi Bashi Champ, 2 Player | `hyperbbc`, `hypbbc2p` | boot (no MP3 board) |
 | DDR 3rd Mix Korea / Plus, 4th Mix Solo / Plus Solo, Euro Mix 2 | | staged, not yet reported |
 | DrumMania 2nd-9th Mix, Guitar Freaks 5th Mix | | launchers in [`mgl/`](mgl/) for testing, not in the release |
@@ -114,7 +114,7 @@ back (run the updater), then do step 4.
 | 573 Cassette | two-cassette titles: Auto (follows Boot Device), Game, Install |
 | 573 Controls | Auto (from the staged title), DDR, DDR Solo, DrumMania, Guitar Freaks |
 | 573 PCMCIA Card | Auto, 32 MB in slot 2, 32 MB in slot 1 |
-| 573 Card Reader, P1/P2 Card, P1/P2 Card File | DDR memory card reader: Auto/On/Off; card file or SNAC per player |
+| 573 Card Reader, P1/P2 Card, P1/P2 Card File | DDR memory card reader: Auto (fitted for the titles whose cabinet has one: 3rd Mix through Extreme), On, Off; card file or SNAC per player |
 | 573 MP3 Descramble | Default for every title except DDR Solo Bass Mix, which needs "DDR Solo Bass Mix" (on a board, the game's own FPGA bitstream decides this) |
 | 573 Chart Offset | -16 .. +15 ms: moves the arrows against the music, for display or audio latency outside the FPGA |
 | 573 Music Level | 0 .. +6 dB on the music only; a listening preference, not a hardware setting |

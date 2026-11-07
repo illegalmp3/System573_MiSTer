@@ -321,26 +321,20 @@ wire reset_or = RESET | buttons[1] | status[0] | bios_download | exe_download | 
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
 //  XXXX XXXXXX XXXXXX XXXXX  XX XX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-// ───────────────────────── 573: SAVESTATE MASTER ENABLE ─────────────────────────
-// OFF. This core cannot save or restore state:
-//   * no 573 module (system573_top and everything under it) has SS_wren/SS_rden
-//     savestate hooks -- the 573 half of the machine is simply not captured;
-//   * the MP3 config epoch, descrambler stream position and PCM ring pointers
-//     live in the HPS-side s573mp3 service, not in fabric, so they are outside
-//     any FPGA-side state capture by construction.
-// A restore therefore resumes a half-reconstructed machine and hangs. Gating it
-// here (rather than deleting the upstream savestate_ui/psx savestate logic) keeps
-// the vendored psx/ path pristine and makes re-enabling a one-line change.
-// Re-enabling also requires un-commenting the five OSD entries in CONF_STR.
-// NOTE (deliberate, not an oversight): the CONF_STR core line still declares the
-// savestate DDR region ("PSX;SS3E000000:400000;"). It is left alone because it is
-// Main's allocation hint, and every core-side consumer of it is now gated by
-// SS_ENABLE. Changing it is a Main-facing change that wants a hardware A/B.
-localparam SS_ENABLE = 1'b0;
+// ───────────────────────── 573: NO SAVESTATES ─────────────────────────
+// Removed 2026-11-06 (they had been gated off since 2026-09; Ricky asked for them
+// out): the savestate UI, its "Savestates" button, the OSD entries, the DBG_AUTOSS
+// capture tool and the CONF_STR savestate DDR region. The 573 half of the machine
+// has no savestate hooks and part of it lives on the HPS (MP3 service), so a
+// restore could never rebuild it. What stays is psx/'s `savestates` entity: it is
+// also the PSX core's RESET SEQUENCER (savestates.vhd: a falling reset_in starts its
+// WAITPAUSE/LOAD sequence in resetMode, which resets every module over the SS bus),
+// so it cannot go without rewriting the PSX core's reset. Its save path is already
+// cut by psx_patches/0034 and save_state/load_state = 0 below.
 
 `include "build_id.v"
 parameter CONF_STR = {
-	"PSX;SS3E000000:400000;",
+	"PSX;;",
 	"H7S1,CUECHD,Load CD;",
 	"h7-,Reload core for CD;",
 	// F0 (ioctl index 0 = bios_download) lets a .mgl / standalone-console launch load
@@ -453,8 +447,9 @@ parameter CONF_STR = {
 	// 573 CARD READER (2026-10-26): the White I/O memory card reader of DDR cabinets
 	// (GE885-PWB(A) on the JVS port). Its CPU and the program the game uploads run on
 	// the HPS (MiSTer_System573 support/s573/wio*.c); the fabric half is s573_wio.v.
-	// Auto = fitted for the DDR control profiles (DDR / DDR Solo), as on a real DDR
-	// cabinet; On/Off force it. Off is the core exactly as before: the JVS bits read
+	// Auto = fitted for the titles whose MAME machine has the reader (DDR 3rd Mix ..
+	// Extreme; the staging tool marks them in the per-title trailer, see wio_osd_en);
+	// On/Off force it. Off is the core exactly as before: the JVS bits read
 	// their old constants. Each slot takes a card file (S2/S3: a raw 128 KB .mcd /
 	// .mcr / .sav, browsed from saves/) or a real PS1 card on SNAC (SNAC port 1 = P1,
 	// port 2 = P2). No file mounted = no card in that slot.
@@ -487,19 +482,6 @@ parameter CONF_STR = {
 	// always had. (status[124:123] held the withdrawn "573 Announcer/Crowd" option.)
 	"O[122:120],573 Music Level,0dB,+1dB,+2dB,+3dB,+4dB,+5dB,+6dB;",
 	"-;",
-	// 573 SAVESTATES: REMOVED FROM THE OSD (see SS_ENABLE below). No 573 module has
-	// savestate hooks, and part of the machine state (MP3 cfg epoch, descrambler
-	// position, PCM ring pointers) lives in the HPS-side s573mp3 service, outside
-	// the FPGA entirely -- a restore cannot reconstruct the machine. These five
-	// entries advertised a feature that freezes on load. All are ABSOLUTE status
-	// bits ("O[n]"/"R<h>"), not positional, so removing them shifts nothing else.
-	// To restore: set SS_ENABLE = 1'b1 and un-comment these lines verbatim.
-	//	"O[36],Savestates to SDCard,On,Off;",
-	//	"O[68],Autoincrement Slot,Off,On;",
-	//	"O[38:37],Savestate Slot,1,2,3,4;",
-	//	"RH,Save state (Alt-F1);",
-	//	"RI,Restore state (F1);",
-	//	"-;",
 	// "System Type" (O[40:39]) removed 2026-10-24: 60 Hz only, see isPal.
 	"-;",
 	// PSX controller / memory card options (Pad1, Pad2, SNAC MemCard, DS Mode, Multitap,
@@ -549,11 +531,17 @@ parameter CONF_STR = {
 	// 0x80034f14, ddrextrm GAME.DAT 0x8003c940): the label "SELECT L" is drawn from
 	// input bit 0x20 = JAMMA B2 (0x1f400008 bit 13) and "SELECT R" from 0x40 = JAMMA
 	// B3 (bit 14). Standard-cab Select L therefore IS Button 2 and Select R IS Button 3.
-	// 2026-10-28: position 17 (joy bit 20) "Card In/Out" -- pulls the player's card
-	// file out of the card reader and pushes it back in (s573_wio.v card_btn), which
-	// DDR asks for after saving. Added at the END, so existing .map files keep their
-	// meaning; it has no default (jn names the first eight only).
-	"J1,Button 1/Pad UpLeft,Button 2/Select L,Button 3/Select R,Button 4/Pad UpRight,Coin,Start,Service,Test,L2,R2,L3,R3,Savestates,Fastforward,Pause(Core),Toggle Dualshock,Card In/Out;",
+	// 2026-10-28: "Card In/Out" -- pulls the player's card file out of the card
+	// reader and pushes it back in (s573_wio.v card_btn), which DDR asks for after
+	// saving; it has no default (jn names the first eight only).
+	// 2026-11-06: "Savestates", "Fastforward" and "Toggle Dualshock" REMOVED (no
+	// savestates, fast-forward removed 2026-10-24, the DualShock toggle fed the PSX
+	// pad port that psx_patches/0026 strips). This is the one deliberate exception
+	// to the rule above: "Pause(Core)" moves from position 15 to 13 and "Card In/Out"
+	// from 17 to 14, so a player who had mapped those two maps them again once (the
+	// release notes say so). Internally the core keeps the old joy bit numbers --
+	// joy_unmod/joy2_unmod/joy3/joy4 are rebuilt below from the 18-bit hps_io word.
+	"J1,Button 1/Pad UpLeft,Button 2/Select L,Button 3/Select R,Button 4/Pad UpRight,Coin,Start,Service,Test,L2,R2,L3,R3,Pause(Core),Card In/Out;",
 	"jn,X,A,B,Y,Select,Start,L,R;",
 	"I,",
 	"Load=DPAD Up|Save=Down|Slot=L+R,",
@@ -583,8 +571,8 @@ parameter CONF_STR = {
 	// info code 25 = "Flash saved" (info_req on a SAVE complete); 26 = "Flash save
 	// erased" (info_req on an ERASE complete). Codes are 1-indexed into this "I,"
 	// list: "Load=DPAD..."=1 ... "Saving Memcard"=23, "Unsafe option used!"=24,
-	// so the next two are 25 and 26. (Matches savestate_ui.sv's 1-based ss_info and
-	// the existing psx_info uses: 15/16 pad, 23 memcard, 24 unsafe.)
+	// so the next two are 25 and 26. Entries 1-15 are the removed savestate UI's
+	// messages; they stay so these numbers do not move.
 	"Flash saved,",
 	"Flash save erased;",
 	"V,v",`BUILD_DATE
@@ -632,11 +620,19 @@ wire [15:0] ioctl_din;
 reg         nvram_dirty = 0;   // game wrote the timekeeper -> request an OSD save
 
 wire [19:0] joy;
-wire [20:0] joy_unmod;   // [20] = "Card In/Out" (J1 position 17)
+wire [20:0] joy_unmod;   // [20] = "Card In/Out", [18] = "Pause(Core)" (old bit numbers)
 wire [19:0] joy2;
 wire [20:0] joy2_unmod;
 wire [19:0] joy3;
 wire [19:0] joy4;
+// hps_io delivers the J1 list as it now stands: bits 0-15 as before, 16 =
+// Pause(Core), 17 = Card In/Out. Rebuild the old layout (16 Savestates, 17
+// Fastforward, 19 Toggle Dualshock now read 0) so nothing downstream renumbers.
+wire [31:0] joy_hps0, joy_hps1, joy_hps2, joy_hps3;
+assign joy_unmod  = {joy_hps0[17], 1'b0, joy_hps0[16], 2'b00, joy_hps0[15:0]};
+assign joy2_unmod = {joy_hps1[17], 1'b0, joy_hps1[16], 2'b00, joy_hps1[15:0]};
+assign joy3       = {1'b0, joy_hps2[16], 2'b00, joy_hps2[15:0]};
+assign joy4       = {1'b0, joy_hps3[16], 2'b00, joy_hps3[15:0]};
 
 wire [10:0] ps2_key;
 
@@ -667,7 +663,6 @@ wire filter_on = 1'b0;   // S573: Texture Filter option removed (HDMI area recov
 
 assign HDMI_BLACKOUT = ~status[61];
 
-wire [127:0] status_in = {status[127:39],ss_slot,status[36:19], 2'b00, status[16:0]};
 
 wire bk_pending;
 wire DIRECT_VIDEO;
@@ -681,15 +676,15 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5), .BLKSZ(3)) hps_io
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 
-	.joystick_0(joy_unmod),
-	.joystick_1(joy2_unmod),
-	.joystick_2(joy3),
-	.joystick_3(joy4),
+	.joystick_0(joy_hps0),
+	.joystick_1(joy_hps1),
+	.joystick_2(joy_hps2),
+	.joystick_3(joy_hps3),
 	.ps2_key(ps2_key),
 
 	.status(status),
-	.status_in(status_in),
-	.status_set(statusUpdate),
+	.status_in(status),
+	.status_set(1'b0),       // only the removed savestate UI ever wrote status back
 	.status_menumask(status_menumask),
 	.info_req(psx_info_req),
 	.info(psx_info),
@@ -747,10 +742,6 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5), .BLKSZ(3)) hps_io
    .direct_video(DIRECT_VIDEO)
 );
 
-// joy_unmod[16] is the "Savestates" modifier button (J1 position 13). Upstream
-// blanks ALL game inputs while it is held, so the d-pad can pick a slot. With
-// savestates disabled that is a pure footgun -- holding a mapped button would
-// silently drop every JAMMA input mid-song -- so the blanking follows SS_ENABLE.
 // Minimum press width on the game inputs (bits 11:0 = the JAMMA panel/button/
 // coin/service/test lines; 19:12 are core controls and pass straight through).
 // Main's loop stalls 25-83 ms in most gameplay seconds (2026-09-27 log), which can
@@ -762,7 +753,7 @@ wire [11:0] joy_held, joy2_held;
 s573_press_hold #(.W(12), .HOLD_MS(32)) u_hold_p1 (.clk(clk_1x), .rst(reset), .in(joy_unmod[11:0]),  .out(joy_held));
 s573_press_hold #(.W(12), .HOLD_MS(32)) u_hold_p2 (.clk(clk_1x), .rst(reset), .in(joy2_unmod[11:0]), .out(joy2_held));
 assign joy2 = {joy2_unmod[19:12], joy2_held};
-assign joy = (SS_ENABLE & joy_unmod[16]) ? 20'b0 : {joy_unmod[19:12], joy_held};
+assign joy = {joy_unmod[19:12], joy_held};
 
 assign sd_rd[0] = 0;
 assign sd_wr[0] = 0;
@@ -895,20 +886,6 @@ always @(posedge clk_1x) begin
 	nvram_upload     <= ioctl_upload   & (ioctl_index == 3);   // 573 M48T58 NVRAM save-back (8 KB)
 end
 
-reg cart_loaded = 0;
-always @(posedge clk_1x) begin
-	// allow_ss (savestate enable) is gated on this AND on SS_ENABLE, which is now
-	// OFF -- so this latch is currently inert. Kept intact (not deleted) because it
-	// is the correct condition if savestates are ever finished. The upstream PSX
-	// cases are an .EXE upload (exe_download) or a mounted CD image (img_mounted[1]).
-	// A 573 FLASH-only game (e.g. hyperbbc) loads via neither -> cart_loaded stayed
-	// 0. flash_download (ioctl_index==2) is the onboard-flash game-load signal; it
-	// was latched on too, which is what made the OSD offer savestates for flash
-	// games (originally to serve the CLUT garble capture, since resolved).
-	if (exe_download || img_mounted[1] || flash_download) begin
-		cart_loaded <= 1;
-	end
-end
 
 localparam EXE_START = 16777216;
 localparam BIOS_START = 8388608;
@@ -1131,73 +1108,9 @@ always @(posedge clk_1x) begin
 end
 
 ///////////////////////////  SAVESTATE  /////////////////////////////////
-
-wire [1:0] ss_slot;
-wire [7:0] ss_info;
-wire [3:0] validSStates;
-wire ss_save, ss_load, ss_info_req;
-wire statusUpdate;
-
-savestate_ui savestate_ui
-(
-	.clk            (clk_1x        ),
-	.ps2_key        (ps2_key[10:0] ),
-	.allow_ss       (cart_loaded & SS_ENABLE), // 573: forced off -- see SS_ENABLE
-	.joySS          (joy_unmod[16] ),
-	.joyRight       (joy_unmod[0]  ),
-	.joyLeft        (joy_unmod[1]  ),
-	.joyDown        (joy_unmod[2]  ),
-	.joyUp          (joy_unmod[3]  ),
-	.joyRewind      (0             ),
-	.rewindEnable   (0             ),
-	.status_slot    (status[38:37] ),
-	.autoincslot    (status[68]    ),
-	.OSD_saveload   (status[18:17] ),
-   .validSStates   (validSStates  ),
-	.ss_save        (ss_save       ),
-	.ss_load        (ss_load       ),
-	.ss_info_req    (ss_info_req   ),
-	.ss_info        (ss_info       ),
-	.statusUpdate   (statusUpdate  ),
-	.selected_slot  (ss_slot       )
-);
-defparam savestate_ui.INFO_TIMEOUT_BITS = 25;
-
-// ───────────────────── 573 TOOL: AUTONOMOUS SAVESTATE TRIGGER (DBG_AUTOSS) ─────────────────────
-// Reusable autonomous-capture: the CORE itself fires a savestate on an internal condition (no human
-// hotkey), so an exact internal state is captured to a .ss with NO manual timing. The HPS writes the
-// .ss the same way it does for the FPGA's own Alt+F1 save (savestate_ui.ss_save reaches save_state
-// below), so a core-injected pulse OR'd into the same save_state input should produce a .ss file too
-// -- the one thing that needs HW confirmation on the first DBG_AUTOSS=1 build. Ships '0' (no-op).
-// Rewire `autoss_trigger` to ANY internal event (a GPU draw strobe, a PC match, a signal edge) for
-// event-precise capture. Default trigger = a periodic timer that auto-cycles the 4 save slots, so a
-// looping attract mode is sampled across slots 0..3 with nobody pressing a key.
-// SELF-LIMITING capture: fires a bounded BURST (AUTOSS_LIMIT saves cycling the 4 slots) then latches
-// OFF on its own, so the board goes quiet without a reload -- "off until you actually need it". Bump
-// DBG_AUTOSS to 1 only for a probe build that needs a headless panel capture; ships '0' (production).
-localparam        DBG_AUTOSS    = 1'b0;                   // OFF (production) -- no auto-savestate looping
-localparam [31:0] AUTOSS_PERIOD = 32'd168_000_000;       // ~5 s @ ~33.8 MHz clk_1x between captures
-localparam [7:0]  AUTOSS_LIMIT  = 8'd40;                  // total saves, then stop (~200 s; spans boot+attract after the ~25s probe-arm)
-reg  [31:0] autoss_cnt  = 0;
-reg  [1:0]  autoss_slot = 0;
-reg  [7:0]  autoss_num  = 0;                             // how many saves fired so far
-reg         autoss_fire = 1'b0;                          // 1-clk save_state pulse
-wire        autoss_trigger = (autoss_cnt >= AUTOSS_PERIOD) && (autoss_num < AUTOSS_LIMIT);
-always @(posedge clk_1x) begin
-	autoss_fire <= 1'b0;
-	if (DBG_AUTOSS) begin
-		if (autoss_trigger) begin
-			autoss_cnt  <= 32'd0;
-			autoss_fire <= 1'b1;
-			autoss_slot <= autoss_slot + 2'd1;
-			autoss_num  <= autoss_num + 8'd1;
-		end else if (autoss_num < AUTOSS_LIMIT) begin
-			autoss_cnt  <= autoss_cnt + 32'd1;
-		end
-	end
-end
-wire       ss_save_eff = ss_save | (DBG_AUTOSS & autoss_fire);
-wire [1:0] ss_slot_eff = (DBG_AUTOSS & autoss_fire) ? autoss_slot : ss_slot;
+// Removed 2026-11-06 (savestate_ui, the Alt-F1/F1 keys, the slot picker and the
+// DBG_AUTOSS capture tool). See "573: NO SAVESTATES" at the top.
+wire [3:0] validSStates;   // psx output, unused
 
 ////////////////////////////  PAD  ///////////////////////////////////
 
@@ -1290,10 +1203,7 @@ always @(posedge clk_1x) begin
 
    cdinfo_download_1 <= cdinfo_download;
 
-   if (ss_info_req) begin
-      psx_info_req <= 1;
-      psx_info     <= ss_info;
-   end else if (saving_memcard & ~saving_memcard_d) begin
+   if (saving_memcard & ~saving_memcard_d) begin
       // EDGE, not level (2026-09-28): hps_io latches info on the RISING edge of
       // info_req, and this level re-asserted the request every cycle for as long as
       // the memcard was saving, so any other toast in that window -- "Flash saved"
@@ -1704,9 +1614,9 @@ psx
 	.sound_out_right(spu_r),
    //savestates
    .increaseSSHeaderCount (!status[36]),
-   .save_state            (1'b0),   // S573: savestates off (SS_ENABLE); psx_patches/0034 relies on this
-   .load_state            (1'b0),   // S573: savestates off (SS_ENABLE)
-   .savestate_number      (ss_slot_eff),
+   .save_state            (1'b0),   // S573: no savestates; psx_patches/0034 relies on this
+   .load_state            (1'b0),
+   .savestate_number      (2'd0),
    .state_loaded          (),
    .validSStates          (validSStates),
    .rewind_on             (0), //(status[27]),
@@ -2231,10 +2141,13 @@ wire card_from_save = flash_save_mounted && (flash_save_size >= 64'd50331648);
 // "16 MB" comes from MAME pccard1_16mb. What a game reads past 16 MB on a real
 // 16 MB card is unknown, so code 3 is treated exactly like code 2 (a 32 MB card).
 // See docs/2026-10-23-pc-work-hw-review.md item 5.
-wire card_from_trl = trl_valid & (trl_card != 8'd0);
+// Bit 7 of the card byte is not a card: it says the title's cabinet has the White
+// I/O memory card reader (see wio_osd_en). Only bits 6:0 name the card.
+wire [6:0] trl_card_code = trl_card[6:0];
+wire card_from_trl = trl_valid & (trl_card_code != 7'd0);
 assign card_en = (status[115:114] != 2'd0) | card_from_save | card_from_trl;
 wire card_slot1 = (status[115:114] == 2'd2)
-                | ((status[115:114] == 2'd0) & trl_valid & ((trl_card == 8'd2) | (trl_card == 8'd3)));
+                | ((status[115:114] == 2'd0) & trl_valid & ((trl_card_code == 7'd2) | (trl_card_code == 7'd3)));
 
 // How many 1 KB blocks a SAVE writes and a LOAD reads. A SAVE spans whatever is
 // fitted (16 MB, or 48 MB with the card). A LOAD reads only what the MOUNTED file
@@ -2835,7 +2748,16 @@ system573_top #(.FLASH_SIM_BACKING(0), .DIO_SIM_BACKING(0)) u_s573
    .prof_ide       (prof_ide),
    .prof_exp1      (prof_exp1),
    // White I/O card reader: Auto = fitted for the DDR profiles (standard / Solo)
-   .wio_osd_en     ((status[117:116] == 2'd1) || (status[117:116] == 2'd0 && ctl_profile[1] == 1'b0)),
+   // Auto: fitted when the title's MAME machine has KONAMI_573_MEMORY_CARD_READER,
+   // which tools/s573_stage.py writes as bit 7 of the trailer's card byte (DDR 3rd
+   // Mix .. Extreme). A real DDR Solo 2000 has no reader; with one on the JVS port
+   // the game finds a JVS device at boot and its Start button stopped working
+   // (2026-11-05, confirmed with the reader Off). Files staged before the bit
+   // existed (no trailer, or a trailer without bit 7 -- then bit 7 is 0, so a
+   // re-stage is needed for the reader titles) fall back to the old rule only when
+   // there is no trailer at all: the DDR profiles.
+   .wio_osd_en     ((status[117:116] == 2'd1) ||
+                    (status[117:116] == 2'd0 && (trl_valid ? trl_card[7] : (ctl_profile[1] == 1'b0)))),
    .wio_snac_en    (status[118] | status[119]),
    .wio_card_btn   ({joy2_unmod[20], joy_unmod[20]}),
    .wio_stb        (wio_stb),
