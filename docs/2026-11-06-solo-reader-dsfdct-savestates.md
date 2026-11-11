@@ -91,9 +91,11 @@ relaunch from the menu.
 Order that worked, as the screens asked: *Game* (GC910 JC) for the conversion and flash
 write, *Install* (GE887) for the authentication, *Game* again -> attract, a credit
 played; then *Auto* (Boot Device = Flash ROM, so Game) after an OSD reset -> attract.
-The `.sav` holds the install (235 non-empty 64 KB blocks of the 16 MB flash). Still
-open: a fresh launch -- every dsfdct boot so far was an OSD reset inside session 20,
-so the X76F100 question above is not answered yet.
+The `.sav` holds the install (235 non-empty 64 KB blocks of the 16 MB flash). Fresh
+launch after a cold boot of the console (session 23, Cassette = Auto, no OSD reset):
+gameplay, MP3 decoding from 116 s, 60 frames/s at the end of the log. So the game does
+not need its X76F100 writes kept across launches; the question above is closed for
+dsfdct.
 
 Same build, same night: ddrs2k with *573 Card Reader = Auto* -> "reader removed
 (OSD)" at 3.6 s (trailer bit 7 clear), Start works, a credit played (session 21);
