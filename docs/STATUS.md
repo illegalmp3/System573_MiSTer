@@ -30,8 +30,8 @@ games on a USB SSD). "Credit" = a full credit of songs played with music.
 | DDR Extreme | ddrextrm | credit | 60 fps arrows, full-speed background video |
 
 Staged on the drive, not yet reported: ddr3mk, ddr3mka, ddr3mp, ddr4mps, ddr4ms,
-ddr4msj, dsem2. dsfdct: the installer accepts the (re-tied) 3rd Mix cassette and
-asks for its own; the rest of the install is not yet reported
+ddr4msj, dsem2. dsfdct: installed and a credit played (2026-11-10), and it boots to
+gameplay on a fresh launch with Cassette = Auto
 (docs/2026-11-06-solo-reader-dsfdct-savestates.md).
 
 Opening the MiSTer OSD pauses the game AND its MP3 music, and play resumes in

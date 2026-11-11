@@ -53,7 +53,7 @@ list is [`docs/STATUS.md`](docs/STATUS.md).
 | DDR USA | `ddrusa` | credit |
 | Dancing Stage Euro Mix | `dsem` | credit |
 | Dancing Stage featuring Disney's Rave | `dsfdr` | credit |
-| Dancing Stage featuring Dreams Come True | `dsfdct` | installer gets past the 3rd Mix cassette check (2026-11-06); gameplay not yet reached |
+| Dancing Stage featuring Dreams Come True | `dsfdct` | installs (see below) and plays a credit |
 | Hyper Bishi Bashi Champ, 2 Player | `hyperbbc`, `hypbbc2p` | boot (no MP3 board) |
 | DDR 3rd Mix Korea / Plus, 4th Mix Solo / Plus Solo, Euro Mix 2 | | staged, not yet reported |
 | DrumMania 2nd-9th Mix, Guitar Freaks 5th Mix | | launchers in [`mgl/`](mgl/) for testing, not in the release |
@@ -102,6 +102,15 @@ has three downloads: the core zip (laid out like the SD card), `s573_stage.py`, 
 5. **First boot of a CD title installs it to flash:** set OSD **573 Boot Device** =
    CD-ROM, launch, let the game install, and **wait for the "Flash saved" message**
    before switching off. Then set **573 Boot Device** = Flash ROM and launch again.
+
+   **Dancing Stage featuring Dreams Come True** converts a DDR 3rd Mix cassette, and
+   its installer asks for a different cassette at each restart. Keep **573 Boot Device**
+   = Flash ROM throughout (an empty flash falls back to the disc), launch once and use
+   only the OSD **Reset** until it is done. When the screen shows the **GE887 / 3rd MIX**
+   cassette, set **573 Cassette** = Install; when it shows **GC910 JC / Dreams Come
+   True**, set Game; then Reset. On the SuperStation One the order was Game (copy to
+   flash), Install (authenticate), Game (attract). Answer no (いいえ) if it offers to
+   uninstall. Afterwards Cassette = Auto works.
 
 Upgrading from v0.1.x (which replaced `/media/fat/MiSTer`): put the stock `MiSTer`
 back (run the updater), then do step 4.
