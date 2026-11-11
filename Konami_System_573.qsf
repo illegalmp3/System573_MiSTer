@@ -207,7 +207,10 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 # 5/7/9/11/13/15 missed pll_hdmi setup (-0.028..-0.462 ns), 17 missed clk3x hold on the
 # flash saver -> SDRAM ch3 paths (untouched modules); 3 closed: setup +0.094, hold +0.087,
 # 35,875 ALM, 4,148 LABs (99 %), 96 DSP.
-set_global_assignment -name SEED 3
+# SEED 3 -> 7 (2026-11-07): card reader Auto per title + savestates out (db97ddd).
+# Seeds 3 and 5 missed setup in pll_hdmi only (-0.044 / -0.188 ns); seed 7 closes all
+# corners (setup +0.130, hold +0.078), LABs 4,112/4,191 (job 657). Shipped on the card.
+set_global_assignment -name SEED 7
 # HOLD (2026-09-18). Quartus's default OPTIMIZE_HOLD_TIMING covers only I/O and
 # minimum-tPD paths, so an internal register-to-register hold violation is left
 # standing: build #2 of the pcprof/MDEC A/B bitstream had exactly one, -0.256 ns
