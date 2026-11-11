@@ -5,6 +5,10 @@ behind *Dance Dance Revolution*, *Dancing Stage* and the rest of Konami's early 
 games. It is aimed at the **Digital I/O DDR titles** (DDR Solo Bass Mix through DDR
 Extreme), and they are what it has been tested with.
 
+**Status: work in progress.** Most Digital I/O DDR titles install, boot and play full
+credits with music. Other 573 games are untested or unsupported (see below). Latest
+download: the [Releases page](https://github.com/illegalmp3/System573_MiSTer/releases).
+
 ## Non-AI Generated Notes From Me
 
 I cannot guarantee that this core accurately emulates a real System 573. I cannot guarantee that its emulation of individual games (DDR, presently) is accurate. I cannot guarantee that any Claude-generated text on this page or any supporting documents is accurate or even makes sense. I am a glorified tester of what The Machine spits out when I ask it to do things. What I can confirm is that, on my SuperStation One, this core plays Dance Dance Revolution games.
@@ -16,10 +20,6 @@ I am not a developer. I wanted to play DDR on a MiSTer console with a pad on a C
 10/29 update: My apologies, this update took longer than I expected to release. I’m happy to say that you no longer need to replace your MiSTer executable to run this core (that was really stupid, thanks Tourniquet) and I can confirm virtual and SNAC memory cards work with DDR Extreme. There are still things to be fixed and features I’d like to see added to this core. Off the top of my head, Dancing Stage featuring Dreams Come True doesn’t load to gameplay, so I’m gonna look into that. I’d also like to add SNAC support for DDR pads, but I don’t own a PSX pad, so I may need other people who’d be willing to test that for me. Once I feel like DDR games are well-represented on this core, I’ll be ready to move on to Guitar Freaks and drummania.
 
 11/11 update: Dancing Stage featuring Dreams Come True now works. Check out the install notes on the Releases page for that one. A “Music Level” option has also been added to the MiSTer On Screen Display, because a recent update to this core caused music volume levels to be adjusted to levels like -7 through -10 depending on the game. I cannot confirm that this behavior is accurate to how a DDR machine works, and I personally found the in-game music to be too quiet compared to the announcer and crowd sounds after the update, so the Music Level option was added.
-
-**Status: work in progress.** Most Digital I/O DDR titles install, boot and play full
-credits with music. Other 573 games are untested or unsupported (see below). Latest
-download: the [Releases page](https://github.com/illegalmp3/System573_MiSTer/releases).
 
 ## Where this core comes from
 
