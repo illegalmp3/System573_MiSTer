@@ -15,7 +15,7 @@
   Six items max: Main parses at most SIX file/reset items per .mgl and drops
   the rest (mra_loader.h mgl_item_struct item[6]).
 
-  OSD for this title: 573 Cabinet = STANDARD (not a Solo cabinet);
+  OSD for this title: 573 Controls = Auto (DDR; not a Solo cabinet);
   573 MP3 Descramble = DEFAULT (not the ddrsbm scheme); 573 Boot Device =
   CD-ROM to install, then Flash ROM to play. The .sav MUST exist before launch
   or Main ejects the slot (pre=0, docs/2026-09-12-flash-persistence-fixed.md);

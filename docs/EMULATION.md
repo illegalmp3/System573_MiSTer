@@ -4,7 +4,7 @@ The living reference for **what each part of the System 573 is in this core**: a
 model of the real chip at its pins or registers ("hardware model"), a
 re-implementation of what a chip's firmware does ("behavioural"), something done on
 the MiSTer's ARM side ("HPS"), or absent. Last checked against the sources on
-2026-11-02 (`docs/2026-11-02-source-review.md`).
+2026-11-02 (`docs/2026-11-02-source-review.md`); page re-read 2026-11-10.
 
 Sources, in the order this project trusts them:
 
@@ -61,9 +61,11 @@ and PCMCIA slot (on a board, the cabinet wiring).
 ## Replacing behavioural and HPS parts: what is possible
 
 The FPGA is a Cyclone V 5CSEBA6 (41,910 ALMs, 4,191 LABs, 112 DSP blocks). The
-card-reader build (job 419, the last fit recorded in STATUS.md) used 35,964 ALMs,
-4,118 LABs (98 %) and 95 DSP blocks. About 70 LABs are left, so any item that costs more than a few hundred ALMs needs
-area recovered first (the 2026-10-24 area pass recovered 3,099 ALMs).
+current build (job 657, 2026-11-07, recorded in STATUS.md) uses 35,993 ALMs, 4,112
+LABs (98 %) and 97 DSP blocks; fits of the same source land between 4,112 and 4,157
+LABs depending on the placement seed. About 35-80 LABs are left, so any item that
+costs more than a few hundred ALMs needs area recovered first (the 2026-10-24 area
+pass recovered 3,099 ALMs).
 
 Ranked by what it buys for the cost:
 

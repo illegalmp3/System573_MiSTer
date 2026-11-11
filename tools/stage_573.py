@@ -249,6 +249,18 @@ PACK_NOTE = """
   Boot Device = Flash ROM, launch. (Replaces the old {rom}_install / {rom}_console pair.)
 """
 
+# dsfdct converts a DDR 3rd Mix cassette: its installer asks for a different cassette
+# at each restart (SuperStation One, 2026-11-10; docs/2026-11-06-solo-reader-dsfdct-
+# savestates.md), so the "CD-ROM installs, Flash ROM plays" recipe above does not apply.
+CONVERT_NOTE = """
+  CONVERSION INSTALL: the installer converts a DDR 3rd Mix cassette and asks for a
+  cassette at each restart. Keep Boot Device = Flash ROM (an empty flash falls back to
+  the disc), launch once, and use only the OSD Reset until it is done: the GE887 /
+  3rd MIX cassette on screen = 573 Cassette Install, GC910 JC = Game. Order seen:
+  Game (copy to flash), Install (authenticate), Game (attract). Answer no to the
+  uninstall prompt. Afterwards Auto works.
+"""
+
 
 def write_launchers(t, mgldir, sav_mb, disc_name, dtype, frames):
     os.makedirs(mgldir, exist_ok=True)
@@ -273,6 +285,8 @@ def write_launchers(t, mgldir, sav_mb, disc_name, dtype, frames):
             sys.exit(f"{rom}: install {ichip} + game {gchip} is not a driver config the core holds")
         casnote = f"  + {ichip} INSTALL cassette in {rom}.cas (one launcher, OSD 573 Cassette selects)"
         packnote = PACK_NOTE.format(ichip=ichip, gchip=gchip, rom=rom)
+        if rom in ("dsfdct", "dsfdcta"):
+            packnote += CONVERT_NOTE
     else:
         casnote, packnote = "", ""
     txt = MGL_HEAD.format(
@@ -281,7 +295,8 @@ def write_launchers(t, mgldir, sav_mb, disc_name, dtype, frames):
         cardline=cardline, chip=gchip, casnote=casnote,
         disc=disc_name, dtype=dtype, frames=frames, convnote=conv,
         osdcard=osdcard, cab=cab,
-        boot="CD-ROM to install, Flash ROM after",
+        boot=("Flash ROM throughout (see CONVERSION INSTALL)" if rom in ("dsfdct", "dsfdcta")
+              else "CD-ROM to install, Flash ROM after"),
         savmb=sav_mb, packnote=packnote,
         u1=f"{rom}.u1",
         pack=f"{rom}.cas" if two else f"{rom}.u6",

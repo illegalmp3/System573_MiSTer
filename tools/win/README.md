@@ -41,5 +41,6 @@ The queued jobs at the time of writing:
 | `003-fw-inputs.sh` | downloads the ARM 10.2 toolchain, the newest STABLE Main_MiSTer release (its source at the release commit + the stock binary + its menu.rbf; `MAIN_RELEASE=YYYYMMDD` pins one), the Linux release the official updater installs (checked against Distribution_MiSTer's db), and minimp3.h into `Documents` |
 | `004-fw-build.sh` | `tools/build-hps-mp3.sh all` → `out/MiSTer_System573` |
 
-Quartus builds can run the same way (`NNN-quartus.cmd` calling
-`tools\build-573.ps1 -Crt`), so a build no longer needs anyone at the keyboard.
+Quartus builds run the same way (`NNN-quartus.cmd` calling `tools\build-573.ps1`;
+`-Crt` builds the older analog-only variant without HDMI), so a build needs no one at
+the keyboard.

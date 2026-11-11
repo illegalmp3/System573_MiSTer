@@ -1,5 +1,10 @@
 # Phase 4 — boot the Konami BIOS on real MiSTer hardware
 
+> **Historical (note added 2026-11-10).** Fabricore's bring-up plan for the first boot on a MiSTer.
+> It was carried out; `rtl/ps1_stub.v`, `rtl/hps_ext.v`, `rtl/pll*` and the
+> `tools/mister_*.sh` scripts it names are gone or never were in this tree. Current
+> build: [`STATUS.md`](STATUS.md).
+
 The goal: a buildable `.rbf` (Quartus 17.0.2, Cyclone V `5CSEBA6U23I7`, DE10-Nano)
 whose `sys_top`/`emu` boots the Konami 573 BIOS and shows the boot screen on the
 physical board.

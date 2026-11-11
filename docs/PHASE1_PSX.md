@@ -1,5 +1,9 @@
 # Phase 1 — sitting the 573 on a real PlayStation core
 
+> **Historical (note added 2026-11-10).** Fabricore's plan for putting the 573 on the MiSTer PSX
+> core. It was carried out; the integration is `psx/` + `psx_patches/` (see
+> [`ARCHITECTURE.md`](ARCHITECTURE.md)).
+
 This is the plan for the one piece this repository deliberately does **not**
 implement from scratch: the PlayStation 1 itself (R3000A + GTE + DMA + GPU + SPU).
 Everything else in the core is built and unit-tested around the EXP1 master

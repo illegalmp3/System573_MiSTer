@@ -13,7 +13,7 @@
 
   Six items max (mra_loader.h item[6]).
 
-  OSD for this title: 573 Cabinet = STANDARD; 573 MP3 Descramble = DEFAULT;
+  OSD for this title: 573 Controls = Auto (DDR); 573 MP3 Descramble = DEFAULT;
   573 Boot Device = CD-ROM to install, then Flash ROM to play. Disc a44uaa02 is
   MODE1_RAW already, so ddrusa.chd is used directly. A blank 16 MB ddrusa.sav
   ships so the slot mounts on the first boot.

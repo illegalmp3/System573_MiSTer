@@ -7,9 +7,9 @@
   Disc 910jca02: TYPE:MODE1 FRAMES:23791   <== MODE1/2048: ships as cue+raw2352, NOT the CHD
 
   OSD for this title:
-    573 PCMCIA Card = 32MB (slot 2)
-    573 Cabinet     = STANDARD
-    573 Boot Device = CD-ROM to install, Flash ROM after
+    573 PCMCIA Card = Auto (32MB slot 2)
+    573 Controls    = Auto (DDR, from the launcher)
+    573 Boot Device = Flash ROM throughout (see CONVERSION INSTALL)
     573 MP3 Descramble = DEFAULT
 
   Six items max: Main parses at most SIX file/reset items per .mgl
@@ -36,6 +36,13 @@
   Flash ROM -> the X76F100 GAME cassette), or force Game / Install. Install: set
   Boot Device = CD-ROM, launch, let it install, wait for "Flash saved". Play: set
   Boot Device = Flash ROM, launch. (Replaces the old dsfdct_install / dsfdct_console pair.)
+
+  CONVERSION INSTALL: the installer converts a DDR 3rd Mix cassette and asks for a
+  cassette at each restart. Keep Boot Device = Flash ROM (an empty flash falls back to
+  the disc), launch once, and use only the OSD Reset until it is done: the GE887 /
+  3rd MIX cassette on screen = 573 Cassette Install, GC910 JC = Game. Order seen:
+  Game (copy to flash), Install (authenticate), Game (attract). Answer no to the
+  uninstall prompt. Afterwards Auto works.
 
   After an install, WAIT for the "Flash saved" toast before cutting power. The game
   tells you to switch off at exactly the moment the auto-save has not fired yet

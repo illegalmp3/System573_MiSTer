@@ -1,5 +1,8 @@
 # ★ SESSION HANDOFF — ddrsbm BOOT CHECK: drain-anchored SignalTap building; decode picks the fix (2026-06-30)
 
+> **Note added 2026-11-10:** §5-6 are superseded by `2026-06-30-ddrsbm-drain-capture-finding.md`;
+> the root cause was the MAS3507D I2C stub (`2026-07-01-ddrsbm-bootcheck-dio-verdict.md`).
+
 Read this FIRST to resume. Full detailed record: `docs/2026-06-30-ddrsbm-bootcheck-tracedig.md`
 (§1-14). Memory: `[[fabricore-573-digital-bringup]]`. This handoff is the resume-critical subset +
 the exact next steps.

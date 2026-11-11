@@ -1,5 +1,11 @@
 # ddrusa: ZS01 SDA is on data-latch D0, not the control register (2026-09-13)
 
+> **Note added 2026-11-10:** overtaken twice. `2026-09-14-ddrusa-zs01-sda-is-control-bit6.md`
+> found the ZS01's SDA on control bit 6; the board schematic then showed that bit 6
+> is the enable of a buffer that drives D0 onto the cassette's SDA pin, for every
+> cassette type (`2026-10-23-hw-audit-573in1-sources.md` F1). That single model is
+> what the core uses.
+
 DDR USA (GKA44 UAA) stopped at INFO 121 "Cassette error (3). Cassette does not
 match this game (G*A44UAA)". That message -- not "Security Chip error", not
 "Cassette not installed" -- means the ZS01 answered enough to be identified but

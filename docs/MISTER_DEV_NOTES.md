@@ -1,5 +1,10 @@
 # MiSTer / PSX-FPGA dev notes — shared across sessions (573 core ↔ DVD/SuperStation One core)
 
+> **Historical (note added 2026-11-10).** Fabricore's notes shared between two of their projects on
+> their `dell` build host and their MiSTer; the scripts it names (`tools/dell_*.sh`,
+> `tools/mister_*.sh`) are not in this tree. The PSX-core lessons stand; the workflow
+> does not exist here ([`STATUS.md`](STATUS.md), "How things are done here").
+
 Both cores derive from the same upstream **PSX_MiSTer** (VHDL PlayStation) core, build on the same
 **dell** Quartus box, and test on shared hardware (**SuperStation One**, **MiSTer**). So we share
 both *resources* (must not collide) and *knowledge* (PSX-FPGA lessons transfer directly). This doc is

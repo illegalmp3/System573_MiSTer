@@ -1,5 +1,11 @@
 # The DDR memory card reader (White I/O, GE885-PWB(A)) -- 2026-10-26
 
+> **Note added 2026-11-10:** *573 Card Reader* = Auto no longer follows the DDR control
+> profile. Since 2026-11-06 it follows a per-title tag the stager writes (the sets whose
+> MAME machine has the reader); fitting it for every DDR profile stopped DDR Solo 2000's
+> Start button (`2026-11-06-solo-reader-dsfdct-savestates.md`). "From 3rd Mix on" below
+> means 3rd Mix to Extreme, not Solo 2000.
+
 DDR cabinets from 3rd Mix on read and write PlayStation memory cards: player data,
 edits, and (4th Mix on) a card the home version can read. This core now does that
 the way the cabinet does, for card **files** and for **real cards on SNAC**. The

@@ -1,5 +1,10 @@
 # Runbook — savestate gate: apply, sim, build, and the one number that matters
 
+> **Historical (note added 2026-11-10).** Runbook for the September 2026 savestate gate on
+> the `dell` host. Savestates were removed from the core on 2026-11-06 (only the PSX
+> core's reset sequencer, `savestates.vhd`, remains):
+> `docs/2026-11-06-solo-reader-dsfdct-savestates.md`.
+
 Three stages. **Stage 1 costs you a minute and is worth doing on its own.** Stage 2 is the
 ~40-minute build. Stage 3 only happens if Stage 2 looks right.
 

@@ -1,5 +1,9 @@
 # Handoff — ddrsbm BOOT CHECK ROOT CAUSE FOUND: IDENTIFY data-ready IRQ races the driver (2026-06-25)
 
+> **Note added 2026-11-10:** partly corrected by `2026-06-30-ddrsbm-bootcheck-tracedig.md`
+> (the race it targets does not occur); the root cause was the MAS3507D I2C stub
+> (`2026-07-01-ddrsbm-bootcheck-dio-verdict.md`).
+
 Branch: `feat-digital-bringup` (probe work on `dbg-signaltap-atapi-irq`, HEAD `fd9f912`).
 Supersedes `docs/2026-06-24-ddrsbm-bootcheck-handoff.md` (its "confirm the IRQ drop" framing was WRONG).
 

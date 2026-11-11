@@ -1,5 +1,10 @@
 # ddrusa ROOT CAUSE: ZS01 SDA is CONTROL bit 6 alone -- D0 is not wired to the chip
 
+> **Note added 2026-11-10:** the board schematic (`2026-10-23-hw-audit-573in1-sources.md` F1)
+> shows control bit 6 enabling a buffer that drives D0 onto the cassette's SDA pin;
+> Konami's ZS01 driver keeps D0 at 0 and moves SDA with bit 6 alone, which is why
+> "bit 6 alone" fitted this game. One model now serves every cassette type.
+
 **Date:** 2026-09-14
 **Symptom:** `ERROR 121 / Cassette error. (3) / Cassette does not match this game (G*A44UAA)`
 **Status:** ROOT-CAUSED from the game's own machine code. One-line RTL fix applied.

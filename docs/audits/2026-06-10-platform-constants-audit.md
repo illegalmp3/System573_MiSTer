@@ -1,5 +1,14 @@
 # Platform-constants audit — full sweep, 2026-06-10
 
+> **Corrections added 2026-11-10** (later sources; the rest is the record of the time):
+> * The H8/3644 (`hd6473644h.18e`) is the 573's **JVS MCU** (psx-spx builtin-io.md "MCU
+>   communication protocol"), not a security MCU. Its documented protocol is modelled in
+>   `rtl/s573_jvs_mcu.v` (2026-10-26).
+> * Cassette wiring, the Digital I/O CPLD status and the watchdog rows follow MAME; the
+>   board schematic and psx-spx differ, and the core follows them now:
+>   `docs/2026-10-23-hw-audit-573in1-sources.md` (F1, F5, F6) and
+>   `docs/2026-11-02-source-review.md` (R2-R4). Current table: `docs/EMULATION.md`.
+
 **Process doc:** `~/Dev/tools/docs/PLATFORM_CONSTANTS_AUDIT.md` (Gate 0).
 **Living table:** `PLATFORM.md` at the repo root (this file is the frozen sweep record; the
 table below is the snapshot as of this date — future edits land in PLATFORM.md).

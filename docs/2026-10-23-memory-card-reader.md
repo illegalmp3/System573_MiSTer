@@ -1,5 +1,10 @@
 # Memory card support: the GE885-PWB(A) "White I/O" reader
 
+> **Note added 2026-11-10:** section 6 (a re-implementation of the uploaded firmware's
+> behaviour: `s573_whiteio.c`, `rtl/s573_wio_snac.v`) was removed on 2026-10-25. The reader now runs Konami's boot ROM and the uploaded program
+> on an emulated CPU: `2026-10-26-white-io-reader.md`. Sections 1-5 and 8 (the sources
+> and what the board does) stand.
+
 2026-10-23. Scope: DDR on Digital 573, as close to the documented hardware as the
 sources allow. Every claim below names its source; where a value is inferred and
 not documented it says so.

@@ -1,5 +1,8 @@
 # ★ SESSION HANDOFF — ddrsbm BOOT CHECK: 2048-cycle settle BUILT+TESTED on silicon, did NOT clear it; trace-dig planned (2026-06-30)
 
+> **Note added 2026-11-10:** its plan was carried out in `2026-06-30-ddrsbm-bootcheck-tracedig.md`;
+> the root cause was the MAS3507D I2C stub (`2026-07-01-ddrsbm-bootcheck-dio-verdict.md`).
+
 Read this FIRST to resume. Prior deep root-cause proof: `docs/2026-06-25-ddrsbm-identify-irq-race-handoff.md`.
 Memory: `[[fabricore-573-digital-bringup]]`. Branch: **`feat-digital-bringup`**.
 

@@ -1,5 +1,10 @@
 # SignalTap CLUT-race capture — end-to-end runbook
 
+> **Historical (note added 2026-11-10).** Fabricore's June 2026 SignalTap capture plan for the
+> CLUT race, run over JTAG on their `dell` host. The resource numbers in `FIT.md` are
+> from that time (the design is now at ~98 % of LABs with HDMI). Not part of the
+> current workflow.
+
 Goal: catch, in one JTAG capture, WHY the pixelpipeline's resident CLUT row
 (`textPalY`) is a neighbor row (480–509) instead of the requested 491 (0x1EB)
 while the menu's 320 4bpp quads draw — and specifically CONFIRM or REFUTE

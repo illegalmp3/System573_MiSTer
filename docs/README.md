@@ -16,6 +16,8 @@
   ssh-reachable MiSTer, SignalTap, a shared hub under `~/Dev/tools`. The findings
   stand and source comments cite them; the workflow they describe does not exist
   here, and where a later note or EMULATION.md disagrees, the later one is right.
+  Notes whose conclusions were later overturned carry a dated note under their title
+  saying by what (added in the 2026-11-10 documentation review).
 * **Plans that have been carried out or overtaken** -- EXECUTION_PLAN.md,
   FLASH_LOAD_PLAN.md, PHASE1_PSX.md, PHASE4_HARDWARE.md, DEPENDENCIES.md,
   MISTER_DEV_NOTES.md, RUNBOOK-savestate-gate.md, ROADMAP.md's phase list. Read

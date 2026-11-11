@@ -1,5 +1,11 @@
 # System 573 core — execution plan to full game compatibility
 
+> **Historical (note added 2026-11-10).** Fabricore's June 2026 plan, written for their setup
+> (the `dell` build host, an ssh-reachable MiSTer, `tools/mister_*.sh`, `docs/COMPAT.md`,
+> `rtl/exp1_adapter.v` -- none of which are in this tree). Its ordering has been carried
+> out or overtaken. Current state: [`STATUS.md`](STATUS.md); hardware reference:
+> [`EMULATION.md`](EMULATION.md).
+
 This is the ordered plan to drive the core to full game compatibility. Read §1–§4
 once to set up; §5 onward is the ordered work.
 

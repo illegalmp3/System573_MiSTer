@@ -1,5 +1,10 @@
 # Onboard NOR Flash — 16 MB loadable backing (hyperbbc boot) — implementation plan
 
+> **Historical (note added 2026-11-10).** The plan below was carried out (onboard flash in SDRAM,
+> saved to the title's `.sav`); `rtl/sdram.sv` it mentions is the PSX core's controller
+> under `psx/`. How the flash works now: [`ARCHITECTURE.md`](ARCHITECTURE.md),
+> `docs/2026-09-12-flash-persistence-fixed.md`.
+
 Status: **designed, not yet implemented** (2026-06-02). Prereq met: the BIOS i-cache
 crash is fixed (psx_patches 0004+0005), so the BIOS can now reach the game-launch.
 

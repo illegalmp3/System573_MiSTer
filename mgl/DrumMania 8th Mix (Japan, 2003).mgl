@@ -7,8 +7,8 @@
   Disc c38jaa02: TYPE:MODE1_RAW FRAMES:187262
 
   OSD for this title:
-    573 PCMCIA Card = Off
-    573 Cabinet     = STANDARD
+    573 PCMCIA Card = Auto (none)
+    573 Controls    = Auto (DrumMania, from the launcher)
     573 Boot Device = CD-ROM to install, Flash ROM after
     573 MP3 Descramble = DEFAULT
 

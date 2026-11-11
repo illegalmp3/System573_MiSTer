@@ -1,5 +1,8 @@
 # Analog System 573 (GX700-PWB(F)) titles -- feasibility (2026-10-18)
 
+> **Note added 2026-11-10:** PCMCIA slot 1 has been in the core since 2026-10-20 (OSD
+> "573 PCMCIA Card"), so the slot-1 row below no longer applies; CD-DA is still absent.
+
 Question: can the core run the "analog" 573 titles -- DDR 1st Mix and 2nd Mix
 and their relatives? Sources: dumps/mame573/ksys573.cpp (machine configs, the
 GX700-PWB(F) handlers, ddr_output_callback, cr589_config), the two analog discs

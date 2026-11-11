@@ -18,13 +18,19 @@ MiSTer PSX core over the PlayStation's EXP1 bus, the HPS-side MP3 service and th
 DDR title with music (*DDR Solo Bass Mix*). Their README, with the bring-up history up
 to that point, is
 [here](https://github.com/fabricore-eng/System573_MiSTer/blob/6b114d6/README.md).
-This README replaces it for this fork.
+This README replaces it for this fork. A few of its statements were later found to be
+wrong -- for example, its ZS01 model passed in simulation but was left out of the
+bitstream, and the MP3 decoder's volume matrix was not yet applied; the current account
+is [`docs/EMULATION.md`](docs/EMULATION.md).
 
-This fork added: the X76F041 and ZS01 security cassettes and two-cassette titles, the
-DDR stage I/O board handshake, the 32 MB PCMCIA flash card (3rd Mix through Extreme),
-CD-to-flash installs that persist, 60 fps gameplay with full-speed background video,
-MP3 streaming fixes, HDMI output, DDR's memory card reader, single launchers per title,
-and a review of the whole core against the hardware documentation
+Fabricore's tree already had models of all three cassette chips (X76F041, X76F100,
+ZS01). This fork made the ZS01 work in the bitstream (its packet engine had been
+simulation-only), wired the cassette slot as the board's schematic has it, and added
+two-cassette titles, the DDR stage I/O board handshake, the 32 MB PCMCIA flash card
+(3rd Mix through Extreme), CD-to-flash installs that persist, 60 fps gameplay with
+full-speed background video, MP3 streaming fixes, HDMI and analog video from one
+bitstream, DDR's memory card reader, single launchers per title, and reviews of the
+whole core against the hardware documentation
 ([`docs/2026-11-02-source-review.md`](docs/2026-11-02-source-review.md)).
 
 ## A note from the maintainer
@@ -123,7 +129,7 @@ back (run the updater), then do step 4.
 | 573 Cassette | two-cassette titles: Auto (follows Boot Device), Game, Install |
 | 573 Controls | Auto (from the staged title), DDR, DDR Solo, DrumMania, Guitar Freaks |
 | 573 PCMCIA Card | Auto, 32 MB in slot 2, 32 MB in slot 1 |
-| 573 Card Reader, P1/P2 Card, P1/P2 Card File | DDR memory card reader: Auto (fitted for the titles whose cabinet has one: 3rd Mix through Extreme), On, Off; card file or SNAC per player |
+| 573 Card Reader, P1/P2 Card, P1/P2 Card File | DDR memory card reader: Auto (fitted for the titles listed under *Memory cards* below, as staged by `s573_stage.py`), On, Off; card file or SNAC per player |
 | 573 MP3 Descramble | Default for every title except DDR Solo Bass Mix, which needs "DDR Solo Bass Mix" (on a board, the game's own FPGA bitstream decides this) |
 | 573 Chart Offset | -16 .. +15 ms: moves the arrows against the music, for display or audio latency outside the FPGA |
 | 573 Music Level | 0 .. +6 dB on the music only; a listening preference, not a hardware setting |
@@ -135,14 +141,18 @@ Opening the OSD pauses the game and its music together. HDMI and the analog outp
 
 ### Memory cards (DDR)
 
-The Japanese and Asian DDR cabinets from 3rd Mix on have a memory card reader (the
-"White I/O", GE885-PWB(A)) on the JVS port. The core runs it the way the cabinet does:
+The Japanese and Asian DDR cabinets from 3rd Mix to Extreme (but not DDR Solo Bass
+Mix or Solo 2000) have a memory card reader (the "White I/O",
+GE885-PWB(A)) on the JVS port. The core runs it the way the cabinet does:
 the 573's JVS MCU is in the fabric as psx-spx documents it, and the reader board's own
 CPU runs Konami's boot ROM and the program the game uploads to it, on the ARM side.
 Card files are raw 128 KB images (`.mcd`, `.mcr`, `.sav`) in `saves/System573/`; real
 cards work on SNAC (port 1 = player 1). Titles: the sets whose MAME machine has the
 reader -- 3rd Mix (Japan, Asia, Korea, Plus), 4th Mix (Japan, Asia, Plus, Solo, Plus
-Solo), 5th Mix, DDRMAX, DDRMAX2, Extreme. Details:
+Solo), 5th Mix, DDRMAX, DDRMAX2, Extreme. *573 Card Reader* = Auto knows these from a
+tag `s573_stage.py` writes into each title's cassette file; titles staged by an
+earlier `s573_stage.py` (before 2026-11-06) carry no such tag, so Auto leaves the reader
+out until the stager is run again (or the option is set to On). Details:
 [`docs/2026-10-26-white-io-reader.md`](docs/2026-10-26-white-io-reader.md).
 
 ### Music level

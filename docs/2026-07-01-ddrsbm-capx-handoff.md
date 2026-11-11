@@ -1,5 +1,7 @@
 # ★ SESSION HANDOFF — ddrsbm BOOT CHECK: atapi.v EXONERATED; fault localized to the game's IRQ-chain predicate (2026-07-01)
 
+> **Note added 2026-11-10:** §1/§4 are superseded by `2026-07-01-ddrsbm-bootcheck-dio-verdict.md`.
+
 Read this FIRST to resume. Self-contained resume-critical state + the next steps. Full verified verdict:
 `docs/2026-06-30-ddrsbm-capx-verdict.md`. Memory: `[[fabricore-573-digital-bringup]]` (banner is current).
 Prior verdicts (SUPERSEDED, for history): `docs/2026-06-30-ddrsbm-drain-capture-finding.md` (over/under moot),

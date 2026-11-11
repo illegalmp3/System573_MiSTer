@@ -1,5 +1,10 @@
 # sim/system573_ssreplay — savestate → full-573 sim replay (Stage 1)
 
+> **Historical (note added 2026-11-10).** This harness replays PSX savestates; savestates were
+> removed from the core on 2026-11-06 and `tools/ss_garble_probe.sh` and
+> `.claude/plans/` are not in this tree. Kept as the record of the June 2026 GPU-garble
+> investigation.
+
 Stage 1 of the garble-isolation plan (`.claude/plans/calm-wiggling-honey.md`): load a
 PlayStation/573 **savestate (`.ss`)** into the **full 573 system** under NVC and run forward, so
 the core becomes BOTH *freezable* (via the savestate) AND *fully observable* (in sim) — the unlock

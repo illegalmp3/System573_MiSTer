@@ -1,5 +1,10 @@
 # Dependencies & environment — staged for core development
 
+> **Historical (note added 2026-11-10).** Written in June 2026 when the suite had 19 benches and
+> the top level was `rtl/ps1_stub.v`; the stub, `rtl/psx.qip` and `rtl/mem.qip` are gone
+> (the build uses the `psx/` submodule and `psx/sys/`). Current build and test setup:
+> [`STATUS.md`](STATUS.md) "How things are done here" and [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+
 Everything needed to develop and test the core, beyond the in-repo RTL. The
 unit-sim suite is green (`make -C sim`, 19/19) and the heavy external pieces are
 vendored and pinned.

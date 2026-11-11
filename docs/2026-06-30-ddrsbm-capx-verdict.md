@@ -1,5 +1,8 @@
 # ★ CAPTURE-X VERDICT — ddrsbm BOOT CHECK: atapi.v EXONERATED; the game's IRQ-chain predicate DECLINES the completion IRQ
 
+> **Note added 2026-11-10:** the conclusions (not the data) are superseded by
+> `2026-07-01-ddrsbm-bootcheck-dio-verdict.md` (the MAS3507D I2C stub).
+
 De-confounded on-silicon SignalTap "capture-X" (`local/signaltap/20260630_223849`, PC[23:2] + dma taps,
 DRQ-entry trigger), adversarially verified (workflow `w6ych2a91`: 3 analysts w/ independent capstone disasm
 → reconcile → 2 refuters → final). Supersedes the "3 host-side candidates" open question of

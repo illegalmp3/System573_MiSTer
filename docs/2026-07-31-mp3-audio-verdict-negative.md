@@ -1,5 +1,8 @@
 # MP3 audio verdict on silicon: **NEGATIVE** — the forked Main changes nothing measurable
 
+> **Note added 2026-11-10:** superseded the same day by `2026-07-31-mp3-audio-WORKING.md` --
+> MP3 audio does play on silicon.
+
 First on-hardware test of the P4b MP3 transport, now that ddrsbm boots from its restored
 flash install (`docs/2026-07-31-ddrsbm-flash-restore-root-cause.md`). **No MP3 audio.**
 Stock Main and the forked Main produce the same audio on the same screen, to within 0.1 dB.

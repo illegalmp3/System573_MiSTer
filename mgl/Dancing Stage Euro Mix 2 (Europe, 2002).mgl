@@ -7,8 +7,8 @@
   Disc c23eaa02: TYPE:MODE1_RAW FRAMES:159136
 
   OSD for this title:
-    573 PCMCIA Card = 32MB (slot 2)
-    573 Cabinet     = STANDARD
+    573 PCMCIA Card = Auto (32MB slot 2)
+    573 Controls    = Auto (DDR, from the launcher)
     573 Boot Device = CD-ROM to install, Flash ROM after
     573 MP3 Descramble = DEFAULT
 

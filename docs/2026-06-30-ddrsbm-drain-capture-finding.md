@@ -1,5 +1,9 @@
 # ★ FINDING — ddrsbm BOOT CHECK: the IDENTIFY (0xA1) data-in block NEVER DRAINS (no-drain, not a consume miscount)
 
+> **Note added 2026-11-10:** its open question is answered by `2026-06-30-ddrsbm-capx-verdict.md`,
+> whose conclusion is in turn superseded by `2026-07-01-ddrsbm-bootcheck-dio-verdict.md`
+> (the MAS3507D I2C stub).
+
 Verdict from the drain-anchored on-silicon SignalTap capture (`local/signaltap/20260630_204524`),
 adversarially verified (workflow `w055yphmp`: 3 independent decoders → reconcile → 2 refuters → final;
 both refutations collapsed against the RTL). Supersedes the over/under-count framing of

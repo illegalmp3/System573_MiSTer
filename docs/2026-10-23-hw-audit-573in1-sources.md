@@ -1,5 +1,10 @@
 # Hardware audit against non-MAME sources (573in1, NaokiS28 schematics, Naoki's video, psx-spx)
 
+> **Note added 2026-11-10:** F5's status values were revised on 2026-11-02 after psx-spx
+> published register readback from real boards (2026-10-25): the unused bits 0-11 read 1,
+> so the CPLD status reads `0x9fff` / `0xbfff`, not MAME's `0xb000`; psx-spx's table now
+> has bit 15 = 1, bit 14 = 0, as F5 argued (`2026-11-02-source-review.md` R2).
+
 **Date:** 2026-10-23
 **Branch:** `hw-audit-573in1` (on top of `5bcd741`, the public v0.1.1 tree)
 **Status:** 8 RTL fixes + 1 portability fix, simulated: 71/71 suite benches green

@@ -1,5 +1,12 @@
 # DDR Feasibility — Unified Plan (System 573 MiSTer)
 
+> **Corrections added 2026-11-10** (later sources; the rest is the record of the time):
+> * The H8/3644 (`hd6473644h.18e`) is the 573's **JVS MCU** (psx-spx builtin-io.md "MCU
+>   communication protocol"), not a security MCU. Its documented protocol is modelled in
+>   `rtl/s573_jvs_mcu.v` (2026-10-26).
+> * The MP3 decode stayed on the HPS as recommended; the descrambler moved there too
+>   (`docs/2026-09-11-descrambler-verified-against-the-disc.md`).
+
 **Date:** 2026-06-12
 **Scope:** Board-free research/scope synthesis. No RTL edits, no build.
 **Inputs:** Four sub-scopes (MP3+descrambler architecture; DIO de-stub + undumpable MCU; target game + dumps; resource budget), plus the prior `docs/audits/2026-06-12-resource-recovery-scope.md` and a direct re-verification of the load-bearing RTL facts at HEAD.

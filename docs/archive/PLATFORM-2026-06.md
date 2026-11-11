@@ -3,6 +3,11 @@
 > not part of this repository. Its rows are history and are not kept current. The
 > current reference is [`../EMULATION.md`](../EMULATION.md), which ranks hardware
 > documentation (psx-spx, schematics, data sheets) above MAME.
+>
+> Known errors in its rows (note added 2026-11-10): the H8/3644 is the JVS MCU, not a
+> security MCU (psx-spx builtin-io.md); the cassette SDA / ZS01 CS / DS2401 rows are
+> MAME's wiring, which the schematic contradicts
+> (`docs/2026-10-23-hw-audit-573in1-sources.md` F1, F6).
 
 # PLATFORM.md — Konami System 573 platform constants (the living cited table)
 

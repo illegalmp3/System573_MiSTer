@@ -7,8 +7,8 @@
   Disc a34jba02: TYPE:MODE1_RAW FRAMES:150862
 
   OSD for this title:
-    573 PCMCIA Card = 32MB (slot 2)
-    573 Cabinet     = DDR Solo
+    573 PCMCIA Card = Auto (32MB slot 2)
+    573 Controls    = Auto (DDR Solo, from the launcher)
     573 Boot Device = CD-ROM to install, Flash ROM after
     573 MP3 Descramble = DEFAULT
 

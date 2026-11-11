@@ -1,5 +1,9 @@
 # Handoff — ddrsbm BOOT CHECK (ATAPI completion-IRQ) + powyakex parked (2026-06-24)
 
+> **Note added 2026-11-10:** superseded by `2026-06-25-ddrsbm-identify-irq-race-handoff.md`; the
+> ddrsbm boot check was finally traced to the MAS3507D I2C stub
+> (`2026-07-01-ddrsbm-bootcheck-dio-verdict.md`), not to the ATAPI IRQ path.
+
 Branch: `feat-digital-bringup`. Written for a fresh session to resume without re-deriving.
 
 ## ★ RESUME HERE — the ONE next action

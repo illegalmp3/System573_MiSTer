@@ -7,6 +7,13 @@
 
 # System 573 RTL ↔ Hardware-Witness Audit
 
+> **Corrections added 2026-11-10** (later sources; the rest is the record of the time):
+> * DIO-01 is not a defect. psx-spx corrected its table on 2026-10-25 (`d74dfe5`): bit 15
+>   = 1 and bit 14 = 0, as the core had; the unused bits 0-11 read 1, so the register reads
+>   `0x9fff` / `0xbfff` (`docs/2026-11-02-source-review.md` R2).
+> * WDOG-01: the timeout is now 350 ms per psx-spx registers.md, and the watchdog is still
+>   not connected to reset (R4).
+
 ## 1. Summary
 
 **14 of 15 candidates confirmed real** (1 refuted: WDOG-01; DIO-03 was also refuted during candidate triage). Of the 14 confirmed, **1 is high-severity (FLASH-001)**, **1 is medium (SECCART-01)**, and **12 are low**. **One-line verdict: the flash bank-decode bug (FLASH-001) is the single most likely root cause of both the self-test stall and any downstream graphics garble; everything else is latent/benign for the current hyperbbc target.** No discrepancy requires hardware to *confirm* — all are decidable by code-reading + the BIOS binary + MAME, which runs our exact data.
