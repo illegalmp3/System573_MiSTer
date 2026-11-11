@@ -6,7 +6,7 @@ SuperStation One (installer step 1). The core and firmware changes below are bui
 setup slack +0.130 ns, hold +0.078 ns, all corners non-negative; seeds 3 and 5 missed
 pll_hdmi setup by 0.044 / 0.188 ns) and deployed to the card on 2026-11-07
 (`.rbf` md5 491def62..., `MiSTer_System573` md5 232e282a..., both read back; previous
-files kept as `*.prev-20261107a`). Not yet tested.
+files kept as `*.prev-20261107a`). Tested 2026-11-10 (below).
 
 ## DDR Solo 2000: no Start with the card reader fitted
 
@@ -86,6 +86,19 @@ serial (XID) into GC910 JC during the install and checks it at every boot, a rel
 after the install will fail; the dumped `gc910jc.u1` has XID = 0 (as do ddrs2k's and
 ddr3m*'s, which play across launches). To test: finish the install in one launch, then
 relaunch from the menu.
+
+**Installed (2026-11-10, session 20: one launch, 5 OSD resets, from a blank `.sav`).**
+Order that worked, as the screens asked: *Game* (GC910 JC) for the conversion and flash
+write, *Install* (GE887) for the authentication, *Game* again -> attract, a credit
+played; then *Auto* (Boot Device = Flash ROM, so Game) after an OSD reset -> attract.
+The `.sav` holds the install (235 non-empty 64 KB blocks of the 16 MB flash). Still
+open: a fresh launch -- every dsfdct boot so far was an OSD reset inside session 20,
+so the X76F100 question above is not answered yet.
+
+Same build, same night: ddrs2k with *573 Card Reader = Auto* -> "reader removed
+(OSD)" at 3.6 s (trailer bit 7 clear), Start works, a credit played (session 21);
+ddrextrm with Auto -> reader stays fitted, 111 card frame reads and 5 card writes
+saved to the card file (session 22). Pause(Core) and Card In/Out re-mapped and working.
 
 **Fix in the tools:** `tools/s573_stage.py remarry()` (and `tools/make_cas_pack.py`)
 re-tie any install cassette that carries MAME's board ID.
